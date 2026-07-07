@@ -36,7 +36,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import { z } from "zod";
 
-const VERSION = "0.1.2";
+const VERSION = "0.1.3";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 const MAX_LIMIT = 100;

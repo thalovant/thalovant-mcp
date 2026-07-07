@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Removed the generic remote URL from registry metadata; publish concrete remote entries only after a real hosted URL exists.
+
 ## 0.1.2
 
 - Updated the server runtime version constant.
