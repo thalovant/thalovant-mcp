@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.2
+
+- Updated the server runtime version constant.
+- Published MCP Registry metadata with the public npm package only; GHCR remains available but must be made public in GitHub package settings before registry inclusion.
+
 ## 0.1.1
 
 - Normalized npm bin metadata.
