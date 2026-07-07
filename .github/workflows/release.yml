@@ -78,4 +78,11 @@ jobs:
       - name: Publish to MCP Registry
         run: |
           ./mcp-publisher login github-oidc
-          ./mcp-publisher publish
+          if curl -fsSL "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.thalovant/thalovant-mcp" \
+            | node -e "const data = JSON.parse(require('fs').readFileSync(0, 'utf8')); const version = process.env.PACKAGE_VERSION; process.exit(data.servers?.some((entry) => entry.server?.name === 'io.github.thalovant/thalovant-mcp' && entry.server?.version === version) ? 0 : 1)"; then
+            echo "io.github.thalovant/thalovant-mcp ${PACKAGE_VERSION} is already in the MCP Registry; skipping publish."
+          else
+            ./mcp-publisher publish
+          fi
+        env:
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
