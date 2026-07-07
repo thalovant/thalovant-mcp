@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+
+- Fixed npm bin execution when the package manager launches the server through a symlink.
+- Added a symlink-based stdio smoke test for published package behavior.
+
 ## 0.1.3
 
 - Removed the generic remote URL from registry metadata; publish concrete remote entries only after a real hosted URL exists.

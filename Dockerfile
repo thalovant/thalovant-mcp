@@ -22,7 +22,7 @@ LABEL org.opencontainers.image.description="Stdio and Streamable HTTP MCP server
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL org.opencontainers.image.source="https://github.com/thalovant/thalovant-mcp"
 LABEL org.opencontainers.image.url="https://github.com/thalovant/thalovant-mcp"
-LABEL org.opencontainers.image.version="0.1.3"
+LABEL org.opencontainers.image.version="0.1.4"
 LABEL io.modelcontextprotocol.server.name="io.github.thalovant/thalovant-mcp"
 RUN addgroup -S thalovant && adduser -S thalovant -G thalovant
 COPY --from=build --chown=thalovant:thalovant /app/package.json ./package.json
