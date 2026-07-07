@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5
+
+- Added the public GHCR OCI package to MCP Registry metadata.
+- Switched deployment image references to the repo-aligned GHCR package.
+
 ## 0.1.4
 
 - Fixed npm bin execution when the package manager launches the server through a symlink.
