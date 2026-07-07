@@ -27,7 +27,15 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
-      - run: npm publish --access public
+
+      - name: Publish npm package
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          if npm view "@thalovant/mcp-server@${version}" version >/dev/null 2>&1; then
+            echo "@thalovant/mcp-server@${version} is already published; skipping npm publish."
+          else
+            npm publish --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
