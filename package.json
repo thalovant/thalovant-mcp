@@ -1,0 +1,76 @@
+{
+  "name": "@thalovant/mcp-server",
+  "version": "0.1.0",
+  "description": "Stdio and Streamable HTTP MCP server for Thalovant control-plane and hub runtime APIs.",
+  "license": "MIT",
+  "type": "module",
+  "homepage": "https://github.com/thalovant/thalovant-mcp#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thalovant/thalovant-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/thalovant/thalovant-mcp/issues"
+  },
+  "packageManager": "npm@10.9.7",
+  "mcpName": "io.github.thalovant/thalovant-mcp",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "bin": {
+    "thalovant-mcp": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "server.json",
+    ".env.example",
+    "examples"
+  ],
+  "scripts": {
+    "build": "tsc && chmod 755 dist/index.js",
+    "clean": "rm -rf dist coverage",
+    "start": "node dist/index.js",
+    "start:http": "node dist/index.js --http",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:smoke": "vitest run test/smoke.test.ts",
+    "test:http": "vitest run test/http.test.ts",
+    "bench": "node scripts/bench-startup.mjs",
+    "bench:http": "node scripts/bench-http.mjs",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "thalovant",
+    "agents",
+    "claude",
+    "codex"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@thalovant/sdk": "^0.2.15",
+    "jose": "^6.2.3",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.12",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}

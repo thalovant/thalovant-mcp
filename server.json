@@ -1,0 +1,48 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.thalovant/thalovant-mcp",
+  "title": "Thalovant MCP",
+  "description": "Connect MCP clients to Thalovant control-plane and hub runtime APIs over stdio or Streamable HTTP.",
+  "repository": {
+    "url": "https://github.com/thalovant/thalovant-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://{host}/mcp",
+      "variables": {
+        "host": {
+          "description": "Your deployed Thalovant MCP host, for example mcp.example.com.",
+          "isRequired": true
+        }
+      },
+      "headers": [
+        {
+          "name": "Authorization",
+          "description": "Bearer token issued for this MCP resource server.",
+          "isRequired": true,
+          "isSecret": true
+        }
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@thalovant/mcp-server",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      }
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/thalovant/thalovant-mcp-server:0.1.0",
+      "transport": {
+        "type": "streamable-http"
+      }
+    }
+  ]
+}

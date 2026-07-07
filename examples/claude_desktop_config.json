@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "thalovant": {
+      "command": "node",
+      "args": ["/absolute/path/to/thalovant-mcp/dist/index.js"],
+      "env": {
+        "THALOVANT_PROFILE": "prod"
+      }
+    }
+  }
+}
