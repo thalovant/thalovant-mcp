@@ -33,9 +33,12 @@ jobs:
       - run: npm run build
       - run: npm test
 
+      - id: package
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
       - name: Publish npm package
         run: |
-          version="$(node -p "require('./package.json').version")"
+          version="${{ steps.package.outputs.version }}"
           if npm view "@thalovant/mcp-server@${version}" version >/dev/null 2>&1; then
             echo "@thalovant/mcp-server@${version} is already published; skipping npm publish."
           else
@@ -55,10 +58,9 @@ jobs:
         if: ${{ inputs.publish_docker == true }}
         id: meta
         with:
-          images: ghcr.io/thalovant/thalovant-mcp-server
+          images: ghcr.io/thalovant/thalovant-mcp
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ steps.package.outputs.version }}
             type=raw,value=latest
 
       - uses: docker/build-push-action@v6
