@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1
+
+- Normalized npm bin metadata.
+- Added OCI package transport URL for MCP Registry validation.
+- Updated container tags and metadata to match the registry release.
+
 ## 0.1.0
 
 - Initial public MCP server for Thalovant.

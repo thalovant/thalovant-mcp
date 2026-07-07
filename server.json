@@ -7,7 +7,7 @@
     "url": "https://github.com/thalovant/thalovant-mcp",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.1.1",
   "remotes": [
     {
       "type": "streamable-http",
@@ -32,16 +32,17 @@
     {
       "registryType": "npm",
       "identifier": "@thalovant/mcp-server",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "transport": {
         "type": "stdio"
       }
     },
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/thalovant/thalovant-mcp-server:0.1.0",
+      "identifier": "ghcr.io/thalovant/thalovant-mcp-server:0.1.1",
       "transport": {
-        "type": "streamable-http"
+        "type": "streamable-http",
+        "url": "http://127.0.0.1:3000/mcp"
       }
     }
   ]
