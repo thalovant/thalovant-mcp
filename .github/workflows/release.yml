@@ -4,11 +4,6 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      publish_docker:
-        description: "Also publish the GHCR image"
-        type: boolean
-        default: false
 
 permissions:
   contents: read
@@ -48,14 +43,12 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - uses: docker/login-action@v4
-        if: ${{ inputs.publish_docker == true }}
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - uses: docker/metadata-action@v6
-        if: ${{ inputs.publish_docker == true }}
         id: meta
         with:
           images: ghcr.io/thalovant/thalovant-mcp
@@ -64,12 +57,43 @@ jobs:
             type=raw,value=latest
 
       - uses: docker/build-push-action@v7
-        if: ${{ inputs.publish_docker == true }}
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Install and verify the published npm stdio artifact
+        env:
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          for attempt in $(seq 1 12); do
+            if npm view "@thalovant/mcp-server@$PACKAGE_VERSION" version >/dev/null 2>&1; then
+              break
+            fi
+            sleep 10
+          done
+          mkdir -p "$RUNNER_TEMP/thalovant-mcp-smoke"
+          npm install --prefix "$RUNNER_TEMP/thalovant-mcp-smoke" "@thalovant/mcp-server@$PACKAGE_VERSION"
+          node scripts/smoke-published.mjs stdio "$RUNNER_TEMP/thalovant-mcp-smoke/node_modules/.bin/thalovant-mcp"
+
+      - name: Start and verify the published OCI Streamable HTTP artifact
+        env:
+          PACKAGE_VERSION: ${{ steps.package.outputs.version }}
+        run: |
+          docker pull "ghcr.io/thalovant/thalovant-mcp:$PACKAGE_VERSION"
+          docker run --rm -d --name thalovant-mcp-smoke -p 127.0.0.1:3000:3000 -e MCP_HTTP_AUTH_TOKEN=published-smoke-token -e MCP_HTTP_ALLOWED_HOSTS=127.0.0.1:3000,localhost:3000 "ghcr.io/thalovant/thalovant-mcp:$PACKAGE_VERSION"
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/healthz >/dev/null; then
+              node scripts/smoke-published.mjs http http://127.0.0.1:3000/mcp published-smoke-token
+              docker rm -f thalovant-mcp-smoke
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs thalovant-mcp-smoke
+          docker rm -f thalovant-mcp-smoke
+          exit 1
 
       - name: Install MCP publisher
         run: |
