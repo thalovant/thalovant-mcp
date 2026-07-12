@@ -2,7 +2,10 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { performance } from "node:perf_hooks";
 
+import { publishBenchmark, summarizeDurations } from "./bench-report.mjs";
+
 const runs = Number.parseInt(process.env.BENCH_RUNS ?? "5", 10);
+const maxP95Ms = Number(process.env.BENCH_MAX_P95_MS ?? "2000");
 const durations = [];
 
 for (let i = 0; i < runs; i += 1) {
@@ -22,14 +25,10 @@ for (let i = 0; i < runs; i += 1) {
   await client.close();
 }
 
-const sorted = durations.toSorted((a, b) => a - b);
-const sum = durations.reduce((total, value) => total + value, 0);
 const result = {
-  runs,
-  minMs: Number(sorted[0]?.toFixed(2)),
-  medianMs: Number(sorted[Math.floor(sorted.length / 2)]?.toFixed(2)),
-  maxMs: Number(sorted.at(-1)?.toFixed(2)),
-  meanMs: Number((sum / durations.length).toFixed(2)),
+  schemaVersion: 1,
+  transport: "stdio",
+  ...summarizeDurations(durations, maxP95Ms),
 };
 
-console.error(JSON.stringify(result, null, 2));
+await publishBenchmark(result);
