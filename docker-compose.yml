@@ -1,7 +1,7 @@
 services:
   thalovant-mcp:
     build: .
-    image: ghcr.io/thalovant/thalovant-mcp:0.1.5
+    image: ghcr.io/thalovant/thalovant-mcp:0.1.6
     ports:
       - "3000:3000"
     environment:

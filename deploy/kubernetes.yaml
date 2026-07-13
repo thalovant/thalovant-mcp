@@ -35,7 +35,7 @@ spec:
     spec:
       containers:
         - name: thalovant-mcp
-          image: ghcr.io/thalovant/thalovant-mcp:0.1.5
+          image: ghcr.io/thalovant/thalovant-mcp:0.1.6
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3000

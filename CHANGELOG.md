@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6
+
+- Publish the exact npm tarball with a durable CycloneDX SBOM and GitHub provenance and SBOM attestations.
+- Publish the OCI image with SBOM and maximum provenance and verify the pinned MCP Registry publisher before execution.
+
 ## 0.1.5
 
 - Added the public GHCR OCI package to MCP Registry metadata.
