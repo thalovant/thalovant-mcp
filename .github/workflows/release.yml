@@ -37,7 +37,7 @@ jobs:
           if npm view "@thalovant/mcp-server@${version}" version >/dev/null 2>&1; then
             echo "@thalovant/mcp-server@${version} is already published; skipping npm publish."
           else
-            npm publish --access public
+            npm publish --access public --provenance
           fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -60,6 +60,8 @@ jobs:
         with:
           context: .
           push: true
+          sbom: true
+          provenance: mode=max
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
