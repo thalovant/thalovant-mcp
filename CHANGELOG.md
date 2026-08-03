@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7
+
+- Updated the MCP transport SDK to 1.30.0, removing the affected Hono adapter dependency range.
+- Updated the Thalovant Node SDK compatibility floor to 0.2.21 and refreshed the JOSE runtime dependency.
+- Included the dependency and transitive security updates merged after 0.1.6.
+
 ## 0.1.6
 
 - Publish the exact npm tarball with a durable CycloneDX SBOM and GitHub provenance and SBOM attestations.
