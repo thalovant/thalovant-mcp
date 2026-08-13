@@ -37,7 +37,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import { z } from "zod";
 
-const VERSION = "0.1.8";
+const VERSION = "0.1.9";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 const MAX_LIMIT = 100;
@@ -558,7 +558,9 @@ async function createControlPlane(options: {
   const credential = await credentialForPrincipal(principal);
   const canUseShared = allowSharedThalovantCredentials(principal);
   const apiUrl = options.apiUrl ?? credential?.control?.apiUrl ?? (canUseShared ? process.env.THALOVANT_API_URL : undefined) ?? DEFAULT_CONTROL_API_URL;
-  const accessToken = credential?.control?.accessToken ?? (canUseShared ? process.env.THALOVANT_ACCESS_TOKEN : undefined);
+  const accessToken =
+    credential?.control?.accessToken ??
+    (canUseShared ? process.env.THALOVANT_API_TOKEN ?? process.env.THALOVANT_ACCESS_TOKEN : undefined);
   const api = new ThalovantControlPlane(apiUrl, {
     accessToken,
     userAgent: `thalovant-mcp/${VERSION}`,
@@ -578,9 +580,18 @@ async function createControlPlane(options: {
 function ensureAuthenticated(api: ThalovantControlPlane) {
   if (!api.accessToken) {
     throw new Error(
-      "This tool requires Thalovant API auth. Configure THALOVANT_ACCESS_TOKEN, THALOVANT_EMAIL/THALOVANT_PASSWORD, or per-principal Thalovant credentials for this MCP principal.",
+      "This tool requires Thalovant API auth. Configure THALOVANT_API_TOKEN (recommended: a scoped, revocable API token), THALOVANT_ACCESS_TOKEN, THALOVANT_EMAIL/THALOVANT_PASSWORD, or per-principal Thalovant credentials for this MCP principal.",
     );
   }
+}
+
+type ControlPlaneAuthMode = "api-token" | "access-token" | "email-password" | "none";
+
+function controlPlaneAuthModeFromEnv(): ControlPlaneAuthMode {
+  if (process.env.THALOVANT_API_TOKEN) return "api-token";
+  if (process.env.THALOVANT_ACCESS_TOKEN) return "access-token";
+  if (process.env.THALOVANT_EMAIL && process.env.THALOVANT_PASSWORD) return "email-password";
+  return "none";
 }
 
 async function createRuntimeClient(options: {
@@ -1097,6 +1108,8 @@ export function createServer(): McpServer {
     async () =>
       jsonContent({
         apiUrl: process.env.THALOVANT_API_URL ?? DEFAULT_CONTROL_API_URL,
+        controlPlaneAuthMode: controlPlaneAuthModeFromEnv(),
+        hasApiToken: Boolean(process.env.THALOVANT_API_TOKEN),
         hasAccessToken: Boolean(process.env.THALOVANT_ACCESS_TOKEN),
         hasEmailPassword: Boolean(process.env.THALOVANT_EMAIL && process.env.THALOVANT_PASSWORD),
         profile: process.env.THALOVANT_PROFILE,

@@ -29,13 +29,43 @@ npm run build
 
 Node.js 20 or newer is required.
 
-## Local Stdio
+## Control-Plane Auth
 
 Public hub discovery does not need Thalovant credentials. Private control-plane tools and runtime hub tools read credentials only from the MCP server environment or server-side principal credential files. Do not pass API tokens or passwords through chat or tool arguments.
 
+The server selects control-plane auth in this order:
+
+1. `THALOVANT_API_TOKEN` — a scoped Thalovant API token. Recommended.
+2. `THALOVANT_ACCESS_TOKEN` — a pre-issued session access token.
+3. `THALOVANT_EMAIL` + `THALOVANT_PASSWORD` — interactive-account login fallback.
+
+When a token is set, the server never calls the login endpoint. `thalovant_config_status` reports the active mode as `controlPlaneAuthMode` without revealing token values.
+
+### API Tokens (Recommended For AI Agents And CI)
+
+Scoped API tokens are the right credential for AI and automation use: they are minted from the Thalovant dashboard (or through the device flow), carry only the scopes you grant, can be revoked individually, and never involve your account password or MFA. Tokens start with `tvpat_`.
+
 ```bash
-export THALOVANT_ACCESS_TOKEN="..."
-# or
+export THALOVANT_API_TOKEN="tvpat_..."
+export THALOVANT_API_URL="https://api.thalovant.com"
+
+npm start
+```
+
+Minimum scopes for the full control-plane tool surface:
+
+| Scope | Used by |
+|-------|---------|
+| `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, and the hub lookup inside `thalovant_create_client_identity` |
+| `clients:write` | `thalovant_create_client_identity` (`POST /v1/clients`) |
+| `memory:read` | `thalovant_list_memory_items`, `thalovant_get_memory_summary`, `thalovant_get_memory_item` |
+| `memory:write` | `thalovant_create_memory_item`, `thalovant_update_memory_item`, `thalovant_delete_memory_item` |
+
+Grant fewer scopes for narrower deployments: a read-only assistant needs only `hubs:read` and `memory:read`. `thalovant_get_analytics_overview` with `admin: true` additionally requires an admin account with `admin:analytics`, which API tokens for regular use should not carry. Runtime hub tools (`thalovant_ask`, `thalovant_send_action`, and friends) use Thalovant client identities, not control-plane tokens.
+
+### Login Fallback
+
+```bash
 export THALOVANT_EMAIL="you@example.com"
 export THALOVANT_PASSWORD="..."
 
@@ -44,6 +74,10 @@ export THALOVANT_API_URL="https://api.thalovant.com"
 
 npm start
 ```
+
+If neither a token nor email/password is configured, authenticated control-plane tools fail with a clear error naming the supported options.
+
+## Local Stdio
 
 The server speaks MCP over stdio and does not write logs to stdout.
 
@@ -208,6 +242,8 @@ MCP_HTTP_TRUST_PROXY=false
 
 ## Claude Desktop
 
+Recommended: authenticate with a scoped API token so the MCP config never contains your account password.
+
 ```json
 {
   "mcpServers": {
@@ -215,6 +251,7 @@ MCP_HTTP_TRUST_PROXY=false
       "command": "node",
       "args": ["/home/goldyfruit/Development/Thalovant/mcp/dist/index.js"],
       "env": {
+        "THALOVANT_API_TOKEN": "tvpat_...",
         "THALOVANT_PROFILE": "prod"
       }
     }
@@ -233,6 +270,7 @@ Use the same stdio command in your MCP client config:
       "command": "node",
       "args": ["/home/goldyfruit/Development/Thalovant/mcp/dist/index.js"],
       "env": {
+        "THALOVANT_API_TOKEN": "tvpat_...",
         "THALOVANT_PROFILE": "prod"
       }
     }

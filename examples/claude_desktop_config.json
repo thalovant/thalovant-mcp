@@ -4,6 +4,7 @@
       "command": "node",
       "args": ["/absolute/path/to/thalovant-mcp/dist/index.js"],
       "env": {
+        "THALOVANT_API_TOKEN": "tvpat_...",
         "THALOVANT_PROFILE": "prod"
       }
     }

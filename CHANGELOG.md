@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.9
+
+- Added first-class scoped API token auth for the control plane: set `THALOVANT_API_TOKEN` and the server authenticates with the token directly and never calls the login endpoint. Precedence is `THALOVANT_API_TOKEN`, then `THALOVANT_ACCESS_TOKEN`, then the `THALOVANT_EMAIL`/`THALOVANT_PASSWORD` login fallback.
+- `thalovant_config_status` now reports the active control-plane auth mode (`controlPlaneAuthMode`: `api-token`, `access-token`, `email-password`, or `none`) and `hasApiToken`, without revealing token values.
+- Documented API tokens as the recommended auth mode for AI and CI use, including the minimum token scopes for the full control-plane tool surface: `hubs:read`, `clients:write`, `memory:read`, `memory:write`.
+- Clarified the unauthenticated-tool error to name `THALOVANT_API_TOKEN` as the recommended option.
+
 ## 0.1.8
 
 - Tightened memory tool input validation to match the control-plane API exactly: `title` max 160, `content` max 4096, `source` max 64, `consentScope` max 128, `consentVersion` max 64, `retentionPolicy` max 64 on create/update, and list `query` max 240, so invalid values fail with a clear client-side error instead of an opaque API 422.
