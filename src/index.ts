@@ -37,10 +37,11 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import { z } from "zod";
 
-const VERSION = "0.1.7";
+const VERSION = "0.1.8";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 const MAX_LIMIT = 100;
+const MAX_PUBLIC_HUBS_LIMIT = 48;
 const DEFAULT_HTTP_BODY_LIMIT_BYTES = 1_048_576;
 const DEFAULT_HTTP_RATE_LIMIT_MAX = 120;
 const DEFAULT_HTTP_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -72,7 +73,14 @@ const SECRET_KEYS = [
 ];
 
 const protocolSchema = z.enum(["wss", "https", "mqtt"]);
-const limitSchema = z.number().int().min(1).max(MAX_LIMIT).default(25);
+const limitSchema = z.number().int().min(1).max(MAX_LIMIT).default(25).describe("Page size, 1-100.");
+const publicHubsLimitSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(MAX_PUBLIC_HUBS_LIMIT)
+  .default(25)
+  .describe("Page size, 1-48. The public hubs endpoint caps page size at 48.");
 const optionalCursorSchema = z.string().min(1).optional();
 const jsonRecordSchema = z.record(z.unknown());
 
@@ -1102,9 +1110,10 @@ export function createServer(): McpServer {
     "thalovant_list_public_hubs",
     {
       title: "List Public Hubs",
-      description: "List Thalovant public hubs. This read-only discovery call does not require authentication.",
+      description:
+        "List Thalovant public hubs. This read-only discovery call does not require authentication. Page size is capped at 48.",
       inputSchema: {
-        limit: limitSchema,
+        limit: publicHubsLimitSchema,
         cursor: optionalCursorSchema,
         apiUrl: controlPlaneSchema.apiUrl,
       },
@@ -1166,10 +1175,13 @@ export function createServer(): McpServer {
     "thalovant_get_hub",
     {
       title: "Get Hub",
-      description: "Fetch one authenticated Thalovant hub by id.",
+      description: "Fetch one authenticated Thalovant hub by UUID.",
       inputSchema: {
         ...controlPlaneSchema,
-        hubId: z.string().min(1),
+        hubId: z
+          .string()
+          .min(1)
+          .describe("Hub UUID. This authenticated route rejects slugs; slugs are only accepted by the public hub tools (thalovant_get_public_hub)."),
       },
       annotations: {
         readOnlyHint: true,
@@ -1191,7 +1203,10 @@ export function createServer(): McpServer {
         "Create a Thalovant client identity for a hub. The identity is secret; output is redacted unless savePath is used.",
       inputSchema: {
         ...controlPlaneSchema,
-        hubId: z.string().min(1).describe("Hub id or slug accepted by the Thalovant SDK."),
+        hubId: z
+          .string()
+          .min(1)
+          .describe("Hub UUID. This authenticated route rejects slugs; slugs are only accepted by the public hub tools (thalovant_get_public_hub)."),
         name: z.string().min(1).max(128),
         siteId: z.string().min(1).optional(),
         ownerId: z.string().min(1).optional(),
@@ -1523,7 +1538,7 @@ export function createServer(): McpServer {
         kind: z.enum(["note", "preference", "fact"]).optional(),
         ownerId: z.string().min(1).optional(),
         hubId: z.string().min(1).optional(),
-        query: z.string().min(1).optional(),
+        query: z.string().min(1).max(240).optional(),
         includeDeleted: z.boolean().optional(),
         includeExpired: z.boolean().optional(),
         limit: limitSchema,
@@ -1593,16 +1608,16 @@ export function createServer(): McpServer {
         ...controlPlaneSchema,
         scope: z.enum(["personal", "workspace", "hub"]).optional(),
         kind: z.enum(["note", "preference", "fact"]).optional(),
-        title: z.string().max(512).nullable().optional(),
-        content: z.string().min(1).max(20_000),
+        title: z.string().max(160).nullable().optional(),
+        content: z.string().min(1).max(4_096),
         tags: z.array(z.string().min(1)).optional(),
         ownerId: z.string().min(1).optional(),
         hubId: z.string().min(1).optional(),
-        source: z.string().min(1).optional(),
+        source: z.string().min(1).max(64).optional(),
         metadata: jsonRecordSchema.optional(),
-        consentScope: z.string().min(1).optional(),
-        consentVersion: z.string().nullable().optional(),
-        retentionPolicy: z.string().min(1).optional(),
+        consentScope: z.string().min(1).max(128).optional(),
+        consentVersion: z.string().max(64).nullable().optional(),
+        retentionPolicy: z.string().min(1).max(64).optional(),
         expiresAt: z.string().nullable().optional(),
       },
       annotations: {
@@ -1629,13 +1644,13 @@ export function createServer(): McpServer {
         ...controlPlaneSchema,
         memoryId: z.string().min(1),
         kind: z.enum(["note", "preference", "fact"]).optional(),
-        title: z.string().max(512).nullable().optional(),
-        content: z.string().min(1).max(20_000).optional(),
+        title: z.string().max(160).nullable().optional(),
+        content: z.string().min(1).max(4_096).optional(),
         tags: z.array(z.string().min(1)).optional(),
         metadata: jsonRecordSchema.optional(),
-        consentScope: z.string().min(1).optional(),
-        consentVersion: z.string().nullable().optional(),
-        retentionPolicy: z.string().min(1).optional(),
+        consentScope: z.string().min(1).max(128).optional(),
+        consentVersion: z.string().max(64).nullable().optional(),
+        retentionPolicy: z.string().min(1).max(64).optional(),
         expiresAt: z.string().nullable().optional(),
         clearExpiresAt: z.boolean().optional(),
       },

@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.8
+
+- Tightened memory tool input validation to match the control-plane API exactly: `title` max 160, `content` max 4096, `source` max 64, `consentScope` max 128, `consentVersion` max 64, `retentionPolicy` max 64 on create/update, and list `query` max 240, so invalid values fail with a clear client-side error instead of an opaque API 422.
+- Capped `thalovant_list_public_hubs` `limit` at 48 to match the public hubs endpoint, which silently clamps larger page sizes; authenticated `thalovant_list_hubs` keeps its limit of 100.
+- Corrected `thalovant_get_hub` and `thalovant_create_client_identity` descriptions: the authenticated hub routes require a hub UUID; slugs are only accepted by the public hub tools.
+
 ## 0.1.7
 
 - Updated the MCP transport SDK to 1.30.0, removing the affected Hono adapter dependency range.
