@@ -373,7 +373,12 @@ describe("provisioning tool delegation to the SDK", () => {
 
   it("installs a git-sourced skill with source_ref and version_pin", async () => {
     const fake = await startFakeControlPlane();
-    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+    // Git sources are gated: an operator must opt in with THALOVANT_ENABLE_GIT_SKILL_SOURCES.
+    const client = await connectStdioClient({
+      THALOVANT_API_TOKEN: API_TOKEN,
+      THALOVANT_API_URL: fake.url,
+      THALOVANT_ENABLE_GIT_SKILL_SOURCES: "true",
+    });
 
     await client.callTool({
       name: "thalovant_install_runtime_group_skill",
@@ -409,12 +414,17 @@ describe("provisioning tool delegation to the SDK", () => {
     expect(fake.requests).toHaveLength(0);
   }, 15_000);
 
-  it("passes through a source type the API accepts but does not special-case", async () => {
+  it("passes through a source type the API accepts but does not special-case, once non-catalog sources are enabled", async () => {
     const fake = await startFakeControlPlane();
-    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+    // The API models source_type as a free-form 1..32 string, not an enum, so once
+    // non-catalog sources are enabled the tool must not reject a value it does not
+    // recognize.
+    const client = await connectStdioClient({
+      THALOVANT_API_TOKEN: API_TOKEN,
+      THALOVANT_API_URL: fake.url,
+      THALOVANT_ENABLE_GIT_SKILL_SOURCES: "true",
+    });
 
-    // The API models source_type as a free-form 1..32 string, not an enum, so the
-    // tool must not reject a value it does not recognize.
     const result = await client.callTool({
       name: "thalovant_install_runtime_group_skill",
       arguments: { runtimeGroupId: "rg-1", skillId: "skill-news", sourceType: "package" },

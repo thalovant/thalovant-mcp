@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Security
+
+- `thalovant_install_runtime_group_skill` now refuses non-catalog install sources by default. A `sourceType` other than `catalog` (notably `git` with an arbitrary `sourceRef`) can pull unvetted code into a production runtime, and the control-plane validator is format-only with no host allowlist, so it is rejected before any control-plane request unless the operator sets `THALOVANT_ENABLE_GIT_SKILL_SOURCES` (accepting `1`/`true`/`yes`/`on`), mirroring the `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` gate. `sourceType` is trimmed and case-folded before it is both checked and forwarded, so a variant such as `" Catalog "` or `"CATALOG"` cannot pass the local gate yet reach the control plane — which special-cases only the exact string `"catalog"` — as an unrecognized non-catalog source. The tool is now annotated `destructiveHint: true`, and `thalovant_config_status` reports `gitSkillSourcesEnabled`.
+- `thalovant_create_client_identity` now confines the optional `savePath` to a configurable identity directory (`THALOVANT_MCP_IDENTITY_DIR`, default `<config-dir>/thalovant/identities`). Absolute paths outside the directory and `..` traversal are rejected, and the destination is validated before the identity is created in the control plane, so a model can no longer drop a `0600` credential file into a git working tree or synced folder. `thalovant_config_status` reports `identityDir`.
+- `thalovant_healthcheck` output is now passed through `redactSecrets`, matching every other tool output.
+- `thalovant_get_analytics_overview` no longer advertises the `admin` and (admin-only) `ownerId` arguments to the model, so it no longer teaches an admin mode that only ever 403s for non-admin callers; only the plain overview call remains. Injected `admin`/`ownerId` values are stripped and never reach the control plane.
+- Extended output redaction to additional secret-ish keys: `device_code`, `user_code`, `psk`, `cert`, and `jwt`.
+- Added an opt-in read-only mode (`THALOVANT_MCP_READONLY`): only tools annotated `readOnlyHint: true` are registered, so an observe-only agent needs no hand-written denylist. `thalovant_config_status` reports `readOnly`.
+
 ## 0.1.10
 
 - Added hub-provisioning and skill-discovery tools so an agent can discover skills and provision hubs conversationally, all delegating to `@thalovant/sdk` (now `^0.2.28`).
