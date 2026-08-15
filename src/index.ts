@@ -2462,7 +2462,7 @@ export function createServer(): McpServer {
           .min(1)
           .max(32)
           .optional()
-          .describe('Install source, 1-32 characters, defaulting to "catalog". The API accepts any string here rather than a fixed enum, but only "catalog" (requires the skill to exist in the marketplace catalog) and "git" (requires sourceRef) get special handling. Any value other than "catalog" is refused unless the operator sets THALOVANT_ENABLE_GIT_SKILL_SOURCES, because a non-catalog source can pull unvetted code into the runtime.'),
+          .describe('Install source, 1-32 characters, defaulting to "catalog". The API accepts any string here rather than a fixed enum, but only "catalog" (requires the skill to exist in the marketplace catalog) and "git" (requires sourceRef) get special handling. The value is trimmed and lower-cased before it is both checked and forwarded, so "Catalog" and " catalog " are treated exactly as "catalog". Any value that is not "catalog" is refused unless the operator sets THALOVANT_ENABLE_GIT_SKILL_SOURCES, because a non-catalog source can pull unvetted code into the runtime.'),
         sourceRef: z.string().min(1).max(255).optional().describe("Max 255 characters. Required for git installs — a git install without a valid repository URL fails 422. Only usable when THALOVANT_ENABLE_GIT_SKILL_SOURCES is set."),
         versionPin: z.string().min(1).max(64).optional().describe("Pin the skill to an exact version. Max 64 characters."),
         active: z
@@ -2477,10 +2477,18 @@ export function createServer(): McpServer {
         openWorldHint: true,
       },
     },
-    async ({ runtimeGroupId, skillId, marketplaceSkillId, sourceType, sourceRef, versionPin, active, ...auth }) => {
+    async ({ runtimeGroupId, skillId, marketplaceSkillId, sourceType: rawSourceType, sourceRef, versionPin, active, ...auth }) => {
+      // Normalize once (trim + case-fold) and forward the SAME value the gate
+      // validates. Otherwise a whitespace/case variant such as " Catalog " or
+      // "CATALOG" passes the local catalog check while the control plane, which
+      // special-cases only the exact string "catalog", treats it as a
+      // non-catalog source — bypassing the gate for the case it exists to block.
+      // A blank/omitted value defaults to the catalog source server-side.
+      const trimmedSource = typeof rawSourceType === "string" ? rawSourceType.trim() : "";
+      const sourceType = trimmedSource ? trimmedSource.toLowerCase() : undefined;
       if (!isCatalogSource(sourceType) && !gitSkillSourcesEnabled()) {
         throw new Error(
-          `Refusing to install a skill from non-catalog source "${sourceType}". A non-catalog source (for example sourceType "git" with an arbitrary sourceRef) can pull unvetted code into the runtime and is disabled by default. ` +
+          `Refusing to install a skill from non-catalog source "${rawSourceType}". A non-catalog source (for example sourceType "git" with an arbitrary sourceRef) can pull unvetted code into the runtime and is disabled by default. ` +
             "Set THALOVANT_ENABLE_GIT_SKILL_SOURCES=1 to allow non-catalog skill sources, or install from the marketplace catalog by omitting sourceType (or setting it to \"catalog\").",
         );
       }

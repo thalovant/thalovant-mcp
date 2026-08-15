@@ -13,6 +13,7 @@ interface RecordedRequest {
   method: string;
   path: string;
   query: Record<string, string>;
+  body?: Record<string, unknown>;
 }
 
 interface FakeControlPlane {
@@ -36,12 +37,15 @@ async function startFakeControlPlane(body?: unknown): Promise<FakeControlPlane> 
   const requests: RecordedRequest[] = [];
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
-    req.resume();
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
     req.on("end", () => {
+      const raw = Buffer.concat(chunks).toString("utf8");
       requests.push({
         method: req.method ?? "GET",
         path: url.pathname,
         query: Object.fromEntries(url.searchParams.entries()),
+        body: raw.trim() ? (JSON.parse(raw) as Record<string, unknown>) : undefined,
       });
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(body ?? { ok: true, path: url.pathname }));
@@ -148,6 +152,67 @@ describe("M1: non-catalog skill sources are gated", () => {
     expect(implicit.isError ?? false).toBe(false);
 
     expect(fake.requests.filter((entry) => entry.path === "/v1/runtime-groups/rg-1/skills")).toHaveLength(2);
+  }, 15_000);
+
+  it("treats whitespace/case variants of catalog as catalog and forwards the canonical value", async () => {
+    const fake = await startFakeControlPlane();
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    for (const variant of [" Catalog ", "CATALOG", "catalog "]) {
+      const result = await client.callTool({
+        name: "thalovant_install_runtime_group_skill",
+        arguments: { runtimeGroupId: "rg-1", skillId: "skill-news", sourceType: variant },
+      });
+      expect(result.isError ?? false, `variant ${JSON.stringify(variant)} should be accepted`).toBe(false);
+    }
+
+    const installs = fake.requests.filter((entry) => entry.path === "/v1/runtime-groups/rg-1/skills");
+    expect(installs).toHaveLength(3);
+    // What is forwarded is the canonical "catalog" the gate validated, never the raw variant.
+    for (const install of installs) {
+      expect(install.body).toMatchObject({ source_type: "catalog" });
+    }
+  }, 20_000);
+
+  it("does not let a whitespace/case variant of a non-catalog source bypass the gate", async () => {
+    const fake = await startFakeControlPlane();
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    // Without the env flag, no non-catalog spelling may reach the control plane.
+    for (const variant of [" git ", "GIT", "Git", " PACKAGE"]) {
+      const result = await client.callTool({
+        name: "thalovant_install_runtime_group_skill",
+        arguments: {
+          runtimeGroupId: "rg-1",
+          skillId: "skill-evil",
+          sourceType: variant,
+          sourceRef: "https://attacker.example/evil.git",
+        },
+      });
+      expect(result.isError, `variant ${JSON.stringify(variant)} should be rejected`).toBe(true);
+    }
+    expect(fake.requests).toHaveLength(0);
+  }, 20_000);
+
+  it("normalizes a non-catalog source before forwarding when the flag is set", async () => {
+    const fake = await startFakeControlPlane();
+    const client = await connectStdioClient({
+      THALOVANT_API_TOKEN: API_TOKEN,
+      THALOVANT_API_URL: fake.url,
+      THALOVANT_ENABLE_GIT_SKILL_SOURCES: "1",
+    });
+
+    const result = await client.callTool({
+      name: "thalovant_install_runtime_group_skill",
+      arguments: {
+        runtimeGroupId: "rg-1",
+        skillId: "skill-custom",
+        sourceType: " Git ",
+        sourceRef: "https://example.com/skill.git",
+      },
+    });
+    expect(result.isError ?? false).toBe(false);
+    expect(findRequest(fake, "POST", "/v1/runtime-groups/rg-1/skills").body).toMatchObject({ source_type: "git" });
   }, 15_000);
 
   it("allows a git skill source only when THALOVANT_ENABLE_GIT_SKILL_SOURCES is set", async () => {
