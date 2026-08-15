@@ -34,7 +34,8 @@ import { createServer as createHttpServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { realpathSync } from "node:fs";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { homedir } from "node:os";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRemoteJWKSet, jwtVerify } from "jose";
@@ -69,9 +70,16 @@ const SECRET_KEYS = [
   "privateKey",
   "refresh_token",
   "refreshToken",
+  "device_code",
+  "deviceCode",
+  "user_code",
+  "userCode",
   "authToken",
   "authorization",
   "bearer",
+  "jwt",
+  "psk",
+  "cert",
   "token",
   "secret",
 ];
@@ -160,6 +168,41 @@ const DESTRUCTIVE_TOOLS = ["thalovant_delete_hub", "thalovant_delete_runtime_gro
  */
 function destructiveToolsEnabled(): boolean {
   return parseBool(process.env.THALOVANT_ENABLE_DESTRUCTIVE_TOOLS, false);
+}
+
+/**
+ * Non-catalog skill sources are opt-in.
+ *
+ * thalovant_install_runtime_group_skill can install a skill from a source other
+ * than the vetted marketplace catalog — notably `sourceType: "git"` with an
+ * arbitrary `sourceRef` repository URL. The control-plane validator is
+ * format-only with no host allowlist, so any non-catalog source is effectively
+ * an arbitrary-code-into-the-runtime primitive. Because this server hands its
+ * tools to an LLM holding a long-lived token, that primitive is refused by
+ * default and only enabled when an operator opts in with this flag, mirroring
+ * the THALOVANT_ENABLE_DESTRUCTIVE_TOOLS gate. Installing from the catalog (the
+ * default source) is always allowed.
+ */
+function gitSkillSourcesEnabled(): boolean {
+  return parseBool(process.env.THALOVANT_ENABLE_GIT_SKILL_SOURCES, false);
+}
+
+/** The default install source is the vetted marketplace catalog. */
+function isCatalogSource(sourceType: string | undefined): boolean {
+  return !sourceType || sourceType.trim().toLowerCase() === "catalog";
+}
+
+/**
+ * Read-only mode.
+ *
+ * When THALOVANT_MCP_READONLY is set, only tools annotated readOnlyHint: true
+ * are registered, so an operator can run a safe agent without hand-writing a
+ * tool denylist. Non-read-only tools are never registered and so never appear
+ * in tools/list. This complements, and is independent of, the per-principal
+ * allow/deny policy in authorizeTool().
+ */
+function readOnlyModeEnabled(): boolean {
+  return parseBool(process.env.THALOVANT_MCP_READONLY, false);
 }
 
 const capacityProfileSchema = z
@@ -634,6 +677,13 @@ function registerThalovantTool(
   config: Record<string, unknown>,
   handler: (args: any, extra: any) => unknown | Promise<unknown>,
 ): void {
+  if (readOnlyModeEnabled()) {
+    const annotations = (config.annotations ?? {}) as { readOnlyHint?: boolean };
+    if (annotations.readOnlyHint !== true) {
+      // Read-only mode: do not register write/destructive tools at all.
+      return;
+    }
+  }
   (server.registerTool as any)(name, config, async (args: any, extra: any) => {
     const principal = principalFromExtra(extra);
     const start = Date.now();
@@ -809,8 +859,53 @@ function summarizeReply(reply: ThalovantReply) {
   };
 }
 
-async function saveIdentity(path: string, identity: ThalovantIdentity): Promise<string> {
-  const resolvedPath = resolve(path);
+/**
+ * Base directory that saved client-identity files are confined to.
+ *
+ * thalovant_create_client_identity takes an LLM-chosen savePath. The file is
+ * written 0600, but without a base directory the model controls WHERE the
+ * secret lands and could drop a credential file into a git working tree or a
+ * synced folder. Files are therefore confined to THALOVANT_MCP_IDENTITY_DIR,
+ * defaulting to an `identities` folder under the Thalovant SDK config dir
+ * ($XDG_CONFIG_HOME/thalovant, %APPDATA%/Thalovant on Windows, else
+ * ~/.config/thalovant), matching the SDK's own convention.
+ */
+function identityBaseDir(): string {
+  const override = process.env.THALOVANT_MCP_IDENTITY_DIR?.trim();
+  if (override) return resolve(override);
+  if (process.env.XDG_CONFIG_HOME) return join(process.env.XDG_CONFIG_HOME, "thalovant", "identities");
+  if (process.platform === "win32" && process.env.APPDATA) return join(process.env.APPDATA, "Thalovant", "identities");
+  return join(homedir(), ".config", "thalovant", "identities");
+}
+
+/**
+ * Resolve an LLM-supplied savePath against the identity base directory and
+ * refuse anything that escapes it. Relative paths resolve inside the base dir;
+ * absolute paths and `..` traversal that land outside it are rejected. The base
+ * dir is realpath'd so a symlinked base still validates correctly.
+ */
+function resolveIdentityPath(savePath: string): string {
+  const baseDir = identityBaseDir();
+  let canonicalBase = resolve(baseDir);
+  try {
+    canonicalBase = realpathSync(canonicalBase);
+  } catch {
+    // Base dir does not exist yet; writeIdentityFile creates it. Use the resolved
+    // (non-canonical) path for containment — nothing is symlinked yet.
+  }
+  const candidate = resolve(canonicalBase, savePath);
+  const rel = relative(canonicalBase, candidate);
+  if (rel === "" || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error(
+      `savePath must resolve to a location inside the identity directory (${canonicalBase}). ` +
+        `Absolute paths outside it and ".." traversal are rejected; pass a plain filename such as "my-hub.json". ` +
+        `Set THALOVANT_MCP_IDENTITY_DIR to change the identity directory.`,
+    );
+  }
+  return candidate;
+}
+
+async function writeIdentityFile(resolvedPath: string, identity: ThalovantIdentity): Promise<string> {
   await mkdir(dirname(resolvedPath), { recursive: true, mode: 0o700 });
   await writeFile(resolvedPath, `${stableStringify(identity.asObject(true))}\n`, { mode: 0o600 });
   return resolvedPath;
@@ -1255,7 +1350,11 @@ export function createServer(): McpServer {
         defaultProtocol: "wss",
         destructiveToolsEnabled: destructiveToolsEnabled(),
         destructiveTools: destructiveToolsEnabled() ? [...DESTRUCTIVE_TOOLS] : [],
-        secretHandling: "Secrets are redacted in tool output. Identity files are only written when savePath is provided.",
+        gitSkillSourcesEnabled: gitSkillSourcesEnabled(),
+        readOnly: readOnlyModeEnabled(),
+        identityDir: identityBaseDir(),
+        secretHandling:
+          "Secrets are redacted in tool output. Identity files are only written when savePath is provided, and only inside identityDir.",
       }),
   );
 
@@ -1371,7 +1470,9 @@ export function createServer(): McpServer {
           .string()
           .min(1)
           .optional()
-          .describe("Optional local file path for the full secret identity JSON. File mode is set to 0600."),
+          .describe(
+            "Optional filename for the full secret identity JSON, written 0600 inside the server's identity directory (see identityDir in thalovant_config_status). Pass a plain filename like \"my-hub.json\"; absolute paths outside the identity directory and \"..\" traversal are rejected.",
+          ),
       },
       annotations: {
         readOnlyHint: false,
@@ -1381,6 +1482,10 @@ export function createServer(): McpServer {
       },
     },
     async ({ hubId, name, siteId, ownerId, active, preferredProtocols, idempotencyKey, spec, savePath, ...auth }) => {
+      // Validate the destination BEFORE creating a cloud identity, so a path
+      // that escapes the identity directory is refused without leaving an
+      // orphaned credential behind in the control plane.
+      const targetIdentityPath = savePath ? resolveIdentityPath(savePath) : undefined;
       const api = await createControlPlane(auth);
       ensureAuthenticated(api);
       const result = await api.createClientIdentity(hubId, {
@@ -1393,7 +1498,7 @@ export function createServer(): McpServer {
         spec,
       });
       const selectedEndpoint = api.requireRuntimeProtocol(result, preferredProtocols[0]);
-      const savedIdentityPath = savePath ? await saveIdentity(savePath, result.identity) : undefined;
+      const savedIdentityPath = targetIdentityPath ? await writeIdentityFile(targetIdentityPath, result.identity) : undefined;
       return jsonContent({
         result: redactSecrets(result.asObject({ includeSecrets: false })),
         selectedEndpoint,
@@ -1454,7 +1559,7 @@ export function createServer(): McpServer {
       const client = await createRuntimeClient(runtime);
       try {
         await client.connect(clampTimeout(timeoutMs));
-        return jsonContent(client.healthcheck());
+        return jsonContent(redactSecrets(client.healthcheck()));
       } finally {
         await client.close();
       }
@@ -1652,10 +1757,8 @@ export function createServer(): McpServer {
       description: "Read authenticated Thalovant analytics overview data.",
       inputSchema: {
         ...controlPlaneSchema,
-        admin: z.boolean().optional(),
         range: z.string().min(1).optional(),
         bucket: z.string().min(1).optional(),
-        ownerId: z.string().min(1).optional(),
         hubId: z.string().min(1).optional(),
         clientId: z.string().min(1).optional(),
         country: z.string().min(1).optional(),
@@ -2344,7 +2447,7 @@ export function createServer(): McpServer {
     {
       title: "Install Runtime Group Skill",
       description:
-        "Install (or re-install) a skill in a Thalovant runtime group. Installing a skill that is already present updates the existing entry rather than failing. Discover skillId with thalovant_list_marketplace_skills, then confirm installable/purchase_required with thalovant_list_runtime_group_marketplace before calling this. Requires the hubs:write scope and a paid plan (402 'API access requires a paid plan'); a paid marketplace skill ALSO needs marketplace access on the tenant plan, which fails with a second, distinct 402 about paid marketplace access.",
+        "Install (or re-install) a skill in a Thalovant runtime group from the marketplace catalog. Installing a skill that is already present updates the existing entry rather than failing. Discover skillId with thalovant_list_marketplace_skills, then confirm installable/purchase_required with thalovant_list_runtime_group_marketplace before calling this. Requires the hubs:write scope and a paid plan (402 'API access requires a paid plan'); a paid marketplace skill ALSO needs marketplace access on the tenant plan, which fails with a second, distinct 402 about paid marketplace access. Only catalog sources are allowed by default: installing from a non-catalog source such as sourceType \"git\" runs code the marketplace never vetted and is refused unless the operator sets THALOVANT_ENABLE_GIT_SKILL_SOURCES.",
       inputSchema: {
         ...controlPlaneSchema,
         runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
@@ -2359,8 +2462,8 @@ export function createServer(): McpServer {
           .min(1)
           .max(32)
           .optional()
-          .describe('Install source, 1-32 characters, defaulting to "catalog". The API accepts any string here rather than a fixed enum, but only "catalog" (requires the skill to exist in the marketplace catalog) and "git" (requires sourceRef) get special handling.'),
-        sourceRef: z.string().min(1).max(255).optional().describe("Max 255 characters. Required for git installs — a git install without a valid repository URL fails 422."),
+          .describe('Install source, 1-32 characters, defaulting to "catalog". The API accepts any string here rather than a fixed enum, but only "catalog" (requires the skill to exist in the marketplace catalog) and "git" (requires sourceRef) get special handling. Any value other than "catalog" is refused unless the operator sets THALOVANT_ENABLE_GIT_SKILL_SOURCES, because a non-catalog source can pull unvetted code into the runtime.'),
+        sourceRef: z.string().min(1).max(255).optional().describe("Max 255 characters. Required for git installs — a git install without a valid repository URL fails 422. Only usable when THALOVANT_ENABLE_GIT_SKILL_SOURCES is set."),
         versionPin: z.string().min(1).max(64).optional().describe("Pin the skill to an exact version. Max 64 characters."),
         active: z
           .boolean()
@@ -2369,12 +2472,18 @@ export function createServer(): McpServer {
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: true,
         openWorldHint: true,
       },
     },
     async ({ runtimeGroupId, skillId, marketplaceSkillId, sourceType, sourceRef, versionPin, active, ...auth }) => {
+      if (!isCatalogSource(sourceType) && !gitSkillSourcesEnabled()) {
+        throw new Error(
+          `Refusing to install a skill from non-catalog source "${sourceType}". A non-catalog source (for example sourceType "git" with an arbitrary sourceRef) can pull unvetted code into the runtime and is disabled by default. ` +
+            "Set THALOVANT_ENABLE_GIT_SKILL_SOURCES=1 to allow non-catalog skill sources, or install from the marketplace catalog by omitting sourceType (or setting it to \"catalog\").",
+        );
+      }
       const api = await createControlPlane(auth);
       ensureAuthenticated(api);
       const options: RuntimeGroupSkillInstallOptions = { marketplaceSkillId, sourceType, sourceRef, versionPin, active };

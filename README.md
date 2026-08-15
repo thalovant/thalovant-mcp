@@ -353,7 +353,7 @@ Destructive, **not registered unless explicitly enabled** (see [Destructive Tool
 - `thalovant_delete_hub`
 - `thalovant_delete_runtime_group`
 
-Tool outputs redact credential-shaped fields. `thalovant_create_client_identity` does not return secret identity material; pass `savePath` when you want the full identity written to a local file with mode `0600`.
+Tool outputs redact credential-shaped fields. `thalovant_create_client_identity` does not return secret identity material; pass `savePath` when you want the full identity written to a local file with mode `0600`. `savePath` is confined to the server's identity directory (`THALOVANT_MCP_IDENTITY_DIR`, default `<config-dir>/thalovant/identities`): pass a plain filename, since absolute paths outside that directory and `..` traversal are rejected, so a model cannot drop a credential file into a git working tree or synced folder. `thalovant_config_status` reports the active `identityDir`.
 
 ## Destructive Tools
 
@@ -378,6 +378,20 @@ export MCP_TOOL_DENYLIST="thalovant_delete_hub,thalovant_delete_runtime_group"
 with the trusted principal's credential file granting them back via `allowedTools`.
 
 Deleting a hub still requires a current etag (`412` otherwise), and deleting a runtime group fails with `409` while it is the workspace default or still has hubs attached.
+
+## Non-Catalog Skill Sources
+
+`thalovant_install_runtime_group_skill` installs from the vetted marketplace catalog by default. Any other source — notably `sourceType: "git"` with an arbitrary `sourceRef` repository URL — pulls code the marketplace never reviewed straight into a production runtime, and the control-plane validator is format-only with no host allowlist. Because the tools are driven by a model holding a long-lived token, non-catalog sources are refused unless an operator opts in:
+
+```bash
+export THALOVANT_ENABLE_GIT_SKILL_SOURCES="true"
+```
+
+With the flag unset, a call with any `sourceType` other than `catalog` fails before any control-plane request is made. Accepted true values are `1`, `true`, `yes`, and `on`. `thalovant_config_status` reports the state as `gitSkillSourcesEnabled`. The tool is annotated `destructiveHint: true`.
+
+## Read-Only Mode
+
+Set `THALOVANT_MCP_READONLY=1` to register only tools annotated `readOnlyHint: true`. Write and destructive tools are then never registered and never appear in `tools/list`, so an operator can run an observe-only agent without hand-writing a denylist. Like the other registration-time gates it is read when a server instance is created; `thalovant_config_status` reports the state as `readOnly`.
 
 ## Development
 
