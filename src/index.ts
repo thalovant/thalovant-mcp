@@ -16,11 +16,15 @@ import {
 } from "@thalovant/sdk";
 import type {
   AnalyticsOverviewOptions,
+  HubPayload,
   HubProtocol,
   IdentityInput,
   MemoryCreatePayload,
   MemoryListOptions,
   MemoryUpdatePayload,
+  ReleaseOptions,
+  RuntimeGroupPayload,
+  RuntimeGroupSkillInstallOptions,
   ThalovantDisplayItem,
   ThalovantReply,
 } from "@thalovant/sdk";
@@ -37,7 +41,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import { z } from "zod";
 
-const VERSION = "0.1.9";
+const VERSION = "0.1.10";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 const MAX_LIMIT = 100;
@@ -133,6 +137,140 @@ const runtimeAuthSchema = {
     .describe("Load the identity from Thalovant SDK environment variables."),
   protocol: protocolSchema.default("wss").describe("Runtime transport protocol."),
 };
+
+/**
+ * Tools that destroy control-plane resources. They are never registered unless
+ * an operator opts in with THALOVANT_ENABLE_DESTRUCTIVE_TOOLS, so by default
+ * they are absent from tools/list entirely rather than merely failing when
+ * called. See destructiveToolsEnabled().
+ */
+const DESTRUCTIVE_TOOLS = ["thalovant_delete_hub", "thalovant_delete_runtime_group"] as const;
+
+/**
+ * Destructive control-plane tools are opt-in.
+ *
+ * The per-principal tool policy in authorizeTool() is an allow/deny filter
+ * evaluated at call time: an empty allowlist means "allow everything", so it
+ * cannot express a tool that is off until an operator turns it on, and it
+ * cannot hide a tool from tools/list. A long-lived token plus an always-listed
+ * delete tool is a categorically different risk from a read or update tool, so
+ * these two are gated at registration time by this env flag instead. When the
+ * flag is on they are registered like any other tool and remain subject to the
+ * global and per-principal policy, which can still deny them.
+ */
+function destructiveToolsEnabled(): boolean {
+  return parseBool(process.env.THALOVANT_ENABLE_DESTRUCTIVE_TOOLS, false);
+}
+
+const capacityProfileSchema = z
+  .enum(["standard", "autoscaling"])
+  .describe(
+    'Hub capacity profile. Only "standard" (the API default, 1 replica) and "autoscaling" (2-32 replicas) are accepted. Omit the key entirely rather than sending null — an explicit null fails 422 INVALID_HUB_CAPACITY_PROFILE. "autoscaling" is plan-gated: 403 HUB_AUTOSCALING_NOT_INCLUDED when the plan has no autoscaling, 409 AUTOSCALING_HUB_LIMIT_REACHED when its autoscaling slots are already used.',
+  );
+
+const hubSpecSchema = z
+  .object({ version: z.string().min(1).describe("Required. Hub spec version, e.g. \"1\".") })
+  .passthrough()
+  .describe(
+    'Hub spec object. `version` is REQUIRED and must be a non-empty string — {"version": "1"} is the minimum valid spec; omitting it fails 422 "Schema validation failed". Other keys pass through, and the API injects defaults for replicas, resources, catalog, and protocols.',
+  );
+
+const hubEtagSchema = z
+  .string()
+  .min(1)
+  .describe(
+    "Required. The hub's current etag, sent as If-Match for optimistic locking. Read it from the `etag` field in the hub resource BODY returned by thalovant_get_hub — the API does not send an ETag response header, so you must fetch the hub first. A missing or stale value fails with HTTP 412 and changes nothing: re-fetch the hub, take the new etag, and retry.",
+  );
+
+const runtimeGroupResourceLimitsSchema = z
+  .object({
+    requests: z.record(z.string()).optional(),
+    limits: z.record(z.string()).optional(),
+  })
+  .optional();
+
+const runtimeGroupSpecSchema = z
+  .object({
+    replicas: z.number().int().min(1).max(20).optional().describe("Replica count, 1-20."),
+    resources: z
+      .object({
+        core: runtimeGroupResourceLimitsSchema,
+        messagebus: runtimeGroupResourceLimitsSchema,
+      })
+      .optional()
+      .describe("Container resource requests/limits, as string-valued maps (for example {\"cpu\": \"500m\"})."),
+  })
+  .describe("Patches replicas and container resources only. Note the replica ceiling here is 20, separate from a hub's autoscaling ceiling of 32.");
+
+const releaseOptionsSchema = {
+  channel: z.string().min(1).optional().describe("Release channel. Falls back to the workspace release policy when omitted."),
+  mode: z.string().min(1).optional().describe('Release mode. Passing images without mode switches to "custom".'),
+  version: z.string().min(1).optional().describe("Pinned release version."),
+  images: z.record(z.string().min(1)).optional().describe("Explicit image overrides. Switches to custom mode unless mode is also set."),
+  reason: z.string().min(1).optional().describe("Audit reason recorded with the release."),
+};
+
+function releaseOptionsFrom(args: {
+  channel?: string;
+  mode?: string;
+  version?: string;
+  images?: Record<string, string>;
+  reason?: string;
+}): ReleaseOptions {
+  return { channel: args.channel, mode: args.mode, version: args.version, images: args.images, reason: args.reason };
+}
+
+/** Which failure modes a control-plane call can produce, for error guidance. */
+type ControlPlaneErrorProfile = "read" | "write" | "hubWrite" | "skillInstall";
+
+const SCOPE_HINT_403 =
+  'HTTP 403 "Insufficient scopes" — the token lacks the scope this route needs: hubs:write for provisioning, hubs:read for the marketplace catalog, hubs:inspect for runtime-group and hub runtime views (hubs:write implies hubs:read, which implies hubs:inspect and hubs:preview). The API checks scope BEFORE the paid-plan gate, so a 403 can mask a plan problem and granting the scope may surface a 402 next. Free-plan API tokens are capped at hubs:read, clients:read, and clients:write, so a free-tier API token fails provisioning with this 403 and never reaches the 402. A 403 here can also mean the caller does not own the resource ("Ownership required"), or a plan restriction such as HUB_AUTOSCALING_NOT_INCLUDED or a custom hub domain the plan does not allow.';
+
+const PLAN_HINT_402 =
+  'HTTP 402 "API access requires a paid plan." — the token is valid and correctly scoped but the tenant is on the free plan. Free-tier callers can browse the catalog (thalovant_list_marketplace_skills) and set hub ratings, but cannot create, update, release, or delete hubs and runtime groups, and cannot install skills.';
+
+const MARKETPLACE_HINT_402 =
+  'HTTP 402 "This skill requires paid marketplace access for the tenant plan." — a DIFFERENT 402 from the plan gate: the plan is paid enough to provision, but this catalog entry has access_tier "paid" and the plan does not include paid marketplace skills. thalovant_list_runtime_group_marketplace reports this per skill as purchase_required, installable, and access_message; check it before installing.';
+
+const ETAG_HINT_412 =
+  'HTTP 412 "ETag mismatch" — the If-Match etag was missing or stale and nothing changed. Re-fetch the hub with thalovant_get_hub, read the `etag` field from the response BODY (there is no ETag response header), and retry with that exact value. The comparison is exact string equality, so do not rewrite or weaken the value.';
+
+function controlPlaneErrorHint(profile: ControlPlaneErrorProfile, status: number, body: string): string | undefined {
+  switch (status) {
+    case 402:
+      return profile === "skillInstall" && /marketplace/i.test(body) ? MARKETPLACE_HINT_402 : PLAN_HINT_402;
+    case 403:
+      return SCOPE_HINT_403;
+    case 409:
+      if (profile === "hubWrite") {
+        return 'HTTP 409 — for a hub create this is either a duplicate ("Hub with name ... already exists for this owner" / "Hub slug ... already exists"), an autoscaling slot limit (AUTOSCALING_HUB_LIMIT_REACHED), or "Idempotency key re-used with different payload". Only hub create honors Idempotency-Key: retrying an identical create is safe and returns the original hub, but reusing a key with a changed body conflicts — use a new idempotencyKey for a genuinely different hub.';
+      }
+      return "HTTP 409 — the resource is not in a state that allows this call: a hub with no connected client cannot report runtime capabilities, a runtime group cannot be deleted while it is the workspace default or still has hubs attached, and a deactivated marketplace skill cannot be installed.";
+    case 412:
+      return ETAG_HINT_412;
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Run a control-plane call and, on failure, append actionable guidance.
+ *
+ * The SDK raises ThalovantApiError with the status embedded in the message
+ * ("Thalovant API request failed with HTTP 412: ..."), so the status is
+ * recovered by parsing rather than from a structured field.
+ */
+async function callControlPlane<T>(profile: ControlPlaneErrorProfile, run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const status = Number(/HTTP (\d{3})/.exec(message)?.[1]);
+    const hint = Number.isFinite(status) ? controlPlaneErrorHint(profile, status, message) : undefined;
+    if (!hint) throw error;
+    throw new Error(`${message}\n\n${hint}`);
+  }
+}
 
 interface HttpConfig {
   host: string;
@@ -1115,6 +1253,8 @@ export function createServer(): McpServer {
         profile: process.env.THALOVANT_PROFILE,
         hasRuntimeEnvIdentity: Boolean(process.env.THALOVANT_ACCESS_KEY || process.env.THALOVANT_IDENTITY),
         defaultProtocol: "wss",
+        destructiveToolsEnabled: destructiveToolsEnabled(),
+        destructiveTools: destructiveToolsEnabled() ? [...DESTRUCTIVE_TOOLS] : [],
         secretHandling: "Secrets are redacted in tool output. Identity files are only written when savePath is provided.",
       }),
   );
@@ -1705,6 +1845,623 @@ export function createServer(): McpServer {
       return textContent("Memory item deleted.");
     },
   );
+
+  registerThalovantTool(server,
+    "thalovant_list_marketplace_skills",
+    {
+      title: "List Marketplace Skills",
+      description:
+        "Browse the Thalovant marketplace skill catalog. Start here when discovering what a hub could run: each entry carries the fields an install needs (skill_id, source_type, source_ref, package_name, version compatibility, config_schema, secret_schema) plus category, tags, verified, access_tier, and billing_sku. Requires the hubs:read scope and is NOT paid-gated, so a free-tier token can browse the catalog even though it cannot install from it. The response is not paginated — the whole catalog comes back at once.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        ownerId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Admin tokens only. A non-admin caller is silently scoped to their own tenant instead of being rejected, so this is a no-op for ordinary tokens."),
+        includeInactive: z
+          .boolean()
+          .optional()
+          .describe("Admin tokens only. A non-admin caller silently gets active entries only, with no error."),
+        forceRefresh: z
+          .boolean()
+          .optional()
+          .describe("Re-sync the global catalog from its source before answering. Open to all callers; noticeably slower."),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ ownerId, includeInactive, forceRefresh, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(
+        redactSecrets(await callControlPlane("read", () => api.listMarketplaceSkills({ ownerId, includeInactive, forceRefresh }))),
+      );
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_list_runtime_group_marketplace",
+    {
+      title: "List Runtime Group Marketplace",
+      description:
+        "List the marketplace catalog resolved against one runtime group. This is the view to read immediately before installing: every catalog entry comes back with the group's own state folded in — whether the skill is desired (active, version_pin, source_type), whether it was observed running (observed_source, observed_at, intent counts), operator status, and the plan verdict (purchase_required, installable, access_message). Check installable and purchase_required here to avoid a 402 at install time. Requires the hubs:inspect scope; browsing needs no paid plan. Answers 404 for an unknown group and 403 when the caller does not own it.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
+        refreshInventory: z
+          .boolean()
+          .optional()
+          .describe("Force a live read from the runtime operator. Without it the envelope source is runtime-group-cache (or runtime-group-cache-empty), never a live read."),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ runtimeGroupId, refreshInventory, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(
+        redactSecrets(await callControlPlane("read", () => api.listRuntimeGroupMarketplace(runtimeGroupId, { refreshInventory }))),
+      );
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_list_runtime_group_inventory",
+    {
+      title: "List Runtime Group Inventory",
+      description:
+        "List the skills a runtime group is actually observed running right now. Where thalovant_list_runtime_group_marketplace answers 'what could be installed here', this answers 'what is loaded'. Each entry carries skill_id, version, source, active, adapt_intents, padatious_intents, total_intents, and observed_at; the envelope reports source (ovos-runtime-operator, runtime-group-cache, or ovos-runtime-operator-pending), operator_phase, and operator_message. Unlike thalovant_get_hub_runtime_capabilities this never fails with 409 when nothing is reporting — it returns an empty list with a pending source. Requires the hubs:inspect scope; no paid plan needed.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
+        refresh: z
+          .boolean()
+          .optional()
+          .describe("Force a live operator read. The API also refreshes on its own when it holds no cached snapshot."),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ runtimeGroupId, refresh, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(
+        redactSecrets(await callControlPlane("read", () => api.listRuntimeGroupInventory(runtimeGroupId, { refresh }))),
+      );
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_create_hub",
+    {
+      title: "Create Hub",
+      description:
+        "Create a Thalovant hub. Requires the hubs:write scope AND a paid plan: a token without the scope fails 403, and because the scope is checked before the plan, granting the scope can then surface a 402 'API access requires a paid plan'. The create is idempotent — the SDK sends an Idempotency-Key, so a retried create returns the first hub rather than making a second one; reusing a key with a DIFFERENT body fails 409.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        name: z.string().min(1).max(128).describe("Hub name, 1-128 characters. Required. Immutable once created."),
+        spec: hubSpecSchema,
+        slug: z
+          .string()
+          .min(1)
+          .max(191)
+          .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug must be lowercase alphanumeric segments separated by single hyphens.")
+          .optional()
+          .describe("1-191 chars, lowercase alphanumeric segments separated by single hyphens. Defaults to a slug derived from name. Unlike name, slug stays mutable."),
+        namespace: z.string().min(1).max(128).optional().describe("1-128 characters. Resolved server-side when omitted. Immutable once created."),
+        domain: z
+          .string()
+          .min(1)
+          .max(255)
+          .optional()
+          .describe("Max 255 characters. Immutable once created. Plans without custom domains are rejected with 403; when omitted, a managed subdomain is generated if the plan provides one."),
+        active: z.boolean().optional().describe("Defaults to true."),
+        visibility: z
+          .string()
+          .min(1)
+          .max(32)
+          .optional()
+          .describe('1-32 characters, defaults to "private". Only "public" is special-cased by the API, and public listing is plan-gated.'),
+        ownerId: z.string().min(1).optional().describe("Defaults to the caller. Setting another owner requires admin."),
+        runtimeGroupId: z.string().min(1).optional().describe("Runtime group UUID to attach the hub to."),
+        capacityProfile: capacityProfileSchema.optional(),
+        isLocked: z.boolean().optional(),
+        idempotencyKey: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Reuse the same key to safely retry one create. Reusing it with a different body fails 409."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async (args) => {
+      const { loginScope, apiUrl, idempotencyKey, ...payload } = args;
+      const api = await createControlPlane({ loginScope, apiUrl });
+      ensureAuthenticated(api);
+      return jsonContent(
+        redactSecrets(await callControlPlane("hubWrite", () => api.createHub(payload as HubPayload, { idempotencyKey }))),
+      );
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_update_hub",
+    {
+      title: "Update Hub",
+      description:
+        "Partially update a Thalovant hub. Send ONLY the fields you are changing — do not round-trip a whole hub resource. name, namespace, and domain are immutable and are deliberately not accepted here; the API rejects a changed value with HTTP 400. This route uses optimistic locking and requires the hub's current etag, which lives in the hub resource BODY (there is no ETag response header), so call thalovant_get_hub first and pass the etag field from its response. A missing or stale etag fails 412 and changes nothing. Requires the hubs:write scope and a paid plan.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().min(1).describe("Hub UUID. This authenticated route rejects slugs."),
+        etag: hubEtagSchema,
+        active: z.boolean().optional(),
+        visibility: z
+          .string()
+          .min(1)
+          .max(32)
+          .optional()
+          .describe('1-32 characters. Switching to "public" is plan-gated and fails 403 on plans that keep hubs private.'),
+        slug: z
+          .string()
+          .min(1)
+          .max(191)
+          .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Slug must be lowercase alphanumeric segments separated by single hyphens.")
+          .optional()
+          .describe("Mutable, unlike name/namespace/domain. Fails 409 if the slug is already taken."),
+        spec: hubSpecSchema.optional(),
+        ownerId: z.string().min(1).optional(),
+        runtimeGroupId: z.string().min(1).optional(),
+        capacityProfile: capacityProfileSchema.optional(),
+        isLocked: z.boolean().optional().describe("Admin only: a non-admin gets 403, and a non-admin cannot update a locked hub at all."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async (args) => {
+      const { loginScope, apiUrl, hubId, etag, ...payload } = args;
+      const api = await createControlPlane({ loginScope, apiUrl });
+      ensureAuthenticated(api);
+      return jsonContent(
+        redactSecrets(await callControlPlane("hubWrite", () => api.updateHub(hubId, payload as HubPayload, { etag }))),
+      );
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_release_hub",
+    {
+      title: "Release Hub",
+      description:
+        "Apply a release policy to a hub and return the updated hub. Every option is optional; omitted fields fall back to the workspace release policy. Passing images switches the hub to custom mode unless mode is also set. Requires the hubs:write scope and a paid plan. No etag is needed.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().min(1).describe("Hub UUID."),
+        ...releaseOptionsSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ hubId, channel, mode, version, images, reason, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(
+        redactSecrets(
+          await callControlPlane("hubWrite", () =>
+            api.releaseHub(hubId, releaseOptionsFrom({ channel, mode, version, images, reason })),
+          ),
+        ),
+      );
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_set_hub_rating",
+    {
+      title: "Set Hub Rating",
+      description:
+        'Rate a public Thalovant hub from 1 to 5 and return the updated hub. Requires the hubs:write scope; no paid plan is needed, so free-tier tokens can rate. Rating a non-public hub fails 400 "Only public hubs can be rated." and rating your own hub fails 400 "Hub owners cannot rate their own public hubs."',
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().min(1).describe("Hub UUID."),
+        rating: z.number().int().min(1).max(5).describe("Rating, an integer from 1 to 5."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ hubId, rating, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(redactSecrets(await callControlPlane("write", () => api.setHubRating(hubId, rating))));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_clear_hub_rating",
+    {
+      title: "Clear Hub Rating",
+      description:
+        "Remove the caller's own rating from a public Thalovant hub and return the hub. This clears only the caller's rating, not the hub. Requires the hubs:write scope; no paid plan is needed.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().min(1).describe("Hub UUID."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ hubId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(redactSecrets(await callControlPlane("write", () => api.clearHubRating(hubId))));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_get_hub_runtime_capabilities",
+    {
+      title: "Get Hub Runtime Capabilities",
+      description:
+        "Read the live skill and intent inventory a hub runtime exposes. Requires the hubs:inspect scope. The API answers HTTP 409 when the hub has no connected client that can report inventory — for a group-level view that returns an empty list instead of failing, use thalovant_list_runtime_group_inventory.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().min(1).describe("Hub UUID."),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ hubId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(redactSecrets(await callControlPlane("read", () => api.getHubRuntimeCapabilities(hubId))));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_list_runtime_groups",
+    {
+      title: "List Runtime Groups",
+      description:
+        "List the Thalovant runtime groups visible to the authenticated account. Requires the hubs:read scope. The response is not paginated — every visible group is returned at once.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        ownerId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe("Admin tokens only. Unlike the marketplace catalog, which silently ignores this for non-admins, passing another account's id here fails 403 \"Ownership required\". Omit it to list your own groups."),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ ownerId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(redactSecrets(await callControlPlane("read", () => api.listRuntimeGroups({ ownerId }))));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_get_runtime_group",
+    {
+      title: "Get Runtime Group",
+      description: "Fetch one Thalovant runtime group. Requires the hubs:read scope.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ runtimeGroupId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(redactSecrets(await callControlPlane("read", () => api.getRuntimeGroup(runtimeGroupId))));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_create_runtime_group",
+    {
+      title: "Create Runtime Group",
+      description:
+        "Create a Thalovant runtime group — the unit that hosts hubs and holds installed skills. Requires the hubs:write scope and a paid plan. Unlike the hub write routes this one takes no etag.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        name: z.string().min(1).max(128).describe("Runtime group name, 1-128 characters. Required."),
+        description: z.string().max(255).optional().describe("Max 255 characters."),
+        environment: z.string().min(1).max(32).optional().describe("1-32 characters. Lowercased server-side; defaults from server settings."),
+        ownerId: z.string().min(1).optional().describe("Defaults to the caller. Setting another owner requires admin."),
+        cloneFromDefault: z
+          .boolean()
+          .optional()
+          .describe("Seed the new group from the workspace default group instead of starting empty."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async (args) => {
+      const { loginScope, apiUrl, ...payload } = args;
+      const api = await createControlPlane({ loginScope, apiUrl });
+      ensureAuthenticated(api);
+      return jsonContent(
+        redactSecrets(await callControlPlane("write", () => api.createRuntimeGroup(payload as RuntimeGroupPayload))),
+      );
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_update_runtime_group",
+    {
+      title: "Update Runtime Group",
+      description:
+        "Update a Thalovant runtime group's name, description, or spec. spec patches replicas and container resources. This route does NOT use If-Match, so no etag is required. Requires the hubs:write scope and a paid plan.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
+        name: z.string().min(1).max(128).optional().describe("1-128 characters."),
+        description: z.string().max(255).optional().describe("Max 255 characters."),
+        spec: runtimeGroupSpecSchema.optional(),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async (args) => {
+      const { loginScope, apiUrl, runtimeGroupId, ...payload } = args;
+      const api = await createControlPlane({ loginScope, apiUrl });
+      ensureAuthenticated(api);
+      return jsonContent(
+        redactSecrets(
+          await callControlPlane("write", () => api.updateRuntimeGroup(runtimeGroupId, payload as RuntimeGroupPayload)),
+        ),
+      );
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_get_runtime_group_config",
+    {
+      title: "Get Runtime Group Config",
+      description:
+        "Read a Thalovant runtime group's runtime configuration and personas. Requires the hubs:read scope. Read this before thalovant_update_runtime_group_config so you know what the merge will land on.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ runtimeGroupId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(redactSecrets(await callControlPlane("read", () => api.getRuntimeGroupConfig(runtimeGroupId))));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_update_runtime_group_config",
+    {
+      title: "Update Runtime Group Config",
+      description:
+        "Merge runtime configuration into a Thalovant runtime group. The API MERGES config into the stored configuration rather than replacing it, and marks the group pending so the runtime operator reconciles the change. personas, when provided, is REPLACED wholesale rather than merged; omit it to leave stored personas untouched. Requires the hubs:write scope and a paid plan.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
+        config: jsonRecordSchema.describe("Configuration object merged into the stored configuration. Required."),
+        personas: jsonRecordSchema.optional().describe("Replaces the stored personas outright. Left untouched when omitted."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ runtimeGroupId, config, personas, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(
+        redactSecrets(await callControlPlane("write", () => api.updateRuntimeGroupConfig(runtimeGroupId, config, { personas }))),
+      );
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_release_runtime_group",
+    {
+      title: "Release Runtime Group",
+      description:
+        "Apply a runtime image policy to a Thalovant runtime group and return the updated group. Options behave like thalovant_release_hub: everything is optional, omitted fields fall back to the workspace release policy, and passing images switches to custom mode unless mode is also set. Requires the hubs:write scope and a paid plan.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
+        ...releaseOptionsSchema,
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ runtimeGroupId, channel, mode, version, images, reason, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(
+        redactSecrets(
+          await callControlPlane("write", () =>
+            api.releaseRuntimeGroup(runtimeGroupId, releaseOptionsFrom({ channel, mode, version, images, reason })),
+          ),
+        ),
+      );
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_install_runtime_group_skill",
+    {
+      title: "Install Runtime Group Skill",
+      description:
+        "Install (or re-install) a skill in a Thalovant runtime group. Installing a skill that is already present updates the existing entry rather than failing. Discover skillId with thalovant_list_marketplace_skills, then confirm installable/purchase_required with thalovant_list_runtime_group_marketplace before calling this. Requires the hubs:write scope and a paid plan (402 'API access requires a paid plan'); a paid marketplace skill ALSO needs marketplace access on the tenant plan, which fails with a second, distinct 402 about paid marketplace access.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
+        skillId: z
+          .string()
+          .min(1)
+          .max(191)
+          .describe("Skill id from the catalog, 1-191 characters. Sent as skill_id in the request BODY on install (it is a path segment only on uninstall). For a catalog install the API persists the resolved catalog id, which may differ from what you send."),
+        marketplaceSkillId: z.string().uuid().optional().describe("Catalog entry UUID, to disambiguate when the skill id alone is ambiguous."),
+        sourceType: z
+          .string()
+          .min(1)
+          .max(32)
+          .optional()
+          .describe('Install source, 1-32 characters, defaulting to "catalog". The API accepts any string here rather than a fixed enum, but only "catalog" (requires the skill to exist in the marketplace catalog) and "git" (requires sourceRef) get special handling.'),
+        sourceRef: z.string().min(1).max(255).optional().describe("Max 255 characters. Required for git installs — a git install without a valid repository URL fails 422."),
+        versionPin: z.string().min(1).max(64).optional().describe("Pin the skill to an exact version. Max 64 characters."),
+        active: z
+          .boolean()
+          .optional()
+          .describe("Whether the skill is enabled after install. Defaults to true. Installing with false also adds the skill to the group's blacklist."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ runtimeGroupId, skillId, marketplaceSkillId, sourceType, sourceRef, versionPin, active, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      const options: RuntimeGroupSkillInstallOptions = { marketplaceSkillId, sourceType, sourceRef, versionPin, active };
+      return jsonContent(
+        redactSecrets(await callControlPlane("skillInstall", () => api.installRuntimeGroupSkill(runtimeGroupId, skillId, options))),
+      );
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_uninstall_runtime_group_skill",
+    {
+      title: "Uninstall Runtime Group Skill",
+      description:
+        "Remove one skill from a Thalovant runtime group. This removes only the named skill; the runtime group and its other skills are untouched. Requires the hubs:write scope and a paid plan.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
+        skillId: z.string().min(1).describe("Skill id to remove."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ runtimeGroupId, skillId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      await callControlPlane("write", () => api.uninstallRuntimeGroupSkill(runtimeGroupId, skillId));
+      return textContent("Runtime group skill uninstalled.");
+    },
+  );
+
+  if (destructiveToolsEnabled()) {
+    registerThalovantTool(server,
+      "thalovant_delete_hub",
+      {
+        title: "Delete Hub",
+        description:
+          "Permanently delete a Thalovant hub along with its dependent clients and ACLs. This cannot be undone. Requires the hub's current etag, read from the `etag` field in the hub resource BODY returned by thalovant_get_hub — the API sends no ETag response header — and sent as If-Match; a missing or stale etag fails 412 and deletes nothing. Requires the hubs:write scope and a paid plan. This tool is disabled unless the operator sets THALOVANT_ENABLE_DESTRUCTIVE_TOOLS.",
+        inputSchema: {
+          ...controlPlaneSchema,
+          hubId: z.string().min(1).describe("Hub UUID. This authenticated route rejects slugs."),
+          etag: hubEtagSchema,
+        },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+      },
+      async ({ hubId, etag, ...auth }) => {
+        const api = await createControlPlane(auth);
+        ensureAuthenticated(api);
+        await callControlPlane("hubWrite", () => api.deleteHub(hubId, { etag }));
+        return textContent("Hub deleted.");
+      },
+    );
+
+    registerThalovantTool(server,
+      "thalovant_delete_runtime_group",
+      {
+        title: "Delete Runtime Group",
+        description:
+          "Permanently delete a Thalovant runtime group. This cannot be undone. The API answers HTTP 409 for the workspace default group and for a group that still has hubs attached — move or delete those hubs first. This route takes no etag. Requires the hubs:write scope and a paid plan. This tool is disabled unless the operator sets THALOVANT_ENABLE_DESTRUCTIVE_TOOLS.",
+        inputSchema: {
+          ...controlPlaneSchema,
+          runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
+        },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: false,
+          openWorldHint: true,
+        },
+      },
+      async ({ runtimeGroupId, ...auth }) => {
+        const api = await createControlPlane(auth);
+        ensureAuthenticated(api);
+        await callControlPlane("write", () => api.deleteRuntimeGroup(runtimeGroupId));
+        return textContent("Runtime group deleted.");
+      },
+    );
+  }
 
   return server;
 }

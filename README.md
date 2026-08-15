@@ -56,12 +56,28 @@ Minimum scopes for the full control-plane tool surface:
 
 | Scope | Used by |
 |-------|---------|
-| `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, and the hub lookup inside `thalovant_create_client_identity` |
+| `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, `thalovant_list_marketplace_skills`, `thalovant_list_runtime_groups`, `thalovant_get_runtime_group`, `thalovant_get_runtime_group_config`, and the hub lookup inside `thalovant_create_client_identity` |
+| `hubs:inspect` | `thalovant_get_hub_runtime_capabilities`, `thalovant_list_runtime_group_marketplace`, `thalovant_list_runtime_group_inventory` |
+| `hubs:write` | All hub and runtime-group provisioning: `thalovant_create_hub`, `thalovant_update_hub`, `thalovant_release_hub`, `thalovant_create_runtime_group`, `thalovant_update_runtime_group`, `thalovant_update_runtime_group_config`, `thalovant_release_runtime_group`, `thalovant_install_runtime_group_skill`, `thalovant_uninstall_runtime_group_skill`, the hub rating tools, and the opt-in delete tools |
 | `clients:write` | `thalovant_create_client_identity` (`POST /v1/clients`) |
 | `memory:read` | `thalovant_list_memory_items`, `thalovant_get_memory_summary`, `thalovant_get_memory_item` |
 | `memory:write` | `thalovant_create_memory_item`, `thalovant_update_memory_item`, `thalovant_delete_memory_item` |
 
-Grant fewer scopes for narrower deployments: a read-only assistant needs only `hubs:read` and `memory:read`. `thalovant_get_analytics_overview` with `admin: true` additionally requires an admin account with `admin:analytics`, which API tokens for regular use should not carry. Runtime hub tools (`thalovant_ask`, `thalovant_send_action`, and friends) use Thalovant client identities, not control-plane tokens.
+The hub scopes imply one another: `hubs:write` grants `hubs:read`, which grants `hubs:inspect` and `hubs:preview`. Minting a token with `hubs:read` is therefore enough for every discovery tool in the table above.
+
+Scope is not the whole story for provisioning. Every hub and runtime-group write also requires a **paid plan**, and the API checks scope *before* the plan, so the two failure modes are ordered:
+
+- A token missing the scope fails `403 Insufficient scopes`. Free-plan API tokens are capped at `hubs:read`, `clients:read`, and `clients:write`, so on the free tier provisioning fails with this 403 and never reaches the 402.
+- A correctly scoped token on a free plan fails `402 API access requires a paid plan.`
+- `thalovant_install_runtime_group_skill` can fail with a **second, distinct** 402, `This skill requires paid marketplace access for the tenant plan.`, when the plan is paid but does not include `access_tier: paid` catalog entries.
+
+Discovery is deliberately not paid-gated: **a free-tier token can browse the marketplace catalog and set hub ratings, but cannot install skills or provision hubs.** Use `thalovant_list_runtime_group_marketplace` before installing — it reports `installable`, `purchase_required`, and `access_message` per skill, which turns an opaque 402 into a decision you can make up front.
+
+Grant fewer scopes for narrower deployments: a read-only assistant needs only `hubs:read` and `memory:read`, and a discovery-only agent that browses skills but never provisions needs `hubs:read` alone. `thalovant_get_analytics_overview` with `admin: true` additionally requires an admin account with `admin:analytics`, which API tokens for regular use should not carry. Runtime hub tools (`thalovant_ask`, `thalovant_send_action`, and friends) use Thalovant client identities, not control-plane tokens.
+
+### Hub Etags
+
+`thalovant_update_hub` and `thalovant_delete_hub` use optimistic locking and require the hub's current etag, sent as `If-Match`. The etag is only available in the **body** of the hub resource — the API sends no `ETag` response header — so an agent must call `thalovant_get_hub` first and pass the `etag` field from that response. A missing or stale value fails `412 ETag mismatch` and changes nothing; re-fetch and retry. `name`, `namespace`, and `domain` are immutable after creation, so `thalovant_update_hub` does not accept them at all; send only the fields you are changing rather than round-tripping a whole hub resource. Runtime-group writes do not use etags.
 
 ### Login Fallback
 
@@ -201,6 +217,8 @@ export MCP_TOOL_DENYLIST="thalovant_delete_memory_item"
 
 Per-principal credential files may also include `allowedTools` and `deniedTools`.
 
+Both are call-time filters, and an empty allowlist means "allow everything". They cannot make a tool default-off or hide it from `tools/list`, which is why the two destructive control-plane tools are gated separately by `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`. See [Destructive Tools](#destructive-tools).
+
 Audit logs:
 
 ```bash
@@ -295,6 +313,16 @@ Read-only:
 - `thalovant_get_memory_summary`
 - `thalovant_get_memory_item`
 
+Skill and runtime-group discovery (read-only):
+
+- `thalovant_list_marketplace_skills`
+- `thalovant_list_runtime_group_marketplace`
+- `thalovant_list_runtime_group_inventory`
+- `thalovant_list_runtime_groups`
+- `thalovant_get_runtime_group`
+- `thalovant_get_runtime_group_config`
+- `thalovant_get_hub_runtime_capabilities`
+
 Writes or hub events:
 
 - `thalovant_create_client_identity`
@@ -306,7 +334,50 @@ Writes or hub events:
 - `thalovant_update_memory_item`
 - `thalovant_delete_memory_item`
 
+Hub and runtime-group provisioning:
+
+- `thalovant_create_hub`
+- `thalovant_update_hub`
+- `thalovant_release_hub`
+- `thalovant_set_hub_rating`
+- `thalovant_clear_hub_rating`
+- `thalovant_create_runtime_group`
+- `thalovant_update_runtime_group`
+- `thalovant_update_runtime_group_config`
+- `thalovant_release_runtime_group`
+- `thalovant_install_runtime_group_skill`
+- `thalovant_uninstall_runtime_group_skill`
+
+Destructive, **not registered unless explicitly enabled** (see [Destructive Tools](#destructive-tools)):
+
+- `thalovant_delete_hub`
+- `thalovant_delete_runtime_group`
+
 Tool outputs redact credential-shaped fields. `thalovant_create_client_identity` does not return secret identity material; pass `savePath` when you want the full identity written to a local file with mode `0600`.
+
+## Destructive Tools
+
+`thalovant_delete_hub` and `thalovant_delete_runtime_group` are **disabled by default**. They are not merely blocked when called — they are never registered, so they do not appear in `tools/list` and a model cannot see or attempt them.
+
+A long-lived control-plane token combined with an always-available delete tool is a categorically different risk from a read or update tool: deleting a hub also deletes its dependent clients and ACLs, and none of it is reversible. So these two are opt-in:
+
+```bash
+export THALOVANT_ENABLE_DESTRUCTIVE_TOOLS="true"
+```
+
+Accepted true values are `1`, `true`, `yes`, and `on`; anything else, including unset, leaves the tools off. The flag is read when a server instance is created, so restart the server (or, in Streamable HTTP mode, start a new session) after changing it. `thalovant_config_status` reports the current state as `destructiveToolsEnabled` and lists the tools the flag controls.
+
+This is a separate mechanism from the existing tool policy, deliberately. `MCP_TOOL_ALLOWLIST` / `MCP_TOOL_DENYLIST` and the per-principal `allowedTools` / `deniedTools` are call-time filters where an empty allowlist means "allow everything"; they cannot express a tool that is off until an operator turns it on, and they cannot hide a tool from `tools/list`. Once `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` is set the delete tools are ordinary tools again and remain subject to that policy, so the two layers compose:
+
+```bash
+# Enable deletes server-wide, but deny them to everyone except trusted principals.
+export THALOVANT_ENABLE_DESTRUCTIVE_TOOLS="true"
+export MCP_TOOL_DENYLIST="thalovant_delete_hub,thalovant_delete_runtime_group"
+```
+
+with the trusted principal's credential file granting them back via `allowedTools`.
+
+Deleting a hub still requires a current etag (`412` otherwise), and deleting a runtime group fails with `409` while it is the workspace default or still has hubs attached.
 
 ## Development
 
