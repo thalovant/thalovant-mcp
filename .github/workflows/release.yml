@@ -149,7 +149,18 @@ jobs:
             | node -e "const data = JSON.parse(require('fs').readFileSync(0, 'utf8')); const version = process.env.PACKAGE_VERSION; process.exit(data.servers?.some((entry) => entry.server?.name === 'io.github.thalovant/thalovant-mcp' && entry.server?.version === version) ? 0 : 1)"; then
             echo "io.github.thalovant/thalovant-mcp ${PACKAGE_VERSION} is already in the MCP Registry; skipping publish."
           else
-            ./mcp-publisher publish
+            set +e
+            publish_output="$(./mcp-publisher publish 2>&1)"
+            publish_code=$?
+            set -e
+            printf '%s\n' "$publish_output"
+            if [ "$publish_code" -ne 0 ]; then
+              if printf '%s' "$publish_output" | grep -qiE "duplicate version|already (exists|published)"; then
+                echo "MCP Registry already has ${PACKAGE_VERSION} (publish reported duplicate); treating as already published."
+              else
+                exit "$publish_code"
+              fi
+            fi
           fi
         env:
           PACKAGE_VERSION: ${{ steps.package.outputs.version }}
