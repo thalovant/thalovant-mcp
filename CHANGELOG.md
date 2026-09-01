@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- The `thalovant_ask` tool recognises `ovos.intent.unmatched` on the bus ask path. `@thalovant/sdk` 0.2.33 fixed only the query path; the bus path (which `ask()` uses) registered handlers per event name and dropped the current OVOS intent-miss name. Bumped the dependency floor to `@thalovant/sdk ^0.2.34` and refreshed the lockfile so the npm package and OCI image ship it (thalovant-python-sdk#22).
+
+### Fixed
+
 - The `thalovant_ask` tool now fails fast when an utterance matches no intent. It depends on `@thalovant/sdk`, whose ask loop previously only recognised the legacy `complete_intent_failure` event and missed the current OVOS `ovos.intent.unmatched` name, so an unmatched utterance waited out the full timeout. Bumped the dependency floor to `@thalovant/sdk ^0.2.33` (which carries the fix) and refreshed the lockfile, so the published npm package and OCI image both ship it (thalovant-python-sdk#22).
 
 ### Security
