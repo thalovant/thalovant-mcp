@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- The `thalovant_ask` tool now fails fast when an utterance matches no intent. It depends on `@thalovant/sdk`, whose ask loop previously only recognised the legacy `complete_intent_failure` event and missed the current OVOS `ovos.intent.unmatched` name, so an unmatched utterance waited out the full timeout. Bumped the dependency floor to `@thalovant/sdk ^0.2.33` (which carries the fix) and refreshed the lockfile, so the published npm package and OCI image both ship it (thalovant-python-sdk#22).
+
 ### Security
 
 - `thalovant_install_runtime_group_skill` now refuses non-catalog install sources by default. A `sourceType` other than `catalog` (notably `git` with an arbitrary `sourceRef`) can pull unvetted code into a production runtime, and the control-plane validator is format-only with no host allowlist, so it is rejected before any control-plane request unless the operator sets `THALOVANT_ENABLE_GIT_SKILL_SOURCES` (accepting `1`/`true`/`yes`/`on`), mirroring the `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` gate. `sourceType` is trimmed and case-folded before it is both checked and forwarded, so a variant such as `" Catalog "` or `"CATALOG"` cannot pass the local gate yet reach the control plane — which special-cases only the exact string `"catalog"` — as an unrecognized non-catalog source. The tool is now annotated `destructiveHint: true`, and `thalovant_config_status` reports `gitSkillSourcesEnabled`.
