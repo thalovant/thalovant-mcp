@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- The `thalovant_ask` tool surfaces an unrecovered intent miss promptly instead of waiting out the full timeout, and still lets a fallback reply win, via `@thalovant/sdk` 0.2.35's soft-failure ask path (thalovant-python-sdk#22). Bumped the dependency floor to `^0.2.35` and refreshed the lockfile.
+
+### Fixed
+
 - The `thalovant_ask` tool recognises `ovos.intent.unmatched` on the bus ask path. `@thalovant/sdk` 0.2.33 fixed only the query path; the bus path (which `ask()` uses) registered handlers per event name and dropped the current OVOS intent-miss name. Bumped the dependency floor to `@thalovant/sdk ^0.2.34` and refreshed the lockfile so the npm package and OCI image ship it (thalovant-python-sdk#22).
 
 ### Fixed
