@@ -28,6 +28,12 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
 
+      - name: Ensure npm supports trusted publishing
+        # node 22 ships npm 10, which has no OIDC support, so npm silently
+        # falls back to token auth and the trusted publisher is never used.
+        # thalovant-node-sdk pins the same version for the same reason.
+        run: npm install -g npm@12.0.1
+
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm run typecheck
@@ -67,8 +73,12 @@ jobs:
           sbom-path: ${{ steps.artifacts.outputs.sbom }}
 
       - name: Publish npm package
+        # No NODE_AUTH_TOKEN: setup-node writes it into .npmrc as an
+        # _authToken, and npm prefers that over OIDC, so the trusted publisher
+        # configured for this repository is bypassed in favour of a token that
+        # npm rejects with "E404 Not Found - PUT" (its response for an
+        # unauthorized publish).
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PACKAGE_TARBALL: ${{ steps.artifacts.outputs.tarball }}
           PACKAGE_VERSION: ${{ steps.package.outputs.version }}
         run: |
