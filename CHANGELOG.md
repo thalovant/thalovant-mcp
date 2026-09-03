@@ -4,6 +4,10 @@
 
 ### Fixed
 
+- `thalovant_ask` picks up the reply-correlation fixes from `@thalovant/sdk` 0.2.37: a hub-rewritten session id no longer rejects replies, and replies are correlated by request id rather than the session id a hub replaces. Bumped the dependency floor to `^0.2.37` and refreshed the lockfile so the npm package and OCI image both ship them.
+
+### Fixed
+
 - The `thalovant_ask` tool surfaces an unrecovered intent miss promptly instead of waiting out the full timeout, and still lets a fallback reply win, via `@thalovant/sdk` 0.2.35's soft-failure ask path (thalovant-python-sdk#22). Bumped the dependency floor to `^0.2.35` and refreshed the lockfile.
 
 ### Fixed
