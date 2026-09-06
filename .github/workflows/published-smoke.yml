@@ -4,9 +4,11 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: Aligned npm, OCI, and MCP Registry version to verify
-        required: true
-        default: 0.1.6
+        # No default. It was pinned at 0.1.6, so dispatching without an
+        # explicit version silently verified a version nobody ships and failed
+        # in a way that looked like a broken release.
+        description: Aligned npm, OCI, and MCP Registry version to verify; leave blank to use package.json
+        required: false
 
 permissions:
   contents: read
@@ -23,16 +25,26 @@ jobs:
           cache: npm
           registry-url: https://registry.npmjs.org
       - run: npm ci
+      - name: Resolve the version to verify
+        id: target
+        # Falls back to package.json so a bare dispatch checks what this
+        # commit actually ships instead of a hardcoded version.
+        env:
+          REQUESTED: ${{ inputs.version }}
+        run: |
+          VERSION="${REQUESTED:-$(node -p "require('./package.json').version")}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Verifying @thalovant/mcp-server $VERSION"
       - name: Install and verify the published npm stdio artifact
         env:
-          PACKAGE_VERSION: ${{ inputs.version }}
+          PACKAGE_VERSION: ${{ steps.target.outputs.version }}
         run: |
           mkdir -p "$RUNNER_TEMP/thalovant-mcp-smoke"
           npm install --prefix "$RUNNER_TEMP/thalovant-mcp-smoke" "@thalovant/mcp-server@$PACKAGE_VERSION"
           node scripts/smoke-published.mjs stdio "$RUNNER_TEMP/thalovant-mcp-smoke/node_modules/.bin/thalovant-mcp"
       - name: Start the published OCI artifact
         env:
-          PACKAGE_VERSION: ${{ inputs.version }}
+          PACKAGE_VERSION: ${{ steps.target.outputs.version }}
         run: |
           docker pull "ghcr.io/thalovant/thalovant-mcp:$PACKAGE_VERSION"
           docker run --rm -d --name thalovant-mcp-smoke -p 127.0.0.1:3000:3000 -e MCP_HTTP_AUTH_TOKEN=published-smoke-token -e MCP_HTTP_ALLOWED_HOSTS=127.0.0.1:3000,localhost:3000 "ghcr.io/thalovant/thalovant-mcp:$PACKAGE_VERSION"
@@ -48,7 +60,7 @@ jobs:
         run: node scripts/smoke-published.mjs http http://127.0.0.1:3000/mcp published-smoke-token
       - name: Verify aligned MCP Registry metadata
         env:
-          PACKAGE_VERSION: ${{ inputs.version }}
+          PACKAGE_VERSION: ${{ steps.target.outputs.version }}
         run: |
           curl -fsSL "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.thalovant/thalovant-mcp" \
             | node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(0,"utf8")); const version=process.env.PACKAGE_VERSION; const entry=data.servers?.find(({server,_meta})=>server?.name==="io.github.thalovant/thalovant-mcp"&&server?.version===version&&_meta?.["io.modelcontextprotocol.registry/official"]?.isLatest===true); if(!entry) process.exit(1); const types=new Set(entry.server.packages?.map((item)=>item.registryType)); if(!types.has("npm")||!types.has("oci")) process.exit(1);'
