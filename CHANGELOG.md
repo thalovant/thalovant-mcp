@@ -5,17 +5,8 @@
 ### Fixed
 
 - `thalovant_ask` picks up the reply-correlation fixes from `@thalovant/sdk` 0.2.37: a hub-rewritten session id no longer rejects replies, and replies are correlated by request id rather than the session id a hub replaces. Bumped the dependency floor to `^0.2.37` and refreshed the lockfile so the npm package and OCI image both ship them.
-
-### Fixed
-
 - The `thalovant_ask` tool surfaces an unrecovered intent miss promptly instead of waiting out the full timeout, and still lets a fallback reply win, via `@thalovant/sdk` 0.2.35's soft-failure ask path (thalovant-python-sdk#22). Bumped the dependency floor to `^0.2.35` and refreshed the lockfile.
-
-### Fixed
-
 - The `thalovant_ask` tool recognises `ovos.intent.unmatched` on the bus ask path. `@thalovant/sdk` 0.2.33 fixed only the query path; the bus path (which `ask()` uses) registered handlers per event name and dropped the current OVOS intent-miss name. Bumped the dependency floor to `@thalovant/sdk ^0.2.34` and refreshed the lockfile so the npm package and OCI image ship it (thalovant-python-sdk#22).
-
-### Fixed
-
 - The `thalovant_ask` tool now fails fast when an utterance matches no intent. It depends on `@thalovant/sdk`, whose ask loop previously only recognised the legacy `complete_intent_failure` event and missed the current OVOS `ovos.intent.unmatched` name, so an unmatched utterance waited out the full timeout. Bumped the dependency floor to `@thalovant/sdk ^0.2.33` (which carries the fix) and refreshed the lockfile, so the published npm package and OCI image both ship it (thalovant-python-sdk#22).
 
 ### Security
