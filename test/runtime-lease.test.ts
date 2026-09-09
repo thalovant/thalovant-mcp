@@ -36,3 +36,43 @@ it("rejects later calls without reusing an identity whose actual cleanup failed"
   }
   expect(admitted).toBe(false);
 });
+
+it("expires queued callers without releasing the old owner or executing them later", async () => {
+  const retired = deferred();
+  const first = { close: async () => { throw new Error("synthetic close deadline"); }, waitForClosed: () => retired.promise };
+  await expect(withRuntimeLease("queue-deadline", first, async () => "first")).rejects.toThrow("close deadline");
+  let runs = 0;
+  let closes = 0;
+  const unused = { close: async () => { closes += 1; }, waitForClosed: async () => { closes += 1; } };
+  const started = performance.now();
+  await expect(withRuntimeLease("queue-deadline", unused, async () => { runs += 1; }, 20)).rejects.toThrow("acquisition deadline");
+  expect(performance.now() - started).toBeLessThan(500);
+  // A second expired waiter must not bypass the first abandoned barrier.
+  await expect(withRuntimeLease("queue-deadline", unused, async () => { runs += 1; }, 20)).rejects.toThrow("acquisition deadline");
+  expect(runs).toBe(0);
+  expect(closes).toBe(0);
+  let admitted = false;
+  const next = withRuntimeLease("queue-deadline", clean(), async () => { admitted = true; return "after cleanup"; });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  expect(admitted).toBe(false);
+  retired.resolve();
+  await expect(next).resolves.toBe("after cleanup");
+  expect(runs).toBe(0);
+  expect(closes).toBe(0);
+});
+
+it("serializes successful tool work until the preceding cleanup completes", async () => {
+  const work = deferred();
+  const retired = deferred();
+  let secondRan = false;
+  const first = withRuntimeLease("normal-serialization", { close: () => retired.promise, waitForClosed: () => retired.promise }, async () => { await work.promise; return "first"; });
+  const second = withRuntimeLease("normal-serialization", clean(), async () => { secondRan = true; return "second"; });
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(secondRan).toBe(false);
+  work.resolve();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  expect(secondRan).toBe(false);
+  retired.resolve();
+  await expect(first).resolves.toBe("first");
+  await expect(second).resolves.toBe("second");
+});

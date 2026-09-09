@@ -5,7 +5,7 @@
 - Bind server-managed Thalovant tokens and password login to their configured API origin. Reject cross-origin tool overrides before any outbound request, including credentials for remote principals; retain configured custom origins and anonymous public discovery.
 - Add read-only `thalovant_intent_inventory` and `thalovant_get_operation` tools for runtime discovery and asynchronous provisioning status. Inventory preserves fallback knowledge and conservative answerability.
 - Require Node SDK 0.3.6 for aligned intent discovery, request correlation, authenticated readiness deadlines and retained cleanup ownership.
-- Retain the runtime identity lease until actual cleanup, even after a caller close timeout; failed cleanup blocks later identity reuse with an explicit error.
+- Retain the runtime identity lease until actual cleanup, even after a caller close timeout; failed cleanup blocks later identity reuse with an explicit error. Bound queued lease acquisition to six seconds without releasing pending ownership or executing expired callers.
 - Upgrade the test runner to Vitest 4.1.11 to remove GHSA-82fw-gwwq-j7x9.
 - Test Node 20, 22 and 24; add per-principal/shared credential regressions and exercise the inventory tool over a real HTTPS Noise session.
 

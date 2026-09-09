@@ -433,7 +433,9 @@ verified trust change. HTTPS identities must advertise the hub's HTTPS plugin,
 and MQTT requires the identity's broker credentials and topic prefix.
 
 Runtime tools retain their identity lease through actual cleanup. If the close
-caller times out, a later tool waits for that cleanup before opening a session.
+caller times out, a later tool waits up to six seconds for that cleanup before opening a session.
+A queued tool that reaches this deadline fails without executing later or releasing
+the previous session's identity.
 An actual cleanup failure marks the identity unavailable to later calls instead
 of risking concurrent sessions.
 
