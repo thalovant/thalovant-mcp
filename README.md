@@ -336,6 +336,7 @@ Writes or hub events:
 
 - `thalovant_create_client_identity`
 - `thalovant_ask`
+- `thalovant_query`
 - `thalovant_send_action`
 - `thalovant_send_code`
 - `thalovant_emit_event`
@@ -418,7 +419,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.1.20 uses `@thalovant/sdk` 0.3.6 or newer. This release enforces
+Version 0.1.20 uses `@thalovant/sdk` 0.3.7 or newer. This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
@@ -455,3 +456,16 @@ npm pack --dry-run
 ## License
 
 MIT. This is the right default for a public integration server: it is permissive, compatible with the MIT Thalovant Node SDK and MCP TypeScript SDK, and does not force downstream agent or enterprise users into a reciprocal licensing model.
+
+Credential-bearing control-plane calls require HTTPS. Explicit loopback HTTP
+(`localhost`, `127.0.0.1`, `[::1]`) remains supported for local development.
+API redirects are rejected so password-login bodies cannot be forwarded.
+Runtime clients are constructed only after acquiring their identity lease.
+
+`thalovant_query` sends a routed HiveMind query; the hub may cascade it according
+to its routing policy. It accepts `text`, `timeoutMs`, `lang`, `sessionId`,
+`requestId`, `queryId`, `context` and `replySettleMs`, plus the runtime identity
+options, and returns the same normalized reply shape as `thalovant_ask`. A query
+may trigger actions, so read-only mode hides it. Conversation workflows use
+`sessionId` with ask/query and the existing event-wait tool; MCP does not expose
+one tool for every SDK conversation or event-listener method.

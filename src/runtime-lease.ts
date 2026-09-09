@@ -8,7 +8,7 @@ const leases = new Map<string, Promise<void>>();
 
 /** A caller timeout never releases an identity before actual cleanup settles. */
 export async function withRuntimeLease<T, C extends RuntimeClosable>(
-  key: string, client: C, run: (client: C) => Promise<T>,
+  key: string, createClient: () => C, run: (client: C) => Promise<T>,
   acquireTimeoutMs = 6000,
 ): Promise<T> {
   if (!Number.isFinite(acquireTimeoutMs) || acquireTimeoutMs <= 0) {
@@ -44,6 +44,13 @@ export async function withRuntimeLease<T, C extends RuntimeClosable>(
     throw error;
   } finally {
     clearTimeout(timer);
+  }
+  let client: C;
+  try {
+    client = createClient();
+  } catch (error) {
+    releaseIdentity();
+    throw error;
   }
   try {
     return await run(client);

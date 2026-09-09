@@ -26,3 +26,7 @@ Server-managed Thalovant tokens and password login are bound to their configured
 control-plane origin. Tool-provided `apiUrl` overrides with a different origin
 are rejected before any request is sent. Configure a custom API origin together
 with its credentials; per-principal credentials follow the same rule.
+
+Control-plane credentials require HTTPS, with an explicit loopback HTTP exception
+for local development (`localhost`, `127.0.0.1`, `[::1]`). API redirects are rejected,
+including redirects that would preserve password-login request bodies.

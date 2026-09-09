@@ -69,5 +69,12 @@ export function noisePeer(
         write(frame, true);
       }
     },
+    replyQuery(queryId: string, payload: Record<string, unknown>) {
+      if (!session) throw new Error("no authenticated peer");
+      const message = { msg_type: "query", metadata: { query_id: queryId }, payload: { msg_type: "bus", payload } };
+      for (const frame of session.encryptMessage(Buffer.from(JSON.stringify(message)), true)) {
+        write(frame, true);
+      }
+    },
   };
 }
