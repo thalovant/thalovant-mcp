@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { withRuntimeLease } from "./runtime-lease.js";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -106,7 +107,7 @@ const controlPlaneSchema = {
     .string()
     .url()
     .optional()
-    .describe("Control-plane base URL. Defaults to https://api.thalovant.com."),
+    .describe("Control-plane base URL. Configured credentials may only be used on their configured origin; defaults to https://api.thalovant.com."),
 };
 
 const contextSchema = z
@@ -738,6 +739,7 @@ function redactSecrets(value: unknown): unknown {
   return output;
 }
 
+/** Keep server-managed credentials on their configured control-plane origin. */
 async function createControlPlane(options: {
   apiUrl?: string;
   loginScope?: string;
@@ -745,18 +747,22 @@ async function createControlPlane(options: {
   const principal = currentPrincipal();
   const credential = await credentialForPrincipal(principal);
   const canUseShared = allowSharedThalovantCredentials(principal);
-  const apiUrl = options.apiUrl ?? credential?.control?.apiUrl ?? (canUseShared ? process.env.THALOVANT_API_URL : undefined) ?? DEFAULT_CONTROL_API_URL;
+  const configuredApiUrl = credential?.control?.apiUrl ?? (canUseShared ? process.env.THALOVANT_API_URL : undefined) ?? DEFAULT_CONTROL_API_URL;
+  const apiUrl = options.apiUrl ?? configuredApiUrl;
   const accessToken =
     credential?.control?.accessToken ??
     (canUseShared ? process.env.THALOVANT_API_TOKEN ?? process.env.THALOVANT_ACCESS_TOKEN : undefined);
+  const email = canUseShared ? process.env.THALOVANT_EMAIL : undefined;
+  const password = canUseShared ? process.env.THALOVANT_PASSWORD : undefined;
+  if ((accessToken || (email && password)) && new URL(apiUrl).origin !== new URL(configuredApiUrl).origin) {
+    throw new Error("apiUrl must use the configured Thalovant credential origin.");
+  }
   const api = new ThalovantControlPlane(apiUrl, {
     accessToken,
     userAgent: `thalovant-mcp/${VERSION}`,
   });
 
   if (!accessToken && canUseShared) {
-    const email = process.env.THALOVANT_EMAIL;
-    const password = process.env.THALOVANT_PASSWORD;
     if (email && password) {
       await api.login(email, password, { scope: options.loginScope ?? process.env.THALOVANT_SCOPE });
     }
@@ -843,15 +849,7 @@ async function createRuntimeClient(options: {
   });
 }
 
-// The hub HTTP/MQTT queues and Noise sessions are keyed by client identity.
-// A second tool call must finish after the first closes that identity's session.
-const runtimeLeases = new Map<string, Promise<void>>();
-
-/**
- * Hold an identity lease through both the tool action and client cleanup.
- * This keeps HTTP/MQTT admissions from replacing another call's Noise session;
- * a failed action still closes its client before the next lease starts.
- */
+/** Use one identity lease through the action and actual retained cleanup. */
 async function withRuntimeClient<T>(
   options: Parameters<typeof createRuntimeClient>[0],
   run: (client: ThalovantClient) => Promise<T>,
@@ -860,21 +858,7 @@ async function withRuntimeClient<T>(
   const key = createHash("sha256").update(JSON.stringify([
     client.identity.endpointBase(), client.identity.accessKey,
   ])).digest("hex");
-  const previous = runtimeLeases.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>(resolve => { release = resolve; });
-  runtimeLeases.set(key, current);
-  await previous;
-  try {
-    return await run(client);
-  } finally {
-    try {
-      await client.close();
-    } finally {
-      release();
-      if (runtimeLeases.get(key) === current) runtimeLeases.delete(key);
-    }
-  }
+  return withRuntimeLease(key, client, run);
 }
 
 function summarizeReply(reply: ThalovantReply) {
@@ -1481,6 +1465,21 @@ export function createServer(): McpServer {
     },
   );
 
+  registerThalovantTool(server,
+    "thalovant_get_operation",
+    {
+      title: "Get Provisioning Operation",
+      description: "Read the status of an asynchronous control-plane operation returned by provisioning.",
+      inputSchema: { ...controlPlaneSchema, operationId: z.string().min(1).max(500) },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ operationId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(redactSecrets(await api.getOperation(operationId)));
+    },
+  );
+
   registerThalovantTool(server, 
     "thalovant_create_client_identity",
     {
@@ -1592,6 +1591,29 @@ export function createServer(): McpServer {
         return jsonContent(redactSecrets(client.healthcheck()));
       });
     },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_intent_inventory",
+    {
+      title: "Runtime Intent Inventory",
+      description: "Discover a hub's registered intents, language examples and fallback skills using its runtime identity. Unknown fallback support remains distinct from a known empty list; answerability is a conservative hint.",
+      inputSchema: {
+        ...runtimeAuthSchema,
+        languages: z.array(z.string().trim().min(1).max(100)).min(1).max(20).default(["en-us"]),
+        describe: z.boolean().default(true),
+        fallback: z.boolean().default(true).describe("Try engine manifests if the intent listing is refused or unanswered."),
+        timeoutMs: z.number().int().min(1_000).max(MAX_TIMEOUT_MS).default(DEFAULT_TIMEOUT_MS).describe("Per-query/batch timeout; the optional fallback-skill probe is capped at 1500ms."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ languages, describe, fallback, timeoutMs, ...runtime }) => withRuntimeClient(runtime, async client => {
+      const inventory = await client.intents(languages, { describe, fallback, timeoutMs: clampTimeout(timeoutMs) });
+      return jsonContent(redactSecrets({
+        ...inventory.asObject(),
+        may_answer: Object.fromEntries(inventory.languages.map(lang => [lang, inventory.mayAnswer(lang)])),
+      }));
+    }),
   );
 
   registerThalovantTool(server, 

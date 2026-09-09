@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.20
+
+- Bind server-managed Thalovant tokens and password login to their configured API origin. Reject cross-origin tool overrides before any outbound request, including credentials for remote principals; retain configured custom origins and anonymous public discovery.
+- Add read-only `thalovant_intent_inventory` and `thalovant_get_operation` tools for runtime discovery and asynchronous provisioning status. Inventory preserves fallback knowledge and conservative answerability.
+- Require Node SDK 0.3.6 for aligned intent discovery, request correlation, authenticated readiness deadlines and retained cleanup ownership.
+- Retain the runtime identity lease until actual cleanup, even after a caller close timeout; failed cleanup blocks later identity reuse with an explicit error.
+- Upgrade the test runner to Vitest 4.1.11 to remove GHSA-82fw-gwwq-j7x9.
+- Test Node 20, 22 and 24; add per-principal/shared credential regressions and exercise the inventory tool over a real HTTPS Noise session.
+
 ## 0.1.19
 
 - Require Node SDK 0.3.5 or newer so runtime tools receive secure MQTT URL enforcement and bounded MQTT setup and HTTP failure cleanup.

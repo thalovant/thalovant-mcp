@@ -602,3 +602,14 @@ describe("control-plane error guidance", () => {
     expect(text).toContain("idempotencyKey");
   }, 15_000);
 });
+
+
+it("reads an asynchronous operation without replaying the provisioning write", async () => {
+  const fake = await startFakeControlPlane();
+  const client = await connectStdioClient({ THALOVANT_API_URL: fake.url, THALOVANT_API_TOKEN: "synthetic-operation-token" });
+  const result = await client.callTool({ name: "thalovant_get_operation", arguments: { operationId: "op-fixture" } });
+  expect(result.isError).not.toBe(true);
+  expect(fake.requests).toHaveLength(1);
+  const request = findRequest(fake, "GET", "/v1/operations/op-fixture");
+  expect(request.headers.authorization).toBe("Bearer synthetic-operation-token");
+});

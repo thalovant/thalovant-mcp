@@ -93,6 +93,13 @@ npm start
 
 If neither a token nor email/password is configured, authenticated control-plane tools fail with a clear error naming the supported options.
 
+Configured API tokens and login credentials are bound to the origin of their
+configured `apiUrl` or `THALOVANT_API_URL` (default `https://api.thalovant.com`).
+A tool argument cannot redirect those credentials to another origin. Equivalent
+URL spellings and paths on the same origin are allowed; custom origins must be
+configured alongside their credentials. Anonymous public discovery may still
+select a custom API URL.
+
 ## Local Stdio
 
 The server speaks MCP over stdio and does not write logs to stdout.
@@ -305,8 +312,10 @@ Read-only:
 - `thalovant_get_public_hub`
 - `thalovant_list_hubs`
 - `thalovant_get_hub`
+- `thalovant_get_operation`
 - `thalovant_identity_status`
 - `thalovant_healthcheck`
+- `thalovant_intent_inventory`
 - `thalovant_wait_for_event`
 - `thalovant_get_analytics_overview`
 - `thalovant_list_memory_items`
@@ -355,6 +364,16 @@ Destructive, **not registered unless explicitly enabled** (see [Destructive Tool
 
 Tool outputs redact credential-shaped fields. `thalovant_create_client_identity` does not return secret identity material; pass `savePath` when you want the full identity written to a local file with mode `0600`. `savePath` is confined to the server's identity directory (`THALOVANT_MCP_IDENTITY_DIR`, default `<config-dir>/thalovant/identities`): pass a plain filename, since absolute paths outside that directory and `..` traversal are rejected, so a model cannot drop a credential file into a git working tree or synced folder. `thalovant_config_status` reports the active `identityDir`.
 
+`thalovant_intent_inventory` uses the runtime identity and accepts `languages`,
+`describe`, `fallback`, and a per-query/batch `timeoutMs`. It returns registered
+intents and examples, fallback skills, `fallbacks_known`, and `may_answer` by
+requested language. A missing or denied optional fallback-skill query remains
+unknown, rather than being reported as a known empty list. The optional probe
+adds at most 1500ms. A silent listing can use engine manifests; disable this with
+`fallback: false`. Both new tools are available in read-only mode and respect
+per-principal policy. `thalovant_get_operation` reads an operation ID returned by
+provisioning without replaying the write.
+
 ## Destructive Tools
 
 `thalovant_delete_hub` and `thalovant_delete_runtime_group` are **disabled by default**. They are not merely blocked when called — they are never registered, so they do not appear in `tools/list` and a model cannot see or attempt them.
@@ -399,7 +418,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.1.19 uses `@thalovant/sdk` 0.3.5 or newer. This release enforces
+Version 0.1.20 uses `@thalovant/sdk` 0.3.6 or newer. This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
@@ -412,6 +431,11 @@ contains the client Noise key and trusted server pins. An authentication
 failure preserves those pins; replacing a server key requires an explicit,
 verified trust change. HTTPS identities must advertise the hub's HTTPS plugin,
 and MQTT requires the identity's broker credentials and topic prefix.
+
+Runtime tools retain their identity lease through actual cleanup. If the close
+caller times out, a later tool waits for that cleanup before opening a session.
+An actual cleanup failure marks the identity unavailable to later calls instead
+of risking concurrent sessions.
 
 ## Development
 

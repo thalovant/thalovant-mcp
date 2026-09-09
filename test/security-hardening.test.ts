@@ -14,6 +14,7 @@ interface RecordedRequest {
   path: string;
   query: Record<string, string>;
   body?: Record<string, unknown>;
+  authorization?: string;
 }
 
 interface FakeControlPlane {
@@ -46,6 +47,7 @@ async function startFakeControlPlane(body?: unknown): Promise<FakeControlPlane> 
         path: url.pathname,
         query: Object.fromEntries(url.searchParams.entries()),
         body: raw.trim() ? (JSON.parse(raw) as Record<string, unknown>) : undefined,
+        authorization: req.headers.authorization,
       });
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(body ?? { ok: true, path: url.pathname }));
@@ -101,6 +103,49 @@ function findRequest(fake: FakeControlPlane, method: string, path: string): Reco
   }
   return request;
 }
+
+describe("control-plane credential origin", () => {
+  it.each<{ label: string; credentials: Record<string, string> }>([
+    { label: "API token", credentials: { THALOVANT_API_TOKEN: API_TOKEN } },
+    { label: "password login", credentials: { THALOVANT_EMAIL: "synthetic@example.invalid", THALOVANT_PASSWORD: "synthetic-password" } },
+  ])("rejects cross-origin overrides before sending configured $label credentials", async ({ credentials }) => {
+    const configured = await startFakeControlPlane();
+    const untrusted = await startFakeControlPlane();
+    const client = await connectStdioClient({ THALOVANT_API_URL: configured.url, ...credentials });
+    const result = await client.callTool({ name: "thalovant_list_hubs", arguments: { apiUrl: untrusted.url } });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toMatch(/configured Thalovant credential origin/);
+    expect(configured.requests).toHaveLength(0);
+    expect(untrusted.requests).toHaveLength(0);
+  });
+
+  it("binds a token without an explicit API URL to the default origin", async () => {
+    const untrusted = await startFakeControlPlane();
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN });
+    const result = await client.callTool({ name: "thalovant_list_hubs", arguments: { apiUrl: untrusted.url } });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toMatch(/configured Thalovant credential origin/);
+    expect(untrusted.requests).toHaveLength(0);
+  });
+
+  it("allows a normalized equivalent origin for an explicitly configured custom API", async () => {
+    const configured = await startFakeControlPlane();
+    const client = await connectStdioClient({ THALOVANT_API_URL: configured.url, THALOVANT_API_TOKEN: API_TOKEN });
+    const result = await client.callTool({ name: "thalovant_list_hubs", arguments: { apiUrl: configured.url.replace("http:", "HTTP:") + "/" } });
+    expect(result.isError).not.toBe(true);
+    expect(configured.requests).toHaveLength(1);
+    expect(configured.requests[0]?.authorization).toBe(`Bearer ${API_TOKEN}`);
+  });
+
+  it("allows anonymous public discovery against a custom API without attaching credentials", async () => {
+    const publicApi = await startFakeControlPlane();
+    const client = await connectStdioClient({});
+    const result = await client.callTool({ name: "thalovant_list_public_hubs", arguments: { apiUrl: publicApi.url } });
+    expect(result.isError).not.toBe(true);
+    expect(publicApi.requests).toHaveLength(1);
+    expect(publicApi.requests[0]?.authorization).toBeUndefined();
+  });
+});
 
 describe("M1: non-catalog skill sources are gated", () => {
   it("refuses a git skill source by default and makes no control-plane call", async () => {

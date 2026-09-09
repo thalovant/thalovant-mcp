@@ -265,6 +265,56 @@ describe("streamable HTTP MCP server", () => {
       await rm(dir, { recursive: true, force: true });
     }
   }, 20_000);
+  it("keeps a remote principal's API token on its configured origin", async () => {
+    const expectedAuthorization = "Bearer synthetic-principal-api-token";
+    const configuredRequests: Array<string | undefined> = [];
+    let untrustedRequests = 0;
+    const configured = await startTestHttpServer((req, res) => {
+      configuredRequests.push(req.headers.authorization);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ hubs: [] }));
+    });
+    const untrusted = await startTestHttpServer((_req, res) => {
+      untrustedRequests++;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ hubs: [] }));
+    });
+    const dir = await mkdtemp(join(tmpdir(), "thalovant-mcp-origin-"));
+    const principalId = sha256("origin-fixture-token").slice(0, 32);
+    await writeFile(join(dir, `${sha256(principalId)}.json`), JSON.stringify({
+      control: { apiUrl: configured.url, accessToken: "synthetic-principal-api-token" },
+    }), { mode: 0o600 });
+    const port = await freePort();
+    const child = spawnHttpServer(port, {
+      MCP_HTTP_AUTH_TOKEN: "origin-fixture-token",
+      THALOVANT_PRINCIPAL_CREDENTIALS_DIR: dir,
+      THALOVANT_API_TOKEN: "unused-shared-token",
+      THALOVANT_API_URL: untrusted.url,
+    });
+    const client = new Client({ name: "thalovant-principal-origin-test", version: "0.0.0" }, { capabilities: {} });
+    try {
+      await waitForHealth(port);
+      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+        requestInit: { headers: { Authorization: "Bearer origin-fixture-token" } },
+      }));
+      const denied = await client.callTool({ name: "thalovant_list_hubs", arguments: { apiUrl: untrusted.url } });
+      expect(denied.isError).toBe(true);
+      expect(JSON.stringify(denied.content)).toMatch(/configured Thalovant credential origin/);
+      expect(configuredRequests).toHaveLength(0);
+      expect(untrustedRequests).toBe(0);
+      for (const args of [{ apiUrl: configured.url + "/" }, {}]) {
+        const result = await client.callTool({ name: "thalovant_list_hubs", arguments: args });
+        expect(result.isError).not.toBe(true);
+      }
+      expect(configuredRequests).toEqual([expectedAuthorization, expectedAuthorization]);
+      expect(untrustedRequests).toBe(0);
+    } finally {
+      await client.close();
+      await stopChild(child);
+      await Promise.all([configured.close(), untrusted.close()]);
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
 });
 
 async function freePort(): Promise<number> {
