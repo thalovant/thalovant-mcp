@@ -23,6 +23,7 @@ import type {
   MemoryCreatePayload,
   MemoryListOptions,
   MemoryUpdatePayload,
+  OperationResource,
   ReleaseOptions,
   RuntimeGroupPayload,
   RuntimeGroupSkillInstallOptions,
@@ -265,7 +266,7 @@ function releaseOptionsFrom(args: {
 }
 
 /** Which failure modes a control-plane call can produce, for error guidance. */
-type ControlPlaneErrorProfile = "read" | "write" | "hubWrite" | "skillInstall";
+type ControlPlaneErrorProfile = "read" | "write" | "hubWrite" | "skillInstall" | "hubSkillInstall";
 
 const SCOPE_HINT_403 =
   'HTTP 403 "Insufficient scopes" — the token lacks the scope this route needs: hubs:write for provisioning, hubs:read for the marketplace catalog, hubs:inspect for runtime-group and hub runtime views (hubs:write implies hubs:read, which implies hubs:inspect and hubs:preview). The API checks scope BEFORE the paid-plan gate, so a 403 can mask a plan problem and granting the scope may surface a 402 next. Free-plan API tokens are capped at hubs:read, clients:read, and clients:write, so a free-tier API token fails provisioning with this 403 and never reaches the 402. A 403 here can also mean the caller does not own the resource ("Ownership required"), or a plan restriction such as HUB_AUTOSCALING_NOT_INCLUDED or a custom hub domain the plan does not allow.';
@@ -276,22 +277,31 @@ const PLAN_HINT_402 =
 const MARKETPLACE_HINT_402 =
   'HTTP 402 "This skill requires paid marketplace access for the tenant plan." — a DIFFERENT 402 from the plan gate: the plan is paid enough to provision, but this catalog entry has access_tier "paid" and the plan does not include paid marketplace skills. thalovant_list_runtime_group_marketplace reports this per skill as purchase_required, installable, and access_message; check it before installing.';
 
+const HUB_SKILL_HINT_422 =
+  'HTTP 422 — the requested hub skill version is unusable: "latest" could not be resolved to a published version of that skill, or the version string is not a valid version. Check the skill name and its published versions with thalovant_list_marketplace_skills, or pass an explicit x.y.z.';
+
 const ETAG_HINT_412 =
   'HTTP 412 "ETag mismatch" — the If-Match etag was missing or stale and nothing changed. Re-fetch the hub with thalovant_get_hub, read the `etag` field from the response BODY (there is no ETag response header), and retry with that exact value. The comparison is exact string equality, so do not rewrite or weaken the value.';
 
 function controlPlaneErrorHint(profile: ControlPlaneErrorProfile, status: number, body: string): string | undefined {
   switch (status) {
     case 402:
-      return profile === "skillInstall" && /marketplace/i.test(body) ? MARKETPLACE_HINT_402 : PLAN_HINT_402;
+      return (profile === "skillInstall" || profile === "hubSkillInstall") && /marketplace/i.test(body) ? MARKETPLACE_HINT_402 : PLAN_HINT_402;
     case 403:
       return SCOPE_HINT_403;
+    case 404:
+      return /hub_without_runtime_group/.test(body)
+        ? "HTTP 404 (hub_without_runtime_group) — the hub exists but has no runtime group attached yet, so it cannot hold skills; attach it to a runtime group (thalovant_update_hub) before managing its skills. A 404 without that code means the hub is unknown, or the named skill is not installed on it."
+        : undefined;
     case 409:
       if (profile === "hubWrite") {
         return 'HTTP 409 — for a hub create this is either a duplicate ("Hub with name ... already exists for this owner" / "Hub slug ... already exists"), an autoscaling slot limit (AUTOSCALING_HUB_LIMIT_REACHED), or "Idempotency key re-used with different payload". Only hub create honors Idempotency-Key: retrying an identical create is safe and returns the original hub, but reusing a key with a changed body conflicts — use a new idempotencyKey for a genuinely different hub.';
       }
-      return "HTTP 409 — the resource is not in a state that allows this call: a hub with no connected client cannot report runtime capabilities, a runtime group cannot be deleted while it is the workspace default or still has hubs attached, and a deactivated marketplace skill cannot be installed.";
+      return "HTTP 409 — the resource is not in a state that allows this call: a hub with no connected client cannot report runtime capabilities, a runtime group cannot be deleted while it is the workspace default or still has hubs attached, a deactivated marketplace skill cannot be installed, and a hub skill install answers 409 with code skill_version_already_installed when the skill is already installed at exactly that version (POST with a DIFFERENT version performs an update, as does thalovant_update_hub_skill).";
     case 412:
       return ETAG_HINT_412;
+    case 422:
+      return profile === "hubSkillInstall" ? HUB_SKILL_HINT_422 : undefined;
     default:
       return undefined;
   }
@@ -315,6 +325,283 @@ async function callControlPlane<T>(profile: ControlPlaneErrorProfile, run: () =>
     throw new Error(`${message}\n\n${hint}`);
   }
 }
+
+// Hub-scoped skill routes (API contract in progress — adjust paths/types here)
+//
+// The published @thalovant/sdk (^0.3.14) has no hub-skill methods yet, so the
+// four thalovant_*_hub_skill tools call the routes directly with the control
+// plane's apiUrl and bearer token, using the SDK's header, TLS and redirect
+// conventions, and poll with the SDK's getOperation when wait is requested.
+// Every path and response type for that surface lives in this block. Types
+// follow the final contract of thalovant-api PR #253.
+//
+// TODO: replace with @thalovant/sdk listHubSkills/installHubSkill/updateHubSkill/removeHubSkill once >= 0.3.15 is published
+
+function hubSkillsPath(hubId: string): string {
+  return `/v1/hubs/${encodeURIComponent(hubId)}/skills`;
+}
+
+function hubSkillPath(hubId: string, skill: string): string {
+  return `${hubSkillsPath(hubId)}/${encodeURIComponent(skill)}`;
+}
+
+/** Row state; a change in progress shows as `pending`. */
+type HubSkillState = "pending" | "installed" | "failed" | "removing" | "drifted" | "quarantined" | "unmanaged";
+
+/** One row of GET /v1/hubs/{hub_id}/skills. */
+interface HubSkill {
+  skill: string;
+  title: string | null;
+  marketplace_skill_id: string | null;
+  package_name: string | null;
+  source_type: string | null;
+  install_source: string | null;
+  version: string | null;
+  version_pin: string | null;
+  installed_version: string | null;
+  observed_version: string | null;
+  previous_version: string | null;
+  latest_version: string | null;
+  available_version: string | null;
+  update_available: boolean;
+  changelog: string | null;
+  active: boolean;
+  state: HubSkillState;
+  operator_phase: string | null;
+  operator_message: string | null;
+  operator_last_error: string | null;
+  last_transition_at: string | null;
+}
+
+/** The GET /v1/hubs/{hub_id}/skills envelope; `data` holds the rows. */
+interface HubSkillList {
+  hub_id: string;
+  runtime_group_id: string;
+  observed_at: string | null;
+  source: string;
+  operator_phase: string | null;
+  operator_message: string | null;
+  data: HubSkill[];
+}
+
+type HubSkillOperationState = "installing" | "updating" | "removing" | "installed" | "removed" | "failed";
+
+interface HubSkillOperation {
+  operation_id: string;
+  hub_id: string;
+  runtime_group_id: string;
+  skill: string;
+  version: string | null;
+  previous_version: string | null;
+  state: HubSkillOperationState;
+  /** The last polled operation when wait was requested, else null. */
+  operation: OperationResource | null;
+}
+
+/** The 202 body every hub-skill write answers with (DELETE has `version: null`). */
+interface HubSkillAccepted {
+  operation_id: string;
+  hub_id: string;
+  runtime_group_id: string;
+  skill: string;
+  version: string | null;
+  previous_version: string | null;
+  state: string;
+}
+
+const HUB_SKILL_OPERATION_POLL_INTERVAL_MS = 2_000;
+const HUB_SKILL_DEFAULT_TIMEOUT_MS = 120_000;
+const HUB_SKILL_MAX_TIMEOUT_MS = 600_000;
+const HUB_SKILL_ERROR_DETAIL_MAX = 160;
+
+/**
+ * Short, safe detail from an RFC 7807 problem body: only a string
+ * message/detail/error field, never the raw body, followed by the root
+ * `code` in parentheses when the body carries one (e.g. "Skill version
+ * already installed. (skill_version_already_installed)").
+ */
+function hubSkillErrorDetail(bodyText: string): string | undefined {
+  try {
+    const parsed: unknown = JSON.parse(bodyText);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+    const record = parsed as Record<string, unknown>;
+    const code = typeof record.code === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(record.code.trim()) ? record.code.trim() : undefined;
+    for (const key of ["message", "detail", "error"]) {
+      const value = record[key];
+      if (typeof value === "string" && value.trim()) {
+        const text = value.replace(/\s+/g, " ").trim();
+        const detail = text.length > HUB_SKILL_ERROR_DETAIL_MAX ? `${text.slice(0, HUB_SKILL_ERROR_DETAIL_MAX)}…` : text;
+        return code ? `${detail} (${code})` : detail;
+      }
+    }
+    if (code) return `(${code})`;
+  } catch {
+    // Non-JSON bodies are never echoed.
+  }
+  return undefined;
+}
+
+/**
+ * Bearer-authenticated JSON request against the control plane, mirroring the
+ * SDK's send(): accept/user-agent/content-type headers, HTTPS-or-loopback rule,
+ * redirect: "error", and a status-bearing error message so callControlPlane's
+ * `HTTP (\d{3})` hint parsing keeps working.
+ */
+async function hubSkillsRequest(
+  api: ThalovantControlPlane,
+  method: "GET" | "POST" | "PATCH" | "DELETE",
+  path: string,
+  body?: Record<string, unknown>,
+): Promise<unknown> {
+  if (!api.accessToken) throw new Error("Missing Thalovant API access token.");
+  let url: URL;
+  try {
+    url = new URL(path.replace(/^\/+/, ""), api.apiUrl);
+  } catch {
+    throw new Error("The configured control-plane API URL is invalid.");
+  }
+  if (url.username || url.password) {
+    throw new Error("Control-plane URLs must not include embedded credentials.");
+  }
+  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
+    throw new Error("Credential-bearing control-plane requests require HTTPS (except explicit loopback HTTP).");
+  }
+  const headers: Record<string, string> = {
+    accept: "application/json",
+    "user-agent": api.userAgent,
+    authorization: `Bearer ${api.accessToken}`,
+  };
+  if (body !== undefined) headers["content-type"] = "application/json";
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      redirect: "error",
+    });
+  } catch {
+    throw new Error("Could not reach the Thalovant API, or the endpoint redirected the request.");
+  }
+  const text = await response.text();
+  if (!response.ok) {
+    const detail = hubSkillErrorDetail(text);
+    throw new Error(
+      detail ? `Thalovant API request failed with HTTP ${response.status}: ${detail}` : `Thalovant API request failed with HTTP ${response.status}.`,
+    );
+  }
+  if (!text.trim()) return {};
+  const parsed: unknown = JSON.parse(text);
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error("Thalovant API returned an unexpected response shape.");
+  }
+  return parsed;
+}
+
+function optionalString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+/** Returns the whole GET envelope; `data` is the collection key and may be empty. */
+async function listHubSkills(api: ThalovantControlPlane, hubId: string): Promise<HubSkillList> {
+  const body = (await hubSkillsRequest(api, "GET", hubSkillsPath(hubId))) as Record<string, unknown>;
+  if (!Array.isArray(body.data)) throw new Error("Thalovant API returned an unexpected hub skill list shape.");
+  return body as unknown as HubSkillList;
+}
+
+function hubSkillAccepted(value: unknown): HubSkillAccepted {
+  const record = (value ?? {}) as Record<string, unknown>;
+  if (typeof record.operation_id !== "string" || !record.operation_id) {
+    throw new Error("Thalovant API returned a hub skill response without an operation_id.");
+  }
+  return {
+    operation_id: record.operation_id,
+    hub_id: optionalString(record.hub_id) ?? "",
+    runtime_group_id: optionalString(record.runtime_group_id) ?? "",
+    skill: optionalString(record.skill) ?? "",
+    version: optionalString(record.version),
+    previous_version: optionalString(record.previous_version),
+    state: optionalString(record.state) ?? "",
+  };
+}
+
+function hubSkillResult(accepted: HubSkillAccepted, state: HubSkillOperationState, operation: OperationResource | null): HubSkillOperation {
+  return {
+    operation_id: accepted.operation_id,
+    hub_id: accepted.hub_id,
+    runtime_group_id: accepted.runtime_group_id,
+    skill: accepted.skill,
+    version: accepted.version,
+    previous_version: accepted.previous_version,
+    state,
+    operation,
+  };
+}
+
+function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new Error("The request was cancelled."));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    function onAbort() {
+      clearTimeout(timer);
+      reject(new Error("The request was cancelled."));
+    }
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+/**
+ * Poll the accepted operation until it converges. `ready` resolves to the
+ * converged state; `failed`/`timed_out` throw with the operation's
+ * error_message (then error_code, then a generic message); anything else
+ * keeps polling until timeoutMs elapses or the MCP request is cancelled.
+ */
+async function waitForHubSkillOperation(
+  api: ThalovantControlPlane,
+  accepted: HubSkillAccepted,
+  options: { timeoutMs: number; signal?: AbortSignal; convergedState: HubSkillOperationState },
+): Promise<HubSkillOperation> {
+  const deadline = Date.now() + options.timeoutMs;
+  let operation: OperationResource | null = null;
+  for (;;) {
+    if (options.signal?.aborted) throw new Error("The request was cancelled.");
+    operation = await api.getOperation(accepted.operation_id);
+    if (operation.status === "ready") {
+      return hubSkillResult(accepted, options.convergedState, operation);
+    }
+    if (operation.status === "failed" || operation.status === "timed_out") {
+      const reason = operation.error_message || operation.error_code || `Hub skill operation ${accepted.operation_id} ${operation.status}.`;
+      throw new Error(`Hub skill operation ${accepted.operation_id} ${operation.status}: ${reason}`);
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Timed out waiting ${options.timeoutMs} ms for hub skill operation ${accepted.operation_id} (last status: ${operation.status}). Poll it with thalovant_get_operation.`,
+      );
+    }
+    await sleepWithSignal(Math.min(HUB_SKILL_OPERATION_POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())), options.signal);
+  }
+}
+
+/** Run one hub-skill write and, when requested, wait for it to converge. */
+async function runHubSkillWrite(
+  api: ThalovantControlPlane,
+  profile: ControlPlaneErrorProfile,
+  request: () => Promise<unknown>,
+  options: { wait: boolean; timeoutMs: number; pendingState: HubSkillOperationState; convergedState: HubSkillOperationState },
+): Promise<HubSkillOperation> {
+  const accepted = hubSkillAccepted(await callControlPlane(profile, request));
+  if (!options.wait) return hubSkillResult(accepted, options.pendingState, null);
+  const signal = requestContext.getStore()?.signal;
+  return waitForHubSkillOperation(api, accepted, { timeoutMs: options.timeoutMs, signal, convergedState: options.convergedState });
+}
+// End of hub-scoped skill routes block.
 
 interface HttpConfig {
   host: string;
@@ -2612,6 +2899,126 @@ export function createServer(): McpServer {
       ensureAuthenticated(api);
       await callControlPlane("write", () => api.uninstallRuntimeGroupSkill(runtimeGroupId, skillId));
       return textContent("Runtime group skill uninstalled.");
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_list_hub_skills",
+    {
+      title: "List Hub Skills",
+      description:
+        "List the skills installed on ONE Thalovant hub. Returns the whole envelope: hub_id, runtime_group_id, observed_at, source, the runtime's phase and message, and data — one row per skill with version, version_pin, installed_version, observed_version, previous_version, latest_version, available_version, update_available, changelog, active, state (pending, installed, failed, removing, drifted, quarantined, unmanaged; a change in progress shows as pending), the runtime's last error and last_transition_at. This is per-hub, not the runtime group's skill set: a hub can start with an empty data array and gain skills one at a time with thalovant_install_hub_skill. hubId must be the hub UUID — the authenticated hub routes reject slugs; a hub with no runtime group attached fails 404 with code hub_without_runtime_group. Requires the hubs:inspect scope (hubs:read implies it); hub-restricted tokens only see the hubs in their allowlist.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().min(1).describe("Hub UUID (not the slug)."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ hubId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(redactSecrets(await callControlPlane("read", () => listHubSkills(api, hubId))));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_install_hub_skill",
+    {
+      title: "Install Hub Skill",
+      description:
+        "Install a skill on ONE Thalovant hub (not a runtime group or skill set). The change applies live on the hub in about 15 seconds, with no hub restart; a hub may start with no skills and gain them one at a time. Discover the skill name with thalovant_list_marketplace_skills. The API answers 202 with an operation_id and state \"installing\": pass wait: true to poll the operation until it converges (state \"installed\", or an error carrying the operation's failure message), with a 120 s default timeout; otherwise follow it with thalovant_get_operation. The 202 body also carries hub_id, runtime_group_id and previous_version. Installing a skill that is already installed at ANOTHER version performs an update; the SAME version fails 409 with code skill_version_already_installed. Fails 404 with code hub_without_runtime_group when the hub has no runtime group attached yet, and 422 when \"latest\" cannot be resolved or the version string is invalid. hubId must be the hub UUID — the authenticated hub routes reject slugs. Requires the hubs:write scope and a paid plan; scope is checked before plan, so a free-plan token sees 403, never 402. Hub-restricted tokens may only act on the hubs in their allowlist.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().min(1).describe("Hub UUID (not the slug)."),
+        skill: z.string().min(1).max(191).describe("Skill name, 1-191 characters."),
+        version: z.string().min(1).max(64).optional().describe('Version to install, 1-64 characters. Defaults to "latest".'),
+        wait: z.boolean().optional().describe("Poll the operation until the install converges (installed or failed). Defaults to false."),
+        timeoutMs: z.number().int().min(1_000).max(HUB_SKILL_MAX_TIMEOUT_MS).optional().describe("How long to wait when wait is true, 1000-600000 ms. Defaults to 120000."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ hubId, skill, version, wait, timeoutMs, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      const result = await runHubSkillWrite(
+        api,
+        "hubSkillInstall",
+        () => hubSkillsRequest(api, "POST", hubSkillsPath(hubId), { skill, version: version ?? "latest" }),
+        { wait: wait ?? false, timeoutMs: timeoutMs ?? HUB_SKILL_DEFAULT_TIMEOUT_MS, pendingState: "installing", convergedState: "installed" },
+      );
+      return jsonContent(redactSecrets(result));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_update_hub_skill",
+    {
+      title: "Update Hub Skill",
+      description:
+        "Move a skill already installed on ONE Thalovant hub to a specific version (not a runtime group or skill set). The change applies live on the hub in about 15 seconds, with no hub restart. version is required — read the current version and latest_version from thalovant_list_hub_skills. The API answers 202 with an operation_id, hub_id, runtime_group_id, previous_version and state \"updating\": pass wait: true to poll the operation until it converges (state \"installed\", or an error carrying the operation's failure message), with a 120 s default timeout; otherwise follow it with thalovant_get_operation. Fails 404 when the skill is not installed on the hub (code hub_without_runtime_group when the hub has no runtime group), 409 with code skill_version_already_installed when it is already at that version, and 422 for an invalid version. hubId must be the hub UUID — the authenticated hub routes reject slugs. Requires the hubs:write scope and a paid plan; scope is checked before plan, so a free-plan token sees 403, never 402. Hub-restricted tokens may only act on the hubs in their allowlist.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().min(1).describe("Hub UUID (not the slug)."),
+        skill: z.string().min(1).max(191).describe("Skill name, 1-191 characters."),
+        version: z.string().min(1).max(64).describe("Required target version, 1-64 characters."),
+        wait: z.boolean().optional().describe("Poll the operation until the update converges (installed or failed). Defaults to false."),
+        timeoutMs: z.number().int().min(1_000).max(HUB_SKILL_MAX_TIMEOUT_MS).optional().describe("How long to wait when wait is true, 1000-600000 ms. Defaults to 120000."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ hubId, skill, version, wait, timeoutMs, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      const result = await runHubSkillWrite(
+        api,
+        "write",
+        () => hubSkillsRequest(api, "PATCH", hubSkillPath(hubId, skill), { version }),
+        { wait: wait ?? false, timeoutMs: timeoutMs ?? HUB_SKILL_DEFAULT_TIMEOUT_MS, pendingState: "updating", convergedState: "installed" },
+      );
+      return jsonContent(redactSecrets(result));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_remove_hub_skill",
+    {
+      title: "Remove Hub Skill",
+      description:
+        "Remove one skill from ONE Thalovant hub (not a runtime group or skill set). Only the named skill is removed; the hub and its other skills are untouched, and the change applies live on the hub in about 15 seconds with no hub restart. The API answers 202 with an operation_id, hub_id, runtime_group_id, previous_version (version is null) and state \"removing\": pass wait: true to poll the operation until it converges (state \"removed\", or an error carrying the operation's failure message), with a 120 s default timeout; otherwise follow it with thalovant_get_operation. Fails 404 when the skill is not installed on the hub (code hub_without_runtime_group when the hub has no runtime group). hubId must be the hub UUID — the authenticated hub routes reject slugs. Requires the hubs:write scope and a paid plan; scope is checked before plan, so a free-plan token sees 403, never 402. Hub-restricted tokens may only act on the hubs in their allowlist.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().min(1).describe("Hub UUID (not the slug)."),
+        skill: z.string().min(1).max(191).describe("Skill name to remove, 1-191 characters."),
+        wait: z.boolean().optional().describe("Poll the operation until the removal converges (removed or failed). Defaults to false."),
+        timeoutMs: z.number().int().min(1_000).max(HUB_SKILL_MAX_TIMEOUT_MS).optional().describe("How long to wait when wait is true, 1000-600000 ms. Defaults to 120000."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ hubId, skill, wait, timeoutMs, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      const result = await runHubSkillWrite(
+        api,
+        "write",
+        () => hubSkillsRequest(api, "DELETE", hubSkillPath(hubId, skill)),
+        { wait: wait ?? false, timeoutMs: timeoutMs ?? HUB_SKILL_DEFAULT_TIMEOUT_MS, pendingState: "removing", convergedState: "removed" },
+      );
+      return jsonContent(redactSecrets(result));
     },
   );
 
