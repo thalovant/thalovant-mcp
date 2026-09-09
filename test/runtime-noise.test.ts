@@ -67,7 +67,34 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
               const message = active.receive(form.get("binary") === "1" ? Buffer.from(raw, "base64") : raw);
               if (active.clientKey) clientKey = Buffer.from(active.clientKey, "hex");
               if (message?.msg_type === "hello") patterns.push(active.pattern!);
+              if (message?.msg_type === "query") {
+                expect(message.metadata.query_id).toBe("query-fixture");
+                expect(message.payload.msg_type).toBe("bus");
+                expect(message.payload.payload.type).toBe("recognizer_loop:utterance");
+                const payload = message.payload.payload;
+                expect(payload.context.request_id).toBe("request-fixture");
+                expect(payload.context.session.session_id).toBe("session-fixture");
+                expect(payload.data.lang).toBe("fr-fr");
+                requests.push(payload.data.utterances[0]);
+                active.replyQuery("foreign-query", { type: "speak", data: { utterance: "unrelated reply" }, context: payload.context });
+                active.replyQuery("query-fixture", { type: "speak", data: { utterance: "routed reply" }, context: payload.context });
+                active.replyQuery("query-fixture", { type: "hive.query.complete", data: {}, context: payload.context });
+                reply({ status: "message sent" }); return;
+              }
               if (message?.msg_type === "bus") {
+                if (message.payload.type === "ovos.intent.list") {
+                  active.reply({ type: "ovos.intent.list.response", data: { ok: true, intents: [{
+                    skill_id: "test.weather", intent_name: "weather", lang: message.payload.data.lang,
+                    method: "template", enabled: true, definition: { samples: ["what is the weather"] },
+                  }] }, context: message.payload.context });
+                  reply({ status: "message sent" }); return;
+                }
+                if (message.payload.type === "ovos.skills.fallback.list") {
+                  active.reply({ type: "ovos.skills.fallback.list.response", data: { fallbacks: [
+                    { skill_id: "test.llm", priority: 100 },
+                  ] }, context: message.payload.context });
+                  reply({ status: "message sent" }); return;
+                }
                 expect(message.payload.type).toBe("recognizer_loop:utterance");
                 const text = message.payload.data.utterances[0] as string;
                 requests.push(text);
@@ -130,9 +157,25 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     const [failed, recovered] = await Promise.all([failing, ask("recovered")]);
     expect(failed.isError).toBe(true); expect(recovered.isError).not.toBe(true);
     expect(content(recovered).text).toBe("reply recovered");
-    expect(requests).toEqual(["one", "two", "fail", "recovered"]);
-    expect(patterns).toEqual(["XXpsk2", "KKpsk0", "KKpsk0", "KKpsk0"]);
-    expect(lifecycle).toEqual(Array.from({ length: 4 }, () => ["connect", "disconnect"]).flat());
+    const inventoryResult = await mcp.callTool({ name: "thalovant_intent_inventory", arguments: {
+      identityFile: identity, protocol: "https", languages: ["en-us", "fr-fr"], timeoutMs: 5000,
+    } });
+    expect(inventoryResult.isError).not.toBe(true);
+    const inventory = content(inventoryResult);
+    expect(inventory.source).toBe("intent-manifest");
+    expect(inventory.fallbacks_known).toBe(true);
+    expect(inventory.fallbacks).toEqual([{ skill_id: "test.llm", priority: 100 }]);
+    expect(inventory.may_answer).toEqual({ "en-us": true, "fr-fr": true });
+    expect(inventory.skills[0].intents[0].phrases["en-us"]).toEqual(["what is the weather"]);
+    const queryResult = await mcp.callTool({ name: "thalovant_query", arguments: {
+      identityFile: identity, protocol: "https", text: "routed query", lang: "fr-fr", timeoutMs: 5000,
+      queryId: "query-fixture", requestId: "request-fixture", sessionId: "session-fixture", replySettleMs: 0,
+    } });
+    expect(queryResult.isError).not.toBe(true);
+    expect(content(queryResult)).toMatchObject({ text: "routed reply", requestId: "request-fixture", sessionId: "session-fixture" });
+    expect(requests).toEqual(["one", "two", "fail", "recovered", "routed query"]);
+    expect(patterns).toEqual(["XXpsk2", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0"]);
+    expect(lifecycle).toEqual(Array.from({ length: 6 }, () => ["connect", "disconnect"]).flat());
     expect(overlap).toBe(false); expect(errors).toEqual([]);
     expect(clientKey).toBeDefined();
     const pins = JSON.parse(await readFile(join(directory, "config", "thalovant", "noise_pins.json"), "utf8"));

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { withRuntimeLease } from "./runtime-lease.js";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -106,7 +107,7 @@ const controlPlaneSchema = {
     .string()
     .url()
     .optional()
-    .describe("Control-plane base URL. Defaults to https://api.thalovant.com."),
+    .describe("Control-plane base URL. Configured credentials may only be used on their configured origin; defaults to https://api.thalovant.com."),
 };
 
 const contextSchema = z
@@ -738,6 +739,7 @@ function redactSecrets(value: unknown): unknown {
   return output;
 }
 
+/** Keep server-managed credentials on their configured control-plane origin. */
 async function createControlPlane(options: {
   apiUrl?: string;
   loginScope?: string;
@@ -745,18 +747,36 @@ async function createControlPlane(options: {
   const principal = currentPrincipal();
   const credential = await credentialForPrincipal(principal);
   const canUseShared = allowSharedThalovantCredentials(principal);
-  const apiUrl = options.apiUrl ?? credential?.control?.apiUrl ?? (canUseShared ? process.env.THALOVANT_API_URL : undefined) ?? DEFAULT_CONTROL_API_URL;
+  const configuredApiUrl = credential?.control?.apiUrl ?? (canUseShared ? process.env.THALOVANT_API_URL : undefined) ?? DEFAULT_CONTROL_API_URL;
+  const apiUrl = options.apiUrl ?? configuredApiUrl;
   const accessToken =
     credential?.control?.accessToken ??
     (canUseShared ? process.env.THALOVANT_API_TOKEN ?? process.env.THALOVANT_ACCESS_TOKEN : undefined);
+  const email = canUseShared ? process.env.THALOVANT_EMAIL : undefined;
+  const password = canUseShared ? process.env.THALOVANT_PASSWORD : undefined;
+  if (accessToken || (email && password)) {
+    let endpoint: URL;
+    let configuredEndpoint: URL;
+    try {
+      endpoint = new URL(apiUrl);
+      configuredEndpoint = new URL(configuredApiUrl);
+    } catch {
+      throw new Error("The configured control-plane API URL is invalid.");
+    }
+    if (endpoint.origin !== configuredEndpoint.origin) {
+      throw new Error("apiUrl must use the configured Thalovant credential origin.");
+    }
+    const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(endpoint.hostname);
+    if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) {
+      throw new Error("Credential-bearing control-plane requests require HTTPS (except explicit loopback HTTP).");
+    }
+  }
   const api = new ThalovantControlPlane(apiUrl, {
     accessToken,
     userAgent: `thalovant-mcp/${VERSION}`,
   });
 
   if (!accessToken && canUseShared) {
-    const email = process.env.THALOVANT_EMAIL;
-    const password = process.env.THALOVANT_PASSWORD;
     if (email && password) {
       await api.login(email, password, { scope: options.loginScope ?? process.env.THALOVANT_SCOPE });
     }
@@ -782,14 +802,13 @@ function controlPlaneAuthModeFromEnv(): ControlPlaneAuthMode {
   return "none";
 }
 
-async function createRuntimeClient(options: {
+async function createRuntimeIdentity(options: {
   identityFile?: string;
   configPath?: string;
   profile?: string;
   fromEnv?: boolean;
   protocol?: HubProtocol;
-}): Promise<ThalovantClient> {
-  const protocol = options.protocol ?? "wss";
+}): Promise<ThalovantIdentity> {
   const principal = currentPrincipal();
   const credential = await credentialForPrincipal(principal);
   const runtimeCredential = credential?.runtime;
@@ -797,20 +816,19 @@ async function createRuntimeClient(options: {
   const canUseToolPaths = canUseShared || parseBool(process.env.MCP_HTTP_ALLOW_CLIENT_CREDENTIAL_PATHS, false);
 
   if (runtimeCredential?.identity) {
-    return new ThalovantClient(new ThalovantIdentity(runtimeCredential.identity), { protocol });
+    return new ThalovantIdentity(runtimeCredential.identity);
   }
   if (runtimeCredential?.identityFile) {
-    return ThalovantClient.fromIdentityFile(runtimeCredential.identityFile, { protocol });
+    return ThalovantIdentity.fromFile(runtimeCredential.identityFile);
   }
   if (runtimeCredential?.configPath || runtimeCredential?.profile) {
-    return ThalovantClient.fromConfig({
+    return ThalovantIdentity.fromConfig({
       path: runtimeCredential.configPath,
       profile: runtimeCredential.profile,
-      protocol,
     });
   }
   if (runtimeCredential?.fromEnv && canUseShared) {
-    return ThalovantClient.fromEnv({ protocol });
+    return ThalovantIdentity.fromEnv();
   }
 
   if (isRemotePrincipal(principal) && !canUseShared && !canUseToolPaths) {
@@ -822,59 +840,35 @@ async function createRuntimeClient(options: {
   }
 
   if (options.identityFile) {
-    return ThalovantClient.fromIdentityFile(options.identityFile, { protocol });
+    return ThalovantIdentity.fromFile(options.identityFile);
   }
   if (options.configPath || options.profile) {
-    return ThalovantClient.fromConfig({
+    return ThalovantIdentity.fromConfig({
       path: options.configPath,
       profile: options.profile ?? process.env.THALOVANT_PROFILE,
-      protocol,
     });
   }
   if (!canUseShared) {
     throw new Error("No per-principal Thalovant runtime identity is configured for this authenticated MCP principal.");
   }
   if (options.fromEnv || process.env.THALOVANT_ACCESS_KEY) {
-    return ThalovantClient.fromEnv({ protocol });
+    return ThalovantIdentity.fromEnv();
   }
-  return ThalovantClient.fromConfig({
+  return ThalovantIdentity.fromConfig({
     profile: process.env.THALOVANT_PROFILE,
-    protocol,
   });
 }
 
-// The hub HTTP/MQTT queues and Noise sessions are keyed by client identity.
-// A second tool call must finish after the first closes that identity's session.
-const runtimeLeases = new Map<string, Promise<void>>();
-
-/**
- * Hold an identity lease through both the tool action and client cleanup.
- * This keeps HTTP/MQTT admissions from replacing another call's Noise session;
- * a failed action still closes its client before the next lease starts.
- */
+/** Use one identity lease through the action and actual retained cleanup. */
 async function withRuntimeClient<T>(
-  options: Parameters<typeof createRuntimeClient>[0],
+  options: Parameters<typeof createRuntimeIdentity>[0],
   run: (client: ThalovantClient) => Promise<T>,
 ): Promise<T> {
-  const client = await createRuntimeClient(options);
+  const identity = await createRuntimeIdentity(options);
   const key = createHash("sha256").update(JSON.stringify([
-    client.identity.endpointBase(), client.identity.accessKey,
+    identity.endpointBase(), identity.accessKey,
   ])).digest("hex");
-  const previous = runtimeLeases.get(key) ?? Promise.resolve();
-  let release!: () => void;
-  const current = new Promise<void>(resolve => { release = resolve; });
-  runtimeLeases.set(key, current);
-  await previous;
-  try {
-    return await run(client);
-  } finally {
-    try {
-      await client.close();
-    } finally {
-      release();
-      if (runtimeLeases.get(key) === current) runtimeLeases.delete(key);
-    }
-  }
+  return withRuntimeLease(key, () => new ThalovantClient(identity, { protocol: options.protocol ?? "wss" }), run);
 }
 
 function summarizeReply(reply: ThalovantReply) {
@@ -1481,6 +1475,21 @@ export function createServer(): McpServer {
     },
   );
 
+  registerThalovantTool(server,
+    "thalovant_get_operation",
+    {
+      title: "Get Provisioning Operation",
+      description: "Read the status of an asynchronous control-plane operation returned by provisioning.",
+      inputSchema: { ...controlPlaneSchema, operationId: z.string().min(1).max(500) },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ operationId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(redactSecrets(await api.getOperation(operationId)));
+    },
+  );
+
   registerThalovantTool(server, 
     "thalovant_create_client_identity",
     {
@@ -1594,6 +1603,29 @@ export function createServer(): McpServer {
     },
   );
 
+  registerThalovantTool(server,
+    "thalovant_intent_inventory",
+    {
+      title: "Runtime Intent Inventory",
+      description: "Discover a hub's registered intents, language examples and fallback skills using its runtime identity. Unknown fallback support remains distinct from a known empty list; answerability is a conservative hint.",
+      inputSchema: {
+        ...runtimeAuthSchema,
+        languages: z.array(z.string().trim().min(1).max(100)).min(1).max(20).default(["en-us"]),
+        describe: z.boolean().default(true),
+        fallback: z.boolean().default(true).describe("Try engine manifests if the intent listing is refused or unanswered."),
+        timeoutMs: z.number().int().min(1_000).max(MAX_TIMEOUT_MS).default(DEFAULT_TIMEOUT_MS).describe("Per-query/batch timeout; the optional fallback-skill probe is capped at 1500ms."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ languages, describe, fallback, timeoutMs, ...runtime }) => withRuntimeClient(runtime, async client => {
+      const inventory = await client.intents(languages, { describe, fallback, timeoutMs: clampTimeout(timeoutMs) });
+      return jsonContent(redactSecrets({
+        ...inventory.asObject(),
+        may_answer: Object.fromEntries(inventory.languages.map(lang => [lang, inventory.mayAnswer(lang)])),
+      }));
+    }),
+  );
+
   registerThalovantTool(server, 
     "thalovant_ask",
     {
@@ -1635,6 +1667,35 @@ export function createServer(): McpServer {
   );
 
   registerThalovantTool(server, 
+    "thalovant_query",
+    {
+      title: "Query Hub",
+      description: "Send a routed HiveMind query using a saved identity and return the normalized reply. The hub may cascade the query according to its routing policy; a query can trigger actions.",
+      inputSchema: {
+        ...runtimeAuthSchema,
+        text: z.string().trim().min(1).max(20_000),
+        timeoutMs: z.number().int().min(1_000).max(MAX_TIMEOUT_MS).default(DEFAULT_TIMEOUT_MS),
+        lang: z.string().min(1).optional(),
+        sessionId: z.string().min(1).optional(),
+        requestId: z.string().min(1).optional(),
+        queryId: z.string().min(1).optional(),
+        context: contextSchema,
+        replySettleMs: z.number().int().min(0).max(10_000).optional(),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ text, timeoutMs, lang, sessionId, requestId, queryId, context, replySettleMs, ...runtime }) => {
+      return withRuntimeClient(runtime, async client => {
+        const reply = await client.query(text, {
+          timeoutMs: clampTimeout(timeoutMs), lang, sessionId, requestId, queryId,
+          context: context ? buildClientContext({}, context) : undefined, replySettleMs,
+        });
+        return jsonContent(redactSecrets(summarizeReply(reply)));
+      });
+    },
+  );
+
+  registerThalovantTool(server,
     "thalovant_send_action",
     {
       title: "Send Action",

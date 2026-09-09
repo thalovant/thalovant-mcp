@@ -44,6 +44,9 @@ describe("stdio MCP server", () => {
       const toolNames = tools.tools.map((tool) => tool.name);
       expect(toolNames).toContain("thalovant_list_public_hubs");
       expect(toolNames).toContain("thalovant_ask");
+      expect(toolNames).toContain("thalovant_query");
+      expect(toolNames).toContain("thalovant_intent_inventory");
+      expect(toolNames).toContain("thalovant_get_operation");
       expect(toolNames).toContain("thalovant_create_client_identity");
 
       const result = await client.callTool({

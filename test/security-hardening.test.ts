@@ -1,6 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { execFile } from "node:child_process";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -14,12 +18,14 @@ interface RecordedRequest {
   path: string;
   query: Record<string, string>;
   body?: Record<string, unknown>;
+  authorization?: string;
 }
 
 interface FakeControlPlane {
   url: string;
   requests: RecordedRequest[];
   close: () => Promise<void>;
+  ca?: string;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -33,9 +39,9 @@ afterEach(async () => {
  * `body` (default `{ ok: true }`), so a tool's request shape and endpoint can be
  * asserted and its passthrough output inspected.
  */
-async function startFakeControlPlane(body?: unknown): Promise<FakeControlPlane> {
+async function startFakeControlPlane(body?: unknown, options: { tls?: boolean; redirect?: { status: number; location: string } } = {}): Promise<FakeControlPlane> {
   const requests: RecordedRequest[] = [];
-  const server: Server = createServer((req, res) => {
+  const handler = (req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     const chunks: Buffer[] = [];
     req.on("data", (chunk: Buffer) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
@@ -46,15 +52,34 @@ async function startFakeControlPlane(body?: unknown): Promise<FakeControlPlane> 
         path: url.pathname,
         query: Object.fromEntries(url.searchParams.entries()),
         body: raw.trim() ? (JSON.parse(raw) as Record<string, unknown>) : undefined,
+        authorization: req.headers.authorization,
       });
+      if (options.redirect) {
+        res.writeHead(options.redirect.status, { Location: options.redirect.location });
+        res.end();
+        return;
+      }
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(body ?? { ok: true, path: url.pathname }));
     });
-  });
+  };
+  let ca: string | undefined;
+  let server: Server;
+  if (options.tls) {
+    const directory = await mkdtemp(join(tmpdir(), "mcp-control-tls-"));
+    ca = join(directory, "tls.crt");
+    const key = join(directory, "tls.key");
+    cleanups.push(() => rm(directory, { recursive: true, force: true }));
+    await promisify(execFile)("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-keyout", key, "-out", ca, "-days", "1", "-subj", "/CN=localhost", "-addext", "subjectAltName=IP:127.0.0.1,DNS:localhost"]);
+    server = createHttpsServer({ key: await readFile(key), cert: await readFile(ca) }, handler);
+  } else {
+    server = createServer(handler);
+  }
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   const { port } = server.address() as AddressInfo;
   const fake: FakeControlPlane = {
-    url: `http://127.0.0.1:${port}`,
+    url: `${options.tls ? "https" : "http"}://127.0.0.1:${port}`,
+    ca,
     requests,
     close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
   };
@@ -101,6 +126,82 @@ function findRequest(fake: FakeControlPlane, method: string, path: string): Reco
   }
   return request;
 }
+
+describe("control-plane credential origin", () => {
+  it("sanitizes invalid configured URLs without exposing embedded credentials", async () => {
+    const client = await connectStdioClient({ THALOVANT_API_URL: "https://user:synthetic-do-not-log@", THALOVANT_API_TOKEN: API_TOKEN });
+    const result = await client.callTool({ name: "thalovant_list_hubs", arguments: {} });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toContain("API URL is invalid");
+    expect(resultText(result)).not.toContain("synthetic-do-not-log");
+  });
+
+  it.each<{ label: string; credentials: Record<string, string> }>([
+    { label: "API token", credentials: { THALOVANT_API_TOKEN: API_TOKEN } },
+    { label: "password login", credentials: { THALOVANT_EMAIL: "synthetic@example.invalid", THALOVANT_PASSWORD: "synthetic-password" } },
+  ])("rejects cross-origin overrides before sending configured $label credentials", async ({ credentials }) => {
+    const configured = await startFakeControlPlane();
+    const untrusted = await startFakeControlPlane();
+    const client = await connectStdioClient({ THALOVANT_API_URL: configured.url, ...credentials });
+    const result = await client.callTool({ name: "thalovant_list_hubs", arguments: { apiUrl: untrusted.url } });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toMatch(/configured Thalovant credential origin/);
+    expect(configured.requests).toHaveLength(0);
+    expect(untrusted.requests).toHaveLength(0);
+  });
+
+  it("binds a token without an explicit API URL to the default origin", async () => {
+    const untrusted = await startFakeControlPlane();
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN });
+    const result = await client.callTool({ name: "thalovant_list_hubs", arguments: { apiUrl: untrusted.url } });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toMatch(/configured Thalovant credential origin/);
+    expect(untrusted.requests).toHaveLength(0);
+  });
+
+  it("allows a normalized equivalent origin for an explicitly configured custom API", async () => {
+    const configured = await startFakeControlPlane(undefined, { tls: true });
+    const client = await connectStdioClient({ THALOVANT_API_URL: configured.url, THALOVANT_API_TOKEN: API_TOKEN, NODE_EXTRA_CA_CERTS: configured.ca! });
+    const result = await client.callTool({ name: "thalovant_list_hubs", arguments: { apiUrl: configured.url.replace("https:", "HTTPS:") + "/" } });
+    expect(result.isError).not.toBe(true);
+    expect(configured.requests).toHaveLength(1);
+    expect(configured.requests[0]?.authorization).toBe(`Bearer ${API_TOKEN}`);
+  });
+
+  it.each<Record<string, string>>([
+    { THALOVANT_API_TOKEN: API_TOKEN },
+    { THALOVANT_EMAIL: "synthetic@example.invalid", THALOVANT_PASSWORD: "synthetic-password" },
+  ])("rejects credential-bearing arbitrary plaintext origins before API requests", async credentials => {
+    const client = await connectStdioClient({ THALOVANT_API_URL: "http://custom.example.invalid", ...credentials });
+    const result = await client.callTool({ name: "thalovant_list_hubs", arguments: {} });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toContain("require HTTPS");
+  });
+
+  for (const status of [307, 308]) {
+    for (const auth of ["bearer", "password"]) {
+      it(`rejects ${status} redirects without forwarding ${auth} credentials`, async () => {
+        const target = await startFakeControlPlane();
+        const configured = await startFakeControlPlane(undefined, { redirect: { status, location: target.url } });
+        const credentials: Record<string, string> = auth === "bearer" ? { THALOVANT_API_TOKEN: API_TOKEN } : { THALOVANT_EMAIL: "synthetic@example.invalid", THALOVANT_PASSWORD: "synthetic-password" };
+        const client = await connectStdioClient({ THALOVANT_API_URL: configured.url, ...credentials });
+        const result = await client.callTool({ name: "thalovant_list_hubs", arguments: {} });
+        expect(result.isError).toBe(true);
+        expect(configured.requests).toHaveLength(1);
+        expect(target.requests).toHaveLength(0);
+      });
+    }
+  }
+
+  it("allows anonymous public discovery against a custom API without attaching credentials", async () => {
+    const publicApi = await startFakeControlPlane();
+    const client = await connectStdioClient({});
+    const result = await client.callTool({ name: "thalovant_list_public_hubs", arguments: { apiUrl: publicApi.url } });
+    expect(result.isError).not.toBe(true);
+    expect(publicApi.requests).toHaveLength(1);
+    expect(publicApi.requests[0]?.authorization).toBeUndefined();
+  });
+});
 
 describe("M1: non-catalog skill sources are gated", () => {
   it("refuses a git skill source by default and makes no control-plane call", async () => {
@@ -343,6 +444,19 @@ describe("M4: analytics overview no longer exposes an admin mode", () => {
 });
 
 describe("M6: read-only mode registers only read-only tools", () => {
+  it("validates routed-query inputs before acquiring a runtime identity", async () => {
+    const client = await connectStdioClient({});
+    for (const arguments_ of [
+      { text: " " }, { text: "query", timeoutMs: 0 }, { text: "query", queryId: "" },
+      { text: "query", requestId: "" }, { text: "query", sessionId: "" },
+      { text: "query", lang: "" }, { text: "query", replySettleMs: -1 },
+    ]) {
+      const result = await client.callTool({ name: "thalovant_query", arguments: arguments_ });
+      expect(result.isError).toBe(true);
+      expect(resultText(result)).toMatch(/validation|invalid/i);
+    }
+  });
+
   it("hides write and destructive tools from tools/list when THALOVANT_MCP_READONLY is set", async () => {
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_MCP_READONLY: "1" });
 
@@ -354,6 +468,7 @@ describe("M6: read-only mode registers only read-only tools", () => {
     expect(names).toContain("thalovant_get_analytics_overview");
 
     // Write / destructive tools are not registered at all.
+    expect(names).not.toContain("thalovant_query");
     expect(names).not.toContain("thalovant_create_hub");
     expect(names).not.toContain("thalovant_create_client_identity");
     expect(names).not.toContain("thalovant_install_runtime_group_skill");
