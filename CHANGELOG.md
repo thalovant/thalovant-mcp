@@ -6,7 +6,7 @@
 - Bind server-managed Thalovant tokens and password login to their configured API origin. Reject cross-origin tool overrides before any outbound request, including credentials for remote principals; retain configured custom origins and anonymous public discovery.
 - Add `thalovant_query` for routed HiveMind queries, preserving query/request/session correlation and runtime identity cleanup; hide it in read-only mode. The default catalogue now contains 41 tools.
 - Add read-only `thalovant_intent_inventory` and `thalovant_get_operation` tools for runtime discovery and asynchronous provisioning status. Inventory preserves fallback knowledge and conservative answerability.
-- Require Node SDK 0.3.8 for aligned intent discovery, request correlation, whole-operation reply deadlines, fixed Ask settlement windows, cancellation and retained cleanup ownership, and credential-safe control-plane redirect handling.
+- Require Node SDK 0.3.9 for aligned intent discovery, request correlation, whole-operation reply deadlines, fixed Ask settlement windows, cancellation and retained cleanup ownership, and credential-safe control-plane redirect handling.
 - Retain the runtime identity lease until actual cleanup, even after a caller close timeout; failed cleanup blocks later identity reuse with an explicit error. Bound queued lease acquisition to six seconds without releasing pending ownership or executing expired callers.
 - Upgrade the test runner to Vitest 4.1.11 to remove GHSA-82fw-gwwq-j7x9.
 - Test Node 20, 22 and 24; add per-principal/shared credential regressions and exercise the inventory tool over a real HTTPS Noise session.
