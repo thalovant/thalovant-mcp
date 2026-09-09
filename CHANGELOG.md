@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.18
+
+- Serialize runtime tool calls sharing a hub client identity so concurrent calls cannot replace each other's Noise sessions or HTTP message queues. Different identities remain independent.
+- Use Node SDK 0.3.4 or newer for authenticated HiveMind v3 Noise across WSS, HTTPS and MQTT. HTTPS retains replica affinity and uses binary encrypted polling; MQTT reauthenticates when reconnecting.
+- Derive the advertised MCP server version from the package manifest so stdio, Streamable HTTP, npm, OCI and registry metadata agree. Add transport smoke assertions for version consistency.
+
 ## Unreleased
 
 ### Fixed

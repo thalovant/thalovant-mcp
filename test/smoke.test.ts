@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -34,6 +34,12 @@ describe("stdio MCP server", () => {
 
     try {
       await client.connect(transport);
+      const manifest = JSON.parse(await readFile("package.json", "utf8"));
+      const registry = JSON.parse(await readFile("server.json", "utf8"));
+      expect(client.getServerVersion()?.version).toBe(manifest.version);
+      expect(registry.version).toBe(manifest.version);
+      expect(registry.packages[0].version).toBe(manifest.version);
+      expect(registry.packages[1].identifier).toMatch(new RegExp(`:${manifest.version.replaceAll(".", "\\.")}$`));
       const tools = await client.listTools();
       const toolNames = tools.tools.map((tool) => tool.name);
       expect(toolNames).toContain("thalovant_list_public_hubs");
