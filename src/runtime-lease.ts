@@ -6,11 +6,23 @@ interface RuntimeClosable {
 
 const leases = new Map<string, Promise<void>>();
 
-/** A caller timeout never releases an identity before actual cleanup settles. */
+function cancellationError(): Error {
+  // MCP cancellation reasons are caller supplied and may contain credentials.
+  const error = new Error("Runtime tool request cancelled.");
+  error.name = "AbortError";
+  return error;
+}
+
+export function throwIfRuntimeCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw cancellationError();
+}
+
+/** Caller cancellation/deadlines never release an identity before owned work and cleanup settle. */
 export async function withRuntimeLease<T, C extends RuntimeClosable>(
   key: string, createClient: () => C, run: (client: C) => Promise<T>,
-  acquireTimeoutMs = 6000,
+  acquireTimeoutMs = 6000, signal?: AbortSignal,
 ): Promise<T> {
+  throwIfRuntimeCancelled(signal);
   if (!Number.isFinite(acquireTimeoutMs) || acquireTimeoutMs <= 0) {
     throw new Error("Runtime identity acquisition deadline expired.");
   }
@@ -18,8 +30,7 @@ export async function withRuntimeLease<T, C extends RuntimeClosable>(
   let release!: () => void;
   let fail!: (error: Error) => void;
   const current = new Promise<void>((resolve, reject) => { release = resolve; fail = reject; });
-  // A failed cleanup poisons this identity's barrier. Observe it even when no
-  // later caller arrives; later tools fail instead of replacing that session.
+  // Observe poisoned barriers even when no later caller arrives.
   void current.catch(() => undefined);
   leases.set(key, current);
   const releaseIdentity = () => {
@@ -29,40 +40,62 @@ export async function withRuntimeLease<T, C extends RuntimeClosable>(
   const failIdentity = () => {
     fail(new Error("Previous runtime session cleanup failed; this identity remains unavailable."));
   };
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort!: () => void;
+  const cancelled = new Promise<never>((_, reject) => {
+    onAbort = () => reject(cancellationError());
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+  // The signal may fire during a synchronous client factory or cleanup callback.
+  // Observe it even when execution fails before the final race is installed.
+  void cancelled.catch(() => undefined);
   try {
-    await Promise.race([
-      previous,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error("Runtime identity acquisition deadline expired; previous session cleanup is still pending.")), acquireTimeoutMs);
-      }),
-    ]);
-  } catch (error) {
-    // An expired waiter never runs or closes its unused client. Its place in
-    // the chain remains occupied until the prior owner actually retires.
-    void previous.then(releaseIdentity, failIdentity);
-    throw error;
-  } finally {
-    clearTimeout(timer);
-  }
-  let client: C;
-  try {
-    client = createClient();
-  } catch (error) {
-    releaseIdentity();
-    throw error;
-  }
-  try {
-    return await run(client);
-  } finally {
-    let closing: Promise<void>;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      closing = client.close();
+      await Promise.race([
+        previous, cancelled,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error("Runtime identity acquisition deadline expired; previous session cleanup is still pending.")), acquireTimeoutMs);
+        }),
+      ]);
+      throwIfRuntimeCancelled(signal);
     } catch (error) {
-      failIdentity();
+      // An abandoned waiter never constructs a client or runs later. Its place
+      // in the chain remains occupied until the prior owner actually retires.
+      void previous.then(releaseIdentity, failIdentity);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+    let client: C;
+    try {
+      client = createClient();
+    } catch (error) {
+      releaseIdentity();
       throw error;
     }
-    void client.waitForClosed().then(releaseIdentity, failIdentity);
-    await closing;
+    const owned = (async () => {
+      try {
+        throwIfRuntimeCancelled(signal);
+        return await run(client);
+      } finally {
+        let closing: Promise<void>;
+        try {
+          closing = client.close();
+          // Observe close independently if waitForClosed throws synchronously.
+          void closing.catch(() => undefined);
+          void client.waitForClosed().then(releaseIdentity, failIdentity);
+        } catch (error) {
+          failIdentity();
+          throw error;
+        }
+        await closing;
+      }
+    })();
+    // SDK methods accepting a signal can retire promptly. Other admitted work
+    // must finish naturally before close begins; cancellation never replays it.
+    // The race observes both branches, including late work/cleanup rejections.
+    return await Promise.race([owned, cancelled]);
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
   }
 }

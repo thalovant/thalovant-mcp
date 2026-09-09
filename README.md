@@ -419,7 +419,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.1.20 uses `@thalovant/sdk` `^0.3.9` (0.3.9 through versions below 0.4.0). This release enforces
+Version 0.1.21 uses `@thalovant/sdk` `^0.3.10` (0.3.10 through versions below 0.4.0). This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
@@ -438,7 +438,31 @@ caller times out, a later tool waits up to six seconds for that cleanup before o
 A queued tool that reaches this deadline fails without executing later or releasing
 the previous session's identity.
 An actual cleanup failure marks the identity unavailable to later calls instead
-of risking concurrent sessions.
+of risking concurrent sessions. These leases are process-local; separate server
+processes or replicas need distinct runtime identities or external coordination.
+
+MCP request cancellation applies to queued runtime tools in both stdio and
+Streamable HTTP mode. A cancelled queued call never constructs a runtime client
+or executes later. Cancellation also reaches runtime connection setup, Ask,
+Query and event waits. Action/code sends, raw event publication and inventory
+queries check cancellation during connection setup, then retain ownership until
+the admitted SDK operation finishes. Cancelling the MCP request cannot undo an
+already admitted operation or its effects. The identity remains reserved through
+that work and actual cleanup; application requests are never automatically replayed.
+Control-plane tools do not gain runtime cancellation semantics in this release.
+
+For example, an MCP TypeScript client can cancel a runtime query after ten seconds,
+including time spent waiting for its identity lease:
+
+```typescript
+await mcpClient.callTool({
+  name: "thalovant_query",
+  arguments: { identityFile: "/secure/identity.json", text: "What is the weather?", timeoutMs: 30000 },
+}, undefined, { signal: AbortSignal.timeout(10000) });
+```
+
+Intent inventory retains its connection setup and per-query/batch budgets plus
+a separate optional fallback probe; it has no single inventory-wide deadline.
 
 ## Development
 
