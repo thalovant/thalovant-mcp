@@ -25,7 +25,10 @@ async function watchdog<T>(work: Promise<T>, timeoutMs = 5000, label = "operatio
   })]).finally(() => clearTimeout(timer));
 }
 
-it.each(["stdio", "http"] as const)("propagates actual %s MCP cancellation without late execution or overlapping Noise identities", async mode => {
+it.each([
+  { mode: "stdio", scenario: "cancellation" }, { mode: "http", scenario: "cancellation" },
+  { mode: "stdio", scenario: "cleanup refusal" }, { mode: "http", scenario: "cleanup refusal" },
+] as const)("preserves actual $mode MCP runtime ownership during $scenario", async ({ mode, scenario }) => {
   const directory = await mkdtemp(join(tmpdir(), "thalovant-mcp-cancellation-"));
   let mcp: Client | undefined;
   let child: ChildProcess | undefined;
@@ -49,6 +52,8 @@ it.each(["stdio", "http"] as const)("propagates actual %s MCP cancellation witho
     const observe = (name: string) => { const event = deferred(); observers.set(name, event); return event.promise; };
     const notify = (name: string) => { observers.get(name)?.resolve(); observers.delete(name); };
     let holdGreeting = false;
+    let refuseCleanup = scenario === "cleanup refusal";
+    let admissionAttempts = 0;
     let heldResponse: (() => void) | undefined;
     const server = createServer({ key: await readFile(keyFile), cert: await readFile(certFile) }, (request, response) => {
       const chunks: Buffer[] = [];
@@ -61,6 +66,7 @@ it.each(["stdio", "http"] as const)("propagates actual %s MCP cancellation witho
           if (url.pathname !== "/connect" && request.headers.cookie !== "hivemind_http_replica=test") throw new Error("missing replica affinity");
           switch (url.pathname) {
             case "/connect":
+              admissionAttempts += 1;
               if (active) throw new Error("overlapping runtime identities");
               lifecycle.push("connect"); plain = []; binary = [];
               active = noisePeer(password, (payload, encrypted) => {
@@ -97,6 +103,7 @@ it.each(["stdio", "http"] as const)("propagates actual %s MCP cancellation witho
               reply({ status: "message sent" }); return;
             }
             case "/disconnect":
+              if (refuseCleanup) { reply({ error: "synthetic remote cleanup refusal" }); return; }
               if (active) lifecycle.push("disconnect");
               active = undefined; plain = []; binary = [];
               reply({ status: "Disconnected" }); notify("disconnect"); return;
@@ -168,7 +175,23 @@ it.each(["stdio", "http"] as const)("propagates actual %s MCP cancellation witho
     // Cancellation during connect must reach the SDK, retire the handshake and
     // permit a successor well before the original 30-second operation budget.
     // Warm the real Noise key derivation outside the short successor watchdog.
-    expect((await watchdog(call("thalovant_healthcheck"), 15000, "initial Noise readiness")).isError).not.toBe(true);
+    const initial = await watchdog(call("thalovant_healthcheck"), 15000, "initial Noise readiness");
+    if (refuseCleanup) {
+      expect.soft(initial.isError, "remote cleanup refusal must reach the MCP caller").toBe(true);
+      // Even when the peer would now accept cleanup, a different client cannot
+      // establish that the previous admission retired. The lease stays poisoned.
+      refuseCleanup = false;
+      const successor = await watchdog(call("thalovant_healthcheck"), 5000, "poisoned identity rejection");
+      expect.soft(successor.isError).toBe(true);
+      expect.soft(JSON.stringify(successor.content)).toContain("identity remains unavailable");
+      expect.soft(admissionAttempts, "failed cleanup must not admit a new client").toBe(1);
+      expect.soft(lifecycle).toEqual(["connect"]);
+      expect.soft(errors).toEqual([]);
+      const pins = JSON.parse(await readFile(join(directory, "config", "thalovant", "noise_pins.json"), "utf8"));
+      expect(Object.keys(pins)).toEqual(["mcp-test-hub"]);
+      return;
+    }
+    expect(initial.isError).not.toBe(true);
     for (const [name, args] of [
       ["thalovant_healthcheck", {}],
       ["thalovant_send_action", { payload: "never admitted action" }],
