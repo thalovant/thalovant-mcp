@@ -847,6 +847,11 @@ async function createRuntimeClient(options: {
 // A second tool call must finish after the first closes that identity's session.
 const runtimeLeases = new Map<string, Promise<void>>();
 
+/**
+ * Hold an identity lease through both the tool action and client cleanup.
+ * This keeps HTTP/MQTT admissions from replacing another call's Noise session;
+ * a failed action still closes its client before the next lease starts.
+ */
 async function withRuntimeClient<T>(
   options: Parameters<typeof createRuntimeClient>[0],
   run: (client: ThalovantClient) => Promise<T>,
