@@ -32,7 +32,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { realpathSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
@@ -42,7 +42,7 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { JWTPayload } from "jose";
 import { z } from "zod";
 
-const VERSION = "0.1.10";
+const VERSION: string = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 300_000;
 const MAX_LIMIT = 100;
@@ -843,6 +843,35 @@ async function createRuntimeClient(options: {
   });
 }
 
+// The hub HTTP/MQTT queues and Noise sessions are keyed by client identity.
+// A second tool call must finish after the first closes that identity's session.
+const runtimeLeases = new Map<string, Promise<void>>();
+
+async function withRuntimeClient<T>(
+  options: Parameters<typeof createRuntimeClient>[0],
+  run: (client: ThalovantClient) => Promise<T>,
+): Promise<T> {
+  const client = await createRuntimeClient(options);
+  const key = createHash("sha256").update(JSON.stringify([
+    client.identity.endpointBase(), client.identity.accessKey,
+  ])).digest("hex");
+  const previous = runtimeLeases.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>(resolve => { release = resolve; });
+  runtimeLeases.set(key, current);
+  await previous;
+  try {
+    return await run(client);
+  } finally {
+    try {
+      await client.close();
+    } finally {
+      release();
+      if (runtimeLeases.get(key) === current) runtimeLeases.delete(key);
+    }
+  }
+}
+
 function summarizeReply(reply: ThalovantReply) {
   const displayItems = reply.displayItems({ maxTextChars: 1_000 }) as ThalovantDisplayItem[];
   return {
@@ -1525,8 +1554,7 @@ export function createServer(): McpServer {
       },
     },
     async (args) => {
-      const client = await createRuntimeClient(args);
-      try {
+      return withRuntimeClient(args, async (client) => {
         const identity = client.identity;
         return jsonContent({
           identity: redactSecrets(identity.asObject(false)),
@@ -1535,9 +1563,7 @@ export function createServer(): McpServer {
           supportsRequestedProtocol: identity.supportsProtocol(args.protocol),
           health: client.healthcheck(),
         });
-      } finally {
-        await client.close();
-      }
+      });
     },
   );
 
@@ -1556,13 +1582,10 @@ export function createServer(): McpServer {
       },
     },
     async ({ timeoutMs, ...runtime }) => {
-      const client = await createRuntimeClient(runtime);
-      try {
+      return withRuntimeClient(runtime, async (client) => {
         await client.connect(clampTimeout(timeoutMs));
         return jsonContent(redactSecrets(client.healthcheck()));
-      } finally {
-        await client.close();
-      }
+      });
     },
   );
 
@@ -1590,8 +1613,7 @@ export function createServer(): McpServer {
       },
     },
     async ({ text, timeoutMs, lang, sessionId, requestId, context, replySettleMs, emptyReplyWaitMs, ...runtime }) => {
-      const client = await createRuntimeClient(runtime);
-      try {
+      return withRuntimeClient(runtime, async (client) => {
         const builtContext = context ? buildClientContext({}, context) : undefined;
         const reply = await client.ask(text, {
           timeoutMs: clampTimeout(timeoutMs),
@@ -1603,9 +1625,7 @@ export function createServer(): McpServer {
           emptyReplyWaitMs,
         });
         return jsonContent(redactSecrets(summarizeReply(reply)));
-      } finally {
-        await client.close();
-      }
+      });
     },
   );
 
@@ -1631,8 +1651,7 @@ export function createServer(): McpServer {
       },
     },
     async ({ payload, title, lang, sessionId, requestId, context, ...runtime }) => {
-      const client = await createRuntimeClient(runtime);
-      try {
+      return withRuntimeClient(runtime, async (client) => {
         await client.sendAction(payload, {
           title,
           lang,
@@ -1641,9 +1660,7 @@ export function createServer(): McpServer {
           context: context ? buildClientContext({}, context) : undefined,
         });
         return textContent("Action sent.");
-      } finally {
-        await client.close();
-      }
+      });
     },
   );
 
@@ -1670,8 +1687,7 @@ export function createServer(): McpServer {
       },
     },
     async ({ value, kind, label, lang, sessionId, requestId, context, ...runtime }) => {
-      const client = await createRuntimeClient(runtime);
-      try {
+      return withRuntimeClient(runtime, async (client) => {
         await client.sendCode(value, {
           kind,
           label,
@@ -1681,9 +1697,7 @@ export function createServer(): McpServer {
           context: context ? buildClientContext({}, context) : undefined,
         });
         return textContent("Code sent.");
-      } finally {
-        await client.close();
-      }
+      });
     },
   );
 
@@ -1706,13 +1720,10 @@ export function createServer(): McpServer {
       },
     },
     async ({ eventType, data, context, ...runtime }) => {
-      const client = await createRuntimeClient(runtime);
-      try {
+      return withRuntimeClient(runtime, async (client) => {
         await client.emit(eventType, data, context ? buildClientContext({}, context) : undefined);
         return textContent("Event emitted.");
-      } finally {
-        await client.close();
-      }
+      });
     },
   );
 
@@ -1735,8 +1746,7 @@ export function createServer(): McpServer {
       },
     },
     async ({ eventName, timeoutMs, sessionId, requestId, context, ...runtime }) => {
-      const client = await createRuntimeClient(runtime);
-      try {
+      return withRuntimeClient(runtime, async (client) => {
         const event = await client.waitForEvent(eventName, {
           timeoutMs: clampTimeout(timeoutMs),
           sessionId,
@@ -1744,9 +1754,7 @@ export function createServer(): McpServer {
           context: context ? buildClientContext({}, context) : undefined,
         });
         return jsonContent(redactSecrets(event.asObject()));
-      } finally {
-        await client.close();
-      }
+      });
     },
   );
 

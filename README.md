@@ -393,6 +393,24 @@ With the flag unset, a call with any `sourceType` other than `catalog` fails bef
 
 Set `THALOVANT_MCP_READONLY=1` to register only tools annotated `readOnlyHint: true`. Write and destructive tools are then never registered and never appear in `tools/list`, so an operator can run an observe-only agent without hand-writing a denylist. Like the other registration-time gates it is read when a server instance is created; `thalovant_config_status` reports the state as `readOnly`.
 
+## HiveMind Runtime Compatibility
+
+Runtime calls sharing the same hub client identity run sequentially within one
+MCP process. Use a distinct client identity for each independently running MCP
+server so the hub can keep their sessions separate.
+
+Version 0.1.18 uses `@thalovant/sdk` 0.3.4 or newer. Runtime tools support
+HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
+reports readiness only after authentication; a reachable hub or broker alone
+does not establish a runtime session.
+
+Keep the SDK configuration directory persistent and private between server
+restarts (`~/.config/thalovant`, or the configured XDG/Windows equivalent). It
+contains the client Noise key and trusted server pins. An authentication
+failure preserves those pins; replacing a server key requires an explicit,
+verified trust change. HTTPS identities must advertise the hub's HTTPS plugin,
+and MQTT requires the identity's broker credentials and topic prefix.
+
 ## Development
 
 ```bash

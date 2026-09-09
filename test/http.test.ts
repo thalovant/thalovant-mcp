@@ -52,6 +52,8 @@ describe("streamable HTTP MCP server", () => {
 
     try {
       await client.connect(transport);
+      const manifest = JSON.parse(await readFile("package.json", "utf8"));
+      expect(client.getServerVersion()?.version).toBe(manifest.version);
       const tools = await client.listTools();
       expect(tools.tools.map((tool) => tool.name)).toContain("thalovant_config_status");
     } finally {

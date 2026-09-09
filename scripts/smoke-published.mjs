@@ -28,6 +28,10 @@ if (!transport) {
 
 try {
   await client.connect(transport);
+  const expectedVersion = process.env.PACKAGE_VERSION;
+  if (expectedVersion && client.getServerVersion()?.version !== expectedVersion) {
+    throw new Error(`${mode} artifact advertised a version other than ${expectedVersion}`);
+  }
   const tools = await client.listTools();
   const names = new Set(tools.tools.map((tool) => tool.name));
   for (const required of ["thalovant_config_status", "thalovant_list_public_hubs", "thalovant_ask"]) {
