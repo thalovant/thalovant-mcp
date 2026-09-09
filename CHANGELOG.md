@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.19
+
+- Require Node SDK 0.3.5 or newer so runtime tools receive secure MQTT URL enforcement and bounded MQTT setup and HTTP failure cleanup.
+- Keep package, registry, and container source metadata on version 0.1.19. Runtime tool names, inputs, and identity serialization remain compatible.
+
 ## 0.1.18
 
 - Serialize runtime tool calls sharing a hub client identity so concurrent calls cannot replace each other's Noise sessions or HTTP message queues. Different identities remain independent.
