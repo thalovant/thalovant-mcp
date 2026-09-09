@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { withRuntimeLease } from "./runtime-lease.js";
+import { throwIfRuntimeCancelled, withRuntimeLease } from "./runtime-lease.js";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -387,6 +387,7 @@ interface PrincipalCredentialFile {
 interface RequestContext {
   toolName: string;
   principal: Principal;
+  signal?: AbortSignal;
 }
 
 interface SessionRecord {
@@ -690,7 +691,7 @@ function registerThalovantTool(
     const start = Date.now();
     try {
       await authorizeTool(name, principal);
-      const result = await requestContext.run({ toolName: name, principal }, () => handler(args, extra));
+      const result = await requestContext.run({ toolName: name, principal, signal: extra.signal }, () => handler(args, extra));
       await auditLog({
         ts: new Date().toISOString(),
         event: "mcp.tool",
@@ -862,13 +863,15 @@ async function createRuntimeIdentity(options: {
 /** Use one identity lease through the action and actual retained cleanup. */
 async function withRuntimeClient<T>(
   options: Parameters<typeof createRuntimeIdentity>[0],
-  run: (client: ThalovantClient) => Promise<T>,
+  run: (client: ThalovantClient, signal?: AbortSignal) => Promise<T>,
 ): Promise<T> {
+  const signal = requestContext.getStore()?.signal;
+  throwIfRuntimeCancelled(signal);
   const identity = await createRuntimeIdentity(options);
   const key = createHash("sha256").update(JSON.stringify([
     identity.endpointBase(), identity.accessKey,
   ])).digest("hex");
-  return withRuntimeLease(key, () => new ThalovantClient(identity, { protocol: options.protocol ?? "wss" }), run);
+  return withRuntimeLease(key, () => new ThalovantClient(identity, { protocol: options.protocol ?? "wss" }), client => run(client, signal), 6000, signal);
 }
 
 function summarizeReply(reply: ThalovantReply) {
@@ -1596,8 +1599,8 @@ export function createServer(): McpServer {
       },
     },
     async ({ timeoutMs, ...runtime }) => {
-      return withRuntimeClient(runtime, async (client) => {
-        await client.connect(clampTimeout(timeoutMs));
+      return withRuntimeClient(runtime, async (client, signal) => {
+        await client.connect(clampTimeout(timeoutMs), signal);
         return jsonContent(redactSecrets(client.healthcheck()));
       });
     },
@@ -1617,7 +1620,9 @@ export function createServer(): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async ({ languages, describe, fallback, timeoutMs, ...runtime }) => withRuntimeClient(runtime, async client => {
+    async ({ languages, describe, fallback, timeoutMs, ...runtime }) => withRuntimeClient(runtime, async (client, signal) => {
+      await client.connect(undefined, signal);
+      throwIfRuntimeCancelled(signal);
       const inventory = await client.intents(languages, { describe, fallback, timeoutMs: clampTimeout(timeoutMs) });
       return jsonContent(redactSecrets({
         ...inventory.asObject(),
@@ -1650,9 +1655,10 @@ export function createServer(): McpServer {
       },
     },
     async ({ text, timeoutMs, lang, sessionId, requestId, context, replySettleMs, emptyReplyWaitMs, ...runtime }) => {
-      return withRuntimeClient(runtime, async (client) => {
+      return withRuntimeClient(runtime, async (client, signal) => {
         const builtContext = context ? buildClientContext({}, context) : undefined;
         const reply = await client.ask(text, {
+          signal,
           timeoutMs: clampTimeout(timeoutMs),
           lang,
           sessionId,
@@ -1685,8 +1691,9 @@ export function createServer(): McpServer {
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
     async ({ text, timeoutMs, lang, sessionId, requestId, queryId, context, replySettleMs, ...runtime }) => {
-      return withRuntimeClient(runtime, async client => {
+      return withRuntimeClient(runtime, async (client, signal) => {
         const reply = await client.query(text, {
+          signal,
           timeoutMs: clampTimeout(timeoutMs), lang, sessionId, requestId, queryId,
           context: context ? buildClientContext({}, context) : undefined, replySettleMs,
         });
@@ -1717,7 +1724,9 @@ export function createServer(): McpServer {
       },
     },
     async ({ payload, title, lang, sessionId, requestId, context, ...runtime }) => {
-      return withRuntimeClient(runtime, async (client) => {
+      return withRuntimeClient(runtime, async (client, signal) => {
+        await client.connect(undefined, signal);
+        throwIfRuntimeCancelled(signal);
         await client.sendAction(payload, {
           title,
           lang,
@@ -1753,7 +1762,9 @@ export function createServer(): McpServer {
       },
     },
     async ({ value, kind, label, lang, sessionId, requestId, context, ...runtime }) => {
-      return withRuntimeClient(runtime, async (client) => {
+      return withRuntimeClient(runtime, async (client, signal) => {
+        await client.connect(undefined, signal);
+        throwIfRuntimeCancelled(signal);
         await client.sendCode(value, {
           kind,
           label,
@@ -1786,7 +1797,9 @@ export function createServer(): McpServer {
       },
     },
     async ({ eventType, data, context, ...runtime }) => {
-      return withRuntimeClient(runtime, async (client) => {
+      return withRuntimeClient(runtime, async (client, signal) => {
+        await client.connect(undefined, signal);
+        throwIfRuntimeCancelled(signal);
         await client.emit(eventType, data, context ? buildClientContext({}, context) : undefined);
         return textContent("Event emitted.");
       });
@@ -1812,8 +1825,9 @@ export function createServer(): McpServer {
       },
     },
     async ({ eventName, timeoutMs, sessionId, requestId, context, ...runtime }) => {
-      return withRuntimeClient(runtime, async (client) => {
+      return withRuntimeClient(runtime, async (client, signal) => {
         const event = await client.waitForEvent(eventName, {
+          signal,
           timeoutMs: clampTimeout(timeoutMs),
           sessionId,
           requestId,

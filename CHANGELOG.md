@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.21
+
+- Propagate MCP request cancellation through runtime identity acquisition and SDK connection, Ask, Query and event waits in stdio and Streamable HTTP mode. Require Node SDK 0.3.12 for Query cancellation and explicit HTTP admission cleanup failures, including contradictory disconnect acknowledgments.
+- Skip cancelled queued calls without constructing a client or interrupting the active identity owner. Retain admitted work and actual cleanup after caller cancellation, including SDK operations without cancellation support; preserve failed-cleanup poisoning and never replay application writes.
+- Check cancellation during connection setup before action/code sends, raw event publication and inventory discovery. Tool schemas and the 41-tool default catalogue remain compatible.
+- Verify actual MCP cancellation against independent HTTPS Noise peers on both MCP transports, with late queued execution, pending physical write and healthy successor regressions. Add real remote-cleanup refusal cases that prove an identity with unconfirmed HTTP cleanup remains unavailable instead of admitting an overlapping client.
+
 ## 0.1.20
 
 - Require HTTPS for credential-bearing API calls, preserving explicit loopback HTTP for local development. Reject API redirects through the SDK. Instantiate runtime clients only after acquiring their identity lease.
