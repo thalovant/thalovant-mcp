@@ -57,8 +57,8 @@ Minimum scopes for the full control-plane tool surface:
 | Scope | Used by |
 |-------|---------|
 | `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, `thalovant_list_marketplace_skills`, `thalovant_list_runtime_groups`, `thalovant_get_runtime_group`, `thalovant_get_runtime_group_config`, and the hub lookup inside `thalovant_create_client_identity` |
-| `hubs:inspect` | `thalovant_get_hub_runtime_capabilities`, `thalovant_list_runtime_group_marketplace`, `thalovant_list_runtime_group_inventory` |
-| `hubs:write` | All hub and runtime-group provisioning: `thalovant_create_hub`, `thalovant_update_hub`, `thalovant_release_hub`, `thalovant_create_runtime_group`, `thalovant_update_runtime_group`, `thalovant_update_runtime_group_config`, `thalovant_release_runtime_group`, `thalovant_install_runtime_group_skill`, `thalovant_uninstall_runtime_group_skill`, the hub rating tools, and the opt-in delete tools |
+| `hubs:inspect` | `thalovant_get_hub_runtime_capabilities`, `thalovant_list_runtime_group_marketplace`, `thalovant_list_runtime_group_inventory`, `thalovant_list_hub_skills` |
+| `hubs:write` | All hub and runtime-group provisioning: `thalovant_create_hub`, `thalovant_update_hub`, `thalovant_release_hub`, `thalovant_create_runtime_group`, `thalovant_update_runtime_group`, `thalovant_update_runtime_group_config`, `thalovant_release_runtime_group`, `thalovant_install_runtime_group_skill`, `thalovant_uninstall_runtime_group_skill`, the per-hub `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, `thalovant_remove_hub_skill`, the hub rating tools, and the opt-in delete tools |
 | `clients:write` | `thalovant_create_client_identity` (`POST /v1/clients`) |
 | `memory:read` | `thalovant_list_memory_items`, `thalovant_get_memory_summary`, `thalovant_get_memory_item` |
 | `memory:write` | `thalovant_create_memory_item`, `thalovant_update_memory_item`, `thalovant_delete_memory_item` |
@@ -78,6 +78,16 @@ Grant fewer scopes for narrower deployments: a read-only assistant needs only `h
 ### Hub Etags
 
 `thalovant_update_hub` and `thalovant_delete_hub` use optimistic locking and require the hub's current etag, sent as `If-Match`. The etag is only available in the **body** of the hub resource — the API sends no `ETag` response header — so an agent must call `thalovant_get_hub` first and pass the `etag` field from that response. A missing or stale value fails `412 ETag mismatch` and changes nothing; re-fetch and retry. `name`, `namespace`, and `domain` are immutable after creation, so `thalovant_update_hub` does not accept them at all; send only the fields you are changing rather than round-tripping a whole hub resource. Runtime-group writes do not use etags.
+
+### Hub Skills
+
+`thalovant_list_hub_skills`, `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, and `thalovant_remove_hub_skill` act on **one hub**, not on a runtime group's skill set. A hub can start with no skills at all and gain them one at a time; a change applies live on the hub in about 15 seconds with no restart. `hubId` must be the hub UUID — the authenticated hub routes reject slugs.
+
+`thalovant_list_hub_skills` returns the whole `GET /v1/hubs/{hub_id}/skills` envelope: `hub_id`, `runtime_group_id`, `observed_at`, `source`, the runtime's phase and message, and `data`, one row per skill (possibly empty) with `skill`, `title`, `marketplace_skill_id`, `package_name`, `source_type`, `install_source`, `version`, `version_pin`, `installed_version`, `observed_version`, `previous_version`, `latest_version`, `available_version`, `update_available`, `changelog`, `active`, `state`, the runtime's phase, message and last error, and `last_transition_at`. `state` is one of `pending`, `installed`, `failed`, `removing`, `drifted`, `quarantined`, or `unmanaged`; a change in progress shows as `pending`.
+
+Each write answers `202` with `operation_id`, `hub_id`, `runtime_group_id`, `skill`, `version` (`null` for a removal), `previous_version`, and `state` (`installing`, `updating`, or `removing`); pass `wait: true` to poll that operation every 2 s until it converges (`installed`, or `removed` for a removal; a `failed` or `timed_out` operation raises an error carrying its `error_message`), with a 120 s default `timeoutMs`, or follow it yourself with `thalovant_get_operation`. Installing a skill that is already installed at another version performs an update; the same version fails `409` with code `skill_version_already_installed`. A hub with no runtime group fails `404` with code `hub_without_runtime_group` (a plain `404` means an unknown hub or a skill that is not installed), and an unresolvable `latest` or an invalid version fails `422`. Errors are RFC 7807 problem bodies; the tool error keeps the short `message` and appends the root `code` in parentheses, for example `Thalovant API request failed with HTTP 409: Skill version already installed. (skill_version_already_installed)`.
+
+Listing needs `hubs:inspect` (implied by `hubs:read`); the writes need `hubs:write` and a paid plan, and because scope is checked before plan a free-plan token sees `403`, never `402`. Hub-restricted tokens (a `hub_ids` allowlist) are honoured on all four routes. Until `@thalovant/sdk` ships these methods (0.3.15) the server calls the hub-skill routes directly, with the SDK's header, TLS, and redirect conventions.
 
 ### Login Fallback
 
@@ -358,6 +368,13 @@ Hub and runtime-group provisioning:
 - `thalovant_install_runtime_group_skill`
 - `thalovant_uninstall_runtime_group_skill`
 
+Hub skills, acting on one hub (see [Hub Skills](#hub-skills); the list tool is read-only):
+
+- `thalovant_list_hub_skills`
+- `thalovant_install_hub_skill`
+- `thalovant_update_hub_skill`
+- `thalovant_remove_hub_skill`
+
 Destructive, **not registered unless explicitly enabled** (see [Destructive Tools](#destructive-tools)):
 
 - `thalovant_delete_hub`
@@ -419,7 +436,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.1.22 uses `@thalovant/sdk` `^0.3.14` (0.3.14 through versions below 0.4.0). This release enforces
+Version 0.1.23 uses `@thalovant/sdk` `^0.3.14` (0.3.14 through versions below 0.4.0). This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`

@@ -74,6 +74,23 @@ async function startFakeControlPlane(
   return fake;
 }
 
+interface FakeResponse {
+  status?: number;
+  body: unknown;
+}
+
+/** Optional per-request JSON responder; returning undefined keeps the default `{ ok: true, path }` reply. */
+type FakeResponder = (request: RecordedRequest) => FakeResponse | undefined;
+
+/** Adapts a JSON responder to the raw response hook of `startFakeControlPlane`. */
+function jsonResponder(respond: FakeResponder): (request: RecordedRequest, response: ServerResponse) => void {
+  return (request, response) => {
+    const custom = respond(request);
+    response.statusCode = custom?.status ?? 200;
+    response.end(JSON.stringify(custom ? custom.body : { ok: true, path: request.path }));
+  };
+}
+
 function baseEnv(): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -144,7 +161,16 @@ const ENABLED_TOOLS = [
   "thalovant_set_hub_rating",
   "thalovant_clear_hub_rating",
   "thalovant_get_hub_runtime_capabilities",
+  "thalovant_list_hub_skills",
+  "thalovant_install_hub_skill",
+  "thalovant_update_hub_skill",
+  "thalovant_remove_hub_skill",
 ];
+
+// Registered tool counts per mode. README and CHANGELOG quote these numbers.
+const DEFAULT_TOOL_COUNT = 45;
+const READ_ONLY_TOOL_COUNT = 22;
+const DESTRUCTIVE_ENABLED_TOOL_COUNT = 47;
 
 describe("provisioning and discovery tool registration", () => {
   it("registers every non-destructive provisioning and discovery tool by default", async () => {
@@ -154,6 +180,22 @@ describe("provisioning and discovery tool registration", () => {
       expect(names).toContain(tool);
     }
   }, 15_000);
+
+  it("registers the documented number of tools in each mode", async () => {
+    const byDefault = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN });
+    expect(await toolNames(byDefault)).toHaveLength(DEFAULT_TOOL_COUNT);
+
+    const readOnly = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_MCP_READONLY: "1" });
+    const readOnlyNames = await toolNames(readOnly);
+    expect(readOnlyNames).toHaveLength(READ_ONLY_TOOL_COUNT);
+    expect(readOnlyNames).toContain("thalovant_list_hub_skills");
+    expect(readOnlyNames).not.toContain("thalovant_install_hub_skill");
+    expect(readOnlyNames).not.toContain("thalovant_update_hub_skill");
+    expect(readOnlyNames).not.toContain("thalovant_remove_hub_skill");
+
+    const destructive = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_ENABLE_DESTRUCTIVE_TOOLS: "true" });
+    expect(await toolNames(destructive)).toHaveLength(DESTRUCTIVE_ENABLED_TOOL_COUNT);
+  }, 30_000);
 
   it("omits destructive tools from tools/list by default", async () => {
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN });
@@ -534,6 +576,298 @@ describe("provisioning tool delegation to the SDK", () => {
     const client = await connectStdioClient({ THALOVANT_API_URL: fake.url });
 
     const result = await client.callTool({ name: "thalovant_create_hub", arguments: { name: "kitchen", spec: { version: "1" } } });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toContain("THALOVANT_API_TOKEN");
+    expect(fake.requests).toHaveLength(0);
+  }, 15_000);
+});
+
+describe("hub skill tools", () => {
+  const HUB_SKILL_WRITE = /^\/v1\/hubs\/[^/]+\/skills(?:\/[^/]+)?$/;
+
+  /** Answers hub-skill writes with a 202 operation and the operation route with a scripted status sequence. */
+  function hubSkillResponder(statuses: string[], operation: Partial<Record<string, unknown>> = {}): FakeResponder {
+    let polls = 0;
+    return (request) => {
+      if (request.method !== "GET" && HUB_SKILL_WRITE.test(request.path)) {
+        const state = request.method === "POST" ? "installing" : request.method === "PATCH" ? "updating" : "removing";
+        const skill = request.method === "POST" ? request.body?.skill : decodeURIComponent(request.path.split("/").pop() ?? "");
+        return {
+          status: 202,
+          body: {
+            operation_id: "op-1",
+            hub_id: "hub-1",
+            runtime_group_id: "rg-1",
+            skill,
+            version: request.method === "DELETE" ? null : (request.body?.version ?? null),
+            previous_version: request.method === "POST" ? null : "1.1.0",
+            state,
+          },
+        };
+      }
+      if (request.method === "GET" && request.path === "/v1/operations/op-1") {
+        const status = statuses[Math.min(polls, statuses.length - 1)];
+        polls += 1;
+        return { body: { id: "op-1", kind: "hub.skill", status, error_code: null, error_message: null, ...operation } };
+      }
+      return undefined;
+    };
+  }
+
+  const HUB_SKILL_ROW = {
+    skill: "skill-weather",
+    title: "Weather",
+    marketplace_skill_id: "mk-1",
+    package_name: "thalovant-skill-weather",
+    source_type: "marketplace",
+    install_source: "pypi",
+    version: "1.1.0",
+    version_pin: "1.1.0",
+    installed_version: "1.1.0",
+    observed_version: "1.1.0",
+    previous_version: null,
+    latest_version: "1.2.0",
+    available_version: "1.2.0",
+    update_available: true,
+    changelog: "Adds hourly forecasts.",
+    active: true,
+    state: "installed",
+    operator_phase: "Ready",
+    operator_message: null,
+    operator_last_error: null,
+    last_transition_at: "2026-09-09T10:00:00Z",
+  };
+
+  const HUB_SKILL_LIST = {
+    hub_id: "hub-1",
+    runtime_group_id: "rg-1",
+    observed_at: "2026-09-09T10:00:05Z",
+    source: "runtime",
+    operator_phase: "Ready",
+    operator_message: null,
+    data: [HUB_SKILL_ROW],
+  };
+
+  it("lists the skills of one hub with the bearer token and returns the whole envelope", async () => {
+    const fake = await startFakeControlPlane(jsonResponder((request) => (request.path === "/v1/hubs/hub-1/skills" ? { body: HUB_SKILL_LIST } : undefined)));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_list_hub_skills", arguments: { hubId: "hub-1" } });
+    expect(result.isError ?? false).toBe(false);
+    const request = findRequest(fake, "GET", "/v1/hubs/hub-1/skills");
+    expect(request.headers.authorization).toBe(`Bearer ${API_TOKEN}`);
+    expect(request.headers.accept).toBe("application/json");
+    expect(request.headers["user-agent"]).toMatch(/^thalovant-mcp\//);
+    expect(JSON.parse(resultText(result))).toEqual(HUB_SKILL_LIST);
+  }, 15_000);
+
+  it("returns an empty data array for a hub with no skills", async () => {
+    const fake = await startFakeControlPlane(jsonResponder((request) =>
+      request.path === "/v1/hubs/hub-1/skills" ? { body: { ...HUB_SKILL_LIST, observed_at: null, data: [] } } : undefined,
+    ));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_list_hub_skills", arguments: { hubId: "hub-1" } });
+    expect(result.isError ?? false).toBe(false);
+    expect(JSON.parse(resultText(result))).toMatchObject({ hub_id: "hub-1", runtime_group_id: "rg-1", observed_at: null, data: [] });
+  }, 15_000);
+
+  it("rejects a list body without a data array", async () => {
+    const fake = await startFakeControlPlane(jsonResponder((request) =>
+      request.path === "/v1/hubs/hub-1/skills" ? { body: { hub_id: "hub-1", items: [HUB_SKILL_ROW] } } : undefined,
+    ));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_list_hub_skills", arguments: { hubId: "hub-1" } });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toContain("unexpected hub skill list shape");
+  }, 15_000);
+
+  it("installs with the default latest version and returns the accepted operation without waiting", async () => {
+    const fake = await startFakeControlPlane(jsonResponder(hubSkillResponder(["ready"])));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_install_hub_skill", arguments: { hubId: "hub-1", skill: "skill-weather" } });
+    expect(result.isError ?? false).toBe(false);
+    const request = findRequest(fake, "POST", "/v1/hubs/hub-1/skills");
+    expect(request.headers["content-type"]).toBe("application/json");
+    expect(request.body).toEqual({ skill: "skill-weather", version: "latest" });
+    expect(JSON.parse(resultText(result))).toEqual({
+      operation_id: "op-1",
+      hub_id: "hub-1",
+      runtime_group_id: "rg-1",
+      skill: "skill-weather",
+      version: "latest",
+      previous_version: null,
+      state: "installing",
+      operation: null,
+    });
+    expect(fake.requests.some((entry) => entry.path.startsWith("/v1/operations/"))).toBe(false);
+  }, 15_000);
+
+  it("updates a hub skill to an explicit version with PATCH", async () => {
+    const fake = await startFakeControlPlane(jsonResponder(hubSkillResponder(["ready"])));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({
+      name: "thalovant_update_hub_skill",
+      arguments: { hubId: "hub-1", skill: "skill-weather", version: "1.2.0" },
+    });
+    expect(result.isError ?? false).toBe(false);
+    expect(findRequest(fake, "PATCH", "/v1/hubs/hub-1/skills/skill-weather").body).toEqual({ version: "1.2.0" });
+    expect(JSON.parse(resultText(result))).toMatchObject({ state: "updating", version: "1.2.0", previous_version: "1.1.0", hub_id: "hub-1", runtime_group_id: "rg-1" });
+  }, 15_000);
+
+  it("requires a version on update before any request is made", async () => {
+    const fake = await startFakeControlPlane();
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_update_hub_skill", arguments: { hubId: "hub-1", skill: "skill-weather" } });
+    expect(result.isError).toBe(true);
+    expect(fake.requests).toHaveLength(0);
+  }, 15_000);
+
+  it("removes a hub skill with DELETE and no body", async () => {
+    const fake = await startFakeControlPlane(jsonResponder(hubSkillResponder(["ready"])));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_remove_hub_skill", arguments: { hubId: "hub-1", skill: "skill-weather" } });
+    expect(result.isError ?? false).toBe(false);
+    const request = findRequest(fake, "DELETE", "/v1/hubs/hub-1/skills/skill-weather");
+    expect(request.body).toBeUndefined();
+    expect(request.headers["content-type"]).toBeUndefined();
+    expect(JSON.parse(resultText(result))).toMatchObject({ operation_id: "op-1", state: "removing", version: null, previous_version: "1.1.0", hub_id: "hub-1" });
+  }, 15_000);
+
+  it("polls the operation until ready when wait is true", async () => {
+    const fake = await startFakeControlPlane(jsonResponder(hubSkillResponder(["requested", "ready"])));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({
+      name: "thalovant_install_hub_skill",
+      arguments: { hubId: "hub-1", skill: "skill-weather", version: "1.2.0", wait: true },
+    });
+    expect(result.isError ?? false).toBe(false);
+    const polls = fake.requests.filter((entry) => entry.method === "GET" && entry.path === "/v1/operations/op-1");
+    expect(polls).toHaveLength(2);
+    expect(polls[0]?.headers.authorization).toBe(`Bearer ${API_TOKEN}`);
+    const parsed = JSON.parse(resultText(result));
+    expect(parsed).toMatchObject({ operation_id: "op-1", skill: "skill-weather", version: "1.2.0", state: "installed" });
+    expect(parsed.operation).toMatchObject({ id: "op-1", status: "ready" });
+  }, 20_000);
+
+  it("reports removed when a waited removal converges", async () => {
+    const fake = await startFakeControlPlane(jsonResponder(hubSkillResponder(["ready"])));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({
+      name: "thalovant_remove_hub_skill",
+      arguments: { hubId: "hub-1", skill: "skill-weather", wait: true },
+    });
+    expect(result.isError ?? false).toBe(false);
+    expect(JSON.parse(resultText(result))).toMatchObject({ state: "removed", operation: { status: "ready" } });
+  }, 15_000);
+
+  it("surfaces the operation error_message when a waited operation fails", async () => {
+    const fake = await startFakeControlPlane(
+      jsonResponder(hubSkillResponder(["failed"], { error_code: "SKILL_INSTALL_FAILED", error_message: "pip could not resolve skill-weather==9.9.9" })),
+    );
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({
+      name: "thalovant_install_hub_skill",
+      arguments: { hubId: "hub-1", skill: "skill-weather", version: "9.9.9", wait: true },
+    });
+    expect(result.isError).toBe(true);
+    const text = resultText(result);
+    expect(text).toContain("op-1");
+    expect(text).toContain("failed");
+    expect(text).toContain("pip could not resolve skill-weather==9.9.9");
+  }, 15_000);
+
+  it("URL-encodes the skill name in the path", async () => {
+    const fake = await startFakeControlPlane(jsonResponder(hubSkillResponder(["ready"])));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    await client.callTool({ name: "thalovant_remove_hub_skill", arguments: { hubId: "hub-1", skill: "skill/weather v2" } });
+    findRequest(fake, "DELETE", "/v1/hubs/hub-1/skills/skill%2Fweather%20v2");
+    await client.callTool({ name: "thalovant_update_hub_skill", arguments: { hubId: "hub-1", skill: "skill/weather v2", version: "2.0.0" } });
+    findRequest(fake, "PATCH", "/v1/hubs/hub-1/skills/skill%2Fweather%20v2");
+  }, 15_000);
+
+  it("surfaces the 409 problem code after the message, without echoing the body, and explains it as already at that version", async () => {
+    const fake = await startFakeControlPlane(jsonResponder((request) =>
+      request.method === "POST" && request.path === "/v1/hubs/hub-1/skills"
+        ? {
+            status: 409,
+            body: {
+              type: "about:blank",
+              title: "Conflict",
+              status: 409,
+              code: "skill_version_already_installed",
+              message: "Skill version already installed.",
+              echoed_secret: "tvpat_should-not-leak",
+            },
+          }
+        : undefined,
+    ));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_install_hub_skill", arguments: { hubId: "hub-1", skill: "skill-weather", version: "1.1.0" } });
+    expect(result.isError).toBe(true);
+    const text = resultText(result);
+    expect(text).toContain("Thalovant API request failed with HTTP 409: Skill version already installed. (skill_version_already_installed)");
+    expect(text).toContain("thalovant_update_hub_skill");
+    expect(text).toMatch(/DIFFERENT version performs an update/);
+    expect(text).not.toContain("tvpat_should-not-leak");
+  }, 15_000);
+
+  it("surfaces the 404 hub_without_runtime_group code and explains it", async () => {
+    const fake = await startFakeControlPlane(jsonResponder((request) =>
+      request.path === "/v1/hubs/hub-1/skills"
+        ? { status: 404, body: { type: "about:blank", title: "Not Found", status: 404, code: "hub_without_runtime_group", message: "Hub has no runtime group." } }
+        : undefined,
+    ));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_list_hub_skills", arguments: { hubId: "hub-1" } });
+    expect(result.isError).toBe(true);
+    const text = resultText(result);
+    expect(text).toContain("HTTP 404: Hub has no runtime group. (hub_without_runtime_group)");
+    expect(text).toContain("thalovant_update_hub");
+  }, 15_000);
+
+  it("leaves a plain 404 (unknown hub or skill not installed) without a code or hint", async () => {
+    const fake = await startFakeControlPlane(jsonResponder((request) =>
+      request.method === "DELETE" ? { status: 404, body: { type: "about:blank", title: "Not Found", status: 404, message: "Skill not installed." } } : undefined,
+    ));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_remove_hub_skill", arguments: { hubId: "hub-1", skill: "skill-weather" } });
+    expect(result.isError).toBe(true);
+    const text = resultText(result);
+    expect(text).toContain("HTTP 404: Skill not installed.");
+    expect(text).not.toContain("hub_without_runtime_group");
+  }, 15_000);
+
+  it("explains a 422 on install as an unresolvable latest or invalid version", async () => {
+    const fake = await startFakeControlPlane(jsonResponder((request) =>
+      request.method === "POST" ? { status: 422, body: { type: "about:blank", title: "Unprocessable Entity", status: 422, message: "Version 'banana' is not a valid version." } } : undefined,
+    ));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_install_hub_skill", arguments: { hubId: "hub-1", skill: "skill-weather", version: "banana" } });
+    expect(result.isError).toBe(true);
+    const text = resultText(result);
+    expect(text).toContain("HTTP 422: Version 'banana' is not a valid version.");
+    expect(text).toMatch(/could not be resolved to a published version/);
+  }, 15_000);
+
+  it("requires control-plane auth for hub skill tools", async () => {
+    const fake = await startFakeControlPlane();
+    const client = await connectStdioClient({ THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_list_hub_skills", arguments: { hubId: "hub-1" } });
     expect(result.isError).toBe(true);
     expect(resultText(result)).toContain("THALOVANT_API_TOKEN");
     expect(fake.requests).toHaveLength(0);
