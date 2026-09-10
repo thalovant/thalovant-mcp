@@ -680,7 +680,7 @@ describe("hub skill tools", () => {
 
     const result = await client.callTool({ name: "thalovant_list_hub_skills", arguments: { hubId: "hub-1" } });
     expect(result.isError).toBe(true);
-    expect(resultText(result)).toContain("unexpected hub skill list shape");
+    expect(resultText(result)).toContain("unexpected hub skill listing shape");
   }, 15_000);
 
   it("installs with the default latest version and returns the accepted operation without waiting", async () => {
@@ -755,6 +755,93 @@ describe("hub skill tools", () => {
     expect(parsed).toMatchObject({ operation_id: "op-1", skill: "skill-weather", version: "1.2.0", state: "installed" });
     expect(parsed.operation).toMatchObject({ id: "op-1", status: "ready" });
   }, 20_000);
+
+  it("keeps the accepted operation ID visible when its first status read fails", async () => {
+    const accepted = hubSkillResponder(["requested"]);
+    const fake = await startFakeControlPlane(jsonResponder((request) =>
+      request.path === "/v1/operations/op-1"
+        ? { status: 503, body: { detail: "Status service is unavailable." } }
+        : accepted(request),
+    ));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+    const result = await client.callTool({
+      name: "thalovant_install_hub_skill",
+      arguments: { hubId: "hub-1", skill: "skill-weather", wait: true },
+    });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toContain("op-1");
+    expect(fake.requests.filter((request) => request.method === "POST")).toHaveLength(1);
+    expect(fake.requests.filter((request) => request.path === "/v1/operations/op-1")).toHaveLength(1);
+  }, 15_000);
+
+  it("does not start another status read after the polling deadline", async () => {
+    const fake = await startFakeControlPlane(jsonResponder(hubSkillResponder(["requested", "ready"])));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+    const result = await client.callTool({
+      name: "thalovant_install_hub_skill",
+      arguments: { hubId: "hub-1", skill: "skill-weather", wait: true, timeoutMs: 1_000 },
+    });
+    expect(result.isError).toBe(true);
+    expect(resultText(result)).toContain("op-1");
+    expect(fake.requests.filter((request) => request.method === "POST")).toHaveLength(1);
+    expect(fake.requests.filter((request) => request.path === "/v1/operations/op-1")).toHaveLength(1);
+  }, 15_000);
+
+  it("cancels queued polling without replaying an accepted write", async () => {
+    let pollStarted!: () => void;
+    const firstPoll = new Promise<void>((resolve) => { pollStarted = resolve; });
+    const respond = hubSkillResponder(["requested"]);
+    const fake = await startFakeControlPlane(jsonResponder((request) => {
+      if (request.path === "/v1/operations/op-1") pollStarted();
+      return respond(request);
+    }));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+    const controller = new AbortController();
+    const pending = client.callTool({ name: "thalovant_install_hub_skill", arguments: {
+      hubId: "hub-1", skill: "skill-weather", wait: true, timeoutMs: 1_000,
+    } }, undefined, { signal: controller.signal });
+    const rejected = expect(pending).rejects.toThrow();
+    await firstPoll;
+    controller.abort();
+    await rejected;
+    await client.callTool({ name: "thalovant_config_status", arguments: {} });
+    await new Promise<void>((resolve) => setTimeout(resolve, 1_100));
+    expect(fake.requests.filter((request) => request.method === "POST")).toHaveLength(1);
+    expect(fake.requests.filter((request) => request.path === "/v1/operations/op-1")).toHaveLength(1);
+  }, 15_000);
+
+  it("does not begin polling when cancellation arrives during the accepted write", async () => {
+    let writeStarted!: () => void;
+    const writeAdmitted = new Promise<void>((resolve) => { writeStarted = resolve; });
+    let releaseWrite!: () => void;
+    let pollStarted!: () => void;
+    const unexpectedPoll = new Promise<void>((resolve) => { pollStarted = resolve; });
+    const respond = jsonResponder(hubSkillResponder(["ready"]));
+    const fake = await startFakeControlPlane((request, response) => {
+      if (request.method === "POST") {
+        releaseWrite = () => respond(request, response);
+        writeStarted();
+      } else {
+        if (request.path === "/v1/operations/op-1") pollStarted();
+        respond(request, response);
+      }
+    });
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+    const controller = new AbortController();
+    const pending = client.callTool({ name: "thalovant_install_hub_skill", arguments: {
+      hubId: "hub-1", skill: "skill-weather", wait: true,
+    } }, undefined, { signal: controller.signal });
+    const rejected = expect(pending).rejects.toThrow();
+    await writeAdmitted;
+    controller.abort();
+    await rejected;
+    // Stdio ordering makes this a barrier after the cancellation notification.
+    await client.callTool({ name: "thalovant_config_status", arguments: {} });
+    releaseWrite();
+    await Promise.race([unexpectedPoll, new Promise<void>((resolve) => setTimeout(resolve, 250))]);
+    expect(fake.requests.filter((request) => request.method === "POST")).toHaveLength(1);
+    expect(fake.requests.filter((request) => request.path === "/v1/operations/op-1")).toHaveLength(0);
+  }, 15_000);
 
   it("reports removed when a waited removal converges", async () => {
     const fake = await startFakeControlPlane(jsonResponder(hubSkillResponder(["ready"])));

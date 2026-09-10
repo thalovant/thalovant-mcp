@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.24
+
+- Require Node SDK 0.3.16 and use its public hub-skill methods instead of the temporary duplicate HTTP and polling implementation. Preserve tool schemas, accepted-operation output, API guidance and MCP cancellation checks.
+- Stop starting status reads once the polling budget expires. Keep the accepted operation ID visible when polling fails or the operation reports failure, so callers can inspect the existing operation without repeating the write. The polling deadline does not cancel an HTTP request already in flight.
+- Add real stdio regressions for failed status reads, deadline boundaries and cancellation; retain the 45-tool default catalog across stdio and Streamable HTTP.
+
 ## 0.1.23
 
 - Add hub-scoped skill management: `thalovant_list_hub_skills` (read-only, `hubs:inspect`), `thalovant_install_hub_skill`, `thalovant_update_hub_skill` and `thalovant_remove_hub_skill` (`hubs:write`, paid plan) act on one hub rather than a runtime group's skill set; changes apply live on the hub in about 15 seconds. The list tool returns the whole `GET /v1/hubs/{hub_id}/skills` envelope (`hub_id`, `runtime_group_id`, `observed_at`, `source`, the runtime's phase and message, and `data` rows with a `pending|installed|failed|removing|drifted|quarantined|unmanaged` state). Writes answer with the accepted operation (`operation_id`, `hub_id`, `runtime_group_id`, `skill`, `version`, `previous_version`, `state`) and take `wait` to poll it every 2 s until it converges (`installed`/`removed`, or an error carrying the operation's `error_message`), honoring MCP request cancellation and a 120 s default `timeoutMs`. Installing an already-installed skill at another version performs an update.

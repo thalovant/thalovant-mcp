@@ -23,7 +23,7 @@ import type {
   MemoryCreatePayload,
   MemoryListOptions,
   MemoryUpdatePayload,
-  OperationResource,
+  HubSkillWaitOptions,
   ReleaseOptions,
   RuntimeGroupPayload,
   RuntimeGroupSkillInstallOptions,
@@ -326,218 +326,8 @@ async function callControlPlane<T>(profile: ControlPlaneErrorProfile, run: () =>
   }
 }
 
-// Hub-scoped skill routes (API contract in progress — adjust paths/types here)
-//
-// The published @thalovant/sdk (^0.3.14) has no hub-skill methods yet, so the
-// four thalovant_*_hub_skill tools call the routes directly with the control
-// plane's apiUrl and bearer token, using the SDK's header, TLS and redirect
-// conventions, and poll with the SDK's getOperation when wait is requested.
-// Every path and response type for that surface lives in this block. Types
-// follow the final contract of thalovant-api PR #253.
-//
-// TODO: replace with @thalovant/sdk listHubSkills/installHubSkill/updateHubSkill/removeHubSkill once >= 0.3.15 is published
-
-function hubSkillsPath(hubId: string): string {
-  return `/v1/hubs/${encodeURIComponent(hubId)}/skills`;
-}
-
-function hubSkillPath(hubId: string, skill: string): string {
-  return `${hubSkillsPath(hubId)}/${encodeURIComponent(skill)}`;
-}
-
-/** Row state; a change in progress shows as `pending`. */
-type HubSkillState = "pending" | "installed" | "failed" | "removing" | "drifted" | "quarantined" | "unmanaged";
-
-/** One row of GET /v1/hubs/{hub_id}/skills. */
-interface HubSkill {
-  skill: string;
-  title: string | null;
-  marketplace_skill_id: string | null;
-  package_name: string | null;
-  source_type: string | null;
-  install_source: string | null;
-  version: string | null;
-  version_pin: string | null;
-  installed_version: string | null;
-  observed_version: string | null;
-  previous_version: string | null;
-  latest_version: string | null;
-  available_version: string | null;
-  update_available: boolean;
-  changelog: string | null;
-  active: boolean;
-  state: HubSkillState;
-  operator_phase: string | null;
-  operator_message: string | null;
-  operator_last_error: string | null;
-  last_transition_at: string | null;
-}
-
-/** The GET /v1/hubs/{hub_id}/skills envelope; `data` holds the rows. */
-interface HubSkillList {
-  hub_id: string;
-  runtime_group_id: string;
-  observed_at: string | null;
-  source: string;
-  operator_phase: string | null;
-  operator_message: string | null;
-  data: HubSkill[];
-}
-
-type HubSkillOperationState = "installing" | "updating" | "removing" | "installed" | "removed" | "failed";
-
-interface HubSkillOperation {
-  operation_id: string;
-  hub_id: string;
-  runtime_group_id: string;
-  skill: string;
-  version: string | null;
-  previous_version: string | null;
-  state: HubSkillOperationState;
-  /** The last polled operation when wait was requested, else null. */
-  operation: OperationResource | null;
-}
-
-/** The 202 body every hub-skill write answers with (DELETE has `version: null`). */
-interface HubSkillAccepted {
-  operation_id: string;
-  hub_id: string;
-  runtime_group_id: string;
-  skill: string;
-  version: string | null;
-  previous_version: string | null;
-  state: string;
-}
-
-const HUB_SKILL_OPERATION_POLL_INTERVAL_MS = 2_000;
 const HUB_SKILL_DEFAULT_TIMEOUT_MS = 120_000;
 const HUB_SKILL_MAX_TIMEOUT_MS = 600_000;
-const HUB_SKILL_ERROR_DETAIL_MAX = 160;
-
-/**
- * Short, safe detail from an RFC 7807 problem body: only a string
- * message/detail/error field, never the raw body, followed by the root
- * `code` in parentheses when the body carries one (e.g. "Skill version
- * already installed. (skill_version_already_installed)").
- */
-function hubSkillErrorDetail(bodyText: string): string | undefined {
-  try {
-    const parsed: unknown = JSON.parse(bodyText);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
-    const record = parsed as Record<string, unknown>;
-    const code = typeof record.code === "string" && /^[A-Za-z0-9_.-]{1,64}$/.test(record.code.trim()) ? record.code.trim() : undefined;
-    for (const key of ["message", "detail", "error"]) {
-      const value = record[key];
-      if (typeof value === "string" && value.trim()) {
-        const text = value.replace(/\s+/g, " ").trim();
-        const detail = text.length > HUB_SKILL_ERROR_DETAIL_MAX ? `${text.slice(0, HUB_SKILL_ERROR_DETAIL_MAX)}…` : text;
-        return code ? `${detail} (${code})` : detail;
-      }
-    }
-    if (code) return `(${code})`;
-  } catch {
-    // Non-JSON bodies are never echoed.
-  }
-  return undefined;
-}
-
-/**
- * Bearer-authenticated JSON request against the control plane, mirroring the
- * SDK's send(): accept/user-agent/content-type headers, HTTPS-or-loopback rule,
- * redirect: "error", and a status-bearing error message so callControlPlane's
- * `HTTP (\d{3})` hint parsing keeps working.
- */
-async function hubSkillsRequest(
-  api: ThalovantControlPlane,
-  method: "GET" | "POST" | "PATCH" | "DELETE",
-  path: string,
-  body?: Record<string, unknown>,
-): Promise<unknown> {
-  if (!api.accessToken) throw new Error("Missing Thalovant API access token.");
-  let url: URL;
-  try {
-    url = new URL(path.replace(/^\/+/, ""), api.apiUrl);
-  } catch {
-    throw new Error("The configured control-plane API URL is invalid.");
-  }
-  if (url.username || url.password) {
-    throw new Error("Control-plane URLs must not include embedded credentials.");
-  }
-  const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) {
-    throw new Error("Credential-bearing control-plane requests require HTTPS (except explicit loopback HTTP).");
-  }
-  const headers: Record<string, string> = {
-    accept: "application/json",
-    "user-agent": api.userAgent,
-    authorization: `Bearer ${api.accessToken}`,
-  };
-  if (body !== undefined) headers["content-type"] = "application/json";
-  let response: Response;
-  try {
-    response = await fetch(url, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      redirect: "error",
-    });
-  } catch {
-    throw new Error("Could not reach the Thalovant API, or the endpoint redirected the request.");
-  }
-  const text = await response.text();
-  if (!response.ok) {
-    const detail = hubSkillErrorDetail(text);
-    throw new Error(
-      detail ? `Thalovant API request failed with HTTP ${response.status}: ${detail}` : `Thalovant API request failed with HTTP ${response.status}.`,
-    );
-  }
-  if (!text.trim()) return {};
-  const parsed: unknown = JSON.parse(text);
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Thalovant API returned an unexpected response shape.");
-  }
-  return parsed;
-}
-
-function optionalString(value: unknown): string | null {
-  return typeof value === "string" ? value : null;
-}
-
-/** Returns the whole GET envelope; `data` is the collection key and may be empty. */
-async function listHubSkills(api: ThalovantControlPlane, hubId: string): Promise<HubSkillList> {
-  const body = (await hubSkillsRequest(api, "GET", hubSkillsPath(hubId))) as Record<string, unknown>;
-  if (!Array.isArray(body.data)) throw new Error("Thalovant API returned an unexpected hub skill list shape.");
-  return body as unknown as HubSkillList;
-}
-
-function hubSkillAccepted(value: unknown): HubSkillAccepted {
-  const record = (value ?? {}) as Record<string, unknown>;
-  if (typeof record.operation_id !== "string" || !record.operation_id) {
-    throw new Error("Thalovant API returned a hub skill response without an operation_id.");
-  }
-  return {
-    operation_id: record.operation_id,
-    hub_id: optionalString(record.hub_id) ?? "",
-    runtime_group_id: optionalString(record.runtime_group_id) ?? "",
-    skill: optionalString(record.skill) ?? "",
-    version: optionalString(record.version),
-    previous_version: optionalString(record.previous_version),
-    state: optionalString(record.state) ?? "",
-  };
-}
-
-function hubSkillResult(accepted: HubSkillAccepted, state: HubSkillOperationState, operation: OperationResource | null): HubSkillOperation {
-  return {
-    operation_id: accepted.operation_id,
-    hub_id: accepted.hub_id,
-    runtime_group_id: accepted.runtime_group_id,
-    skill: accepted.skill,
-    version: accepted.version,
-    previous_version: accepted.previous_version,
-    state,
-    operation,
-  };
-}
 
 function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -557,51 +347,20 @@ function sleepWithSignal(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/**
- * Poll the accepted operation until it converges. `ready` resolves to the
- * converged state; `failed`/`timed_out` throw with the operation's
- * error_message (then error_code, then a generic message); anything else
- * keeps polling until timeoutMs elapses or the MCP request is cancelled.
- */
-async function waitForHubSkillOperation(
-  api: ThalovantControlPlane,
-  accepted: HubSkillAccepted,
-  options: { timeoutMs: number; signal?: AbortSignal; convergedState: HubSkillOperationState },
-): Promise<HubSkillOperation> {
-  const deadline = Date.now() + options.timeoutMs;
-  let operation: OperationResource | null = null;
-  for (;;) {
-    if (options.signal?.aborted) throw new Error("The request was cancelled.");
-    operation = await api.getOperation(accepted.operation_id);
-    if (operation.status === "ready") {
-      return hubSkillResult(accepted, options.convergedState, operation);
-    }
-    if (operation.status === "failed" || operation.status === "timed_out") {
-      const reason = operation.error_message || operation.error_code || `Hub skill operation ${accepted.operation_id} ${operation.status}.`;
-      throw new Error(`Hub skill operation ${accepted.operation_id} ${operation.status}: ${reason}`);
-    }
-    if (Date.now() >= deadline) {
-      throw new Error(
-        `Timed out waiting ${options.timeoutMs} ms for hub skill operation ${accepted.operation_id} (last status: ${operation.status}). Poll it with thalovant_get_operation.`,
-      );
-    }
-    await sleepWithSignal(Math.min(HUB_SKILL_OPERATION_POLL_INTERVAL_MS, Math.max(0, deadline - Date.now())), options.signal);
-  }
-}
-
-/** Run one hub-skill write and, when requested, wait for it to converge. */
-async function runHubSkillWrite(
-  api: ThalovantControlPlane,
-  profile: ControlPlaneErrorProfile,
-  request: () => Promise<unknown>,
-  options: { wait: boolean; timeoutMs: number; pendingState: HubSkillOperationState; convergedState: HubSkillOperationState },
-): Promise<HubSkillOperation> {
-  const accepted = hubSkillAccepted(await callControlPlane(profile, request));
-  if (!options.wait) return hubSkillResult(accepted, options.pendingState, null);
+/** Keep MCP cancellation attached to the SDK-owned operation polling. */
+function hubSkillWaitOptions(wait: boolean | undefined, timeoutMs: number | undefined): HubSkillWaitOptions {
   const signal = requestContext.getStore()?.signal;
-  return waitForHubSkillOperation(api, accepted, { timeoutMs: options.timeoutMs, signal, convergedState: options.convergedState });
+  throwIfRuntimeCancelled(signal);
+  return {
+    wait: wait ?? false,
+    timeoutMs: timeoutMs ?? HUB_SKILL_DEFAULT_TIMEOUT_MS,
+    sleep: (ms) => sleepWithSignal(ms, signal),
+    now: () => {
+      throwIfRuntimeCancelled(signal);
+      return Date.now();
+    },
+  };
 }
-// End of hub-scoped skill routes block.
 
 interface HttpConfig {
   host: string;
@@ -2917,7 +2676,8 @@ export function createServer(): McpServer {
     async ({ hubId, ...auth }) => {
       const api = await createControlPlane(auth);
       ensureAuthenticated(api);
-      return jsonContent(redactSecrets(await callControlPlane("read", () => listHubSkills(api, hubId))));
+      throwIfRuntimeCancelled(requestContext.getStore()?.signal);
+      return jsonContent(redactSecrets(await callControlPlane("read", () => api.listHubSkills(hubId))));
     },
   );
 
@@ -2945,13 +2705,11 @@ export function createServer(): McpServer {
     async ({ hubId, skill, version, wait, timeoutMs, ...auth }) => {
       const api = await createControlPlane(auth);
       ensureAuthenticated(api);
-      const result = await runHubSkillWrite(
-        api,
-        "hubSkillInstall",
-        () => hubSkillsRequest(api, "POST", hubSkillsPath(hubId), { skill, version: version ?? "latest" }),
-        { wait: wait ?? false, timeoutMs: timeoutMs ?? HUB_SKILL_DEFAULT_TIMEOUT_MS, pendingState: "installing", convergedState: "installed" },
-      );
-      return jsonContent(redactSecrets(result));
+      const options = hubSkillWaitOptions(wait, timeoutMs);
+      const result = await callControlPlane("hubSkillInstall", () => api.installHubSkill(hubId, skill, {
+        ...options, version: version ?? "latest",
+      }));
+      return jsonContent(redactSecrets({ ...result, operation: result.operation ?? null }));
     },
   );
 
@@ -2979,13 +2737,9 @@ export function createServer(): McpServer {
     async ({ hubId, skill, version, wait, timeoutMs, ...auth }) => {
       const api = await createControlPlane(auth);
       ensureAuthenticated(api);
-      const result = await runHubSkillWrite(
-        api,
-        "write",
-        () => hubSkillsRequest(api, "PATCH", hubSkillPath(hubId, skill), { version }),
-        { wait: wait ?? false, timeoutMs: timeoutMs ?? HUB_SKILL_DEFAULT_TIMEOUT_MS, pendingState: "updating", convergedState: "installed" },
-      );
-      return jsonContent(redactSecrets(result));
+      const options = hubSkillWaitOptions(wait, timeoutMs);
+      const result = await callControlPlane("write", () => api.updateHubSkill(hubId, skill, { ...options, version }));
+      return jsonContent(redactSecrets({ ...result, operation: result.operation ?? null }));
     },
   );
 
@@ -3012,13 +2766,9 @@ export function createServer(): McpServer {
     async ({ hubId, skill, wait, timeoutMs, ...auth }) => {
       const api = await createControlPlane(auth);
       ensureAuthenticated(api);
-      const result = await runHubSkillWrite(
-        api,
-        "write",
-        () => hubSkillsRequest(api, "DELETE", hubSkillPath(hubId, skill)),
-        { wait: wait ?? false, timeoutMs: timeoutMs ?? HUB_SKILL_DEFAULT_TIMEOUT_MS, pendingState: "removing", convergedState: "removed" },
-      );
-      return jsonContent(redactSecrets(result));
+      const options = hubSkillWaitOptions(wait, timeoutMs);
+      const result = await callControlPlane("write", () => api.removeHubSkill(hubId, skill, options));
+      return jsonContent(redactSecrets({ ...result, operation: result.operation ?? null }));
     },
   );
 
