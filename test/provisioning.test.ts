@@ -1,6 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -26,7 +26,11 @@ afterEach(async () => {
   await Promise.all(cleanups.splice(0).map((cleanup) => cleanup()));
 });
 
-async function startFakeControlPlane(): Promise<FakeControlPlane> {
+async function startFakeControlPlane(
+  respond: (request: RecordedRequest, response: ServerResponse) => void = (request, response) => {
+    response.end(JSON.stringify({ ok: true, path: request.path }));
+  },
+): Promise<FakeControlPlane> {
   const requests: RecordedRequest[] = [];
   const server: Server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -34,17 +38,26 @@ async function startFakeControlPlane(): Promise<FakeControlPlane> {
     req.on("data", (chunk: Buffer) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
     req.on("end", () => {
       const raw = Buffer.concat(chunks).toString("utf8");
-      requests.push({
+      let body: Record<string, unknown> | undefined;
+      try {
+        body = raw.trim() ? JSON.parse(raw) as Record<string, unknown> : undefined;
+      } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ detail: "Malformed JSON in test request" }));
+        return;
+      }
+      const request: RecordedRequest = {
         method: req.method ?? "GET",
         path: url.pathname,
         query: Object.fromEntries(url.searchParams.entries()),
         headers: Object.fromEntries(
           Object.entries(req.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(",") : String(value ?? "")]),
         ),
-        body: raw.trim() ? (JSON.parse(raw) as Record<string, unknown>) : undefined,
-      });
+        body,
+      };
+      requests.push(request);
       res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ ok: true, path: url.pathname }));
+      respond(request, res);
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -52,7 +65,10 @@ async function startFakeControlPlane(): Promise<FakeControlPlane> {
   const fake: FakeControlPlane = {
     url: `http://127.0.0.1:${port}`,
     requests,
-    close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+    close: () => new Promise((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+      server.closeAllConnections();
+    }),
   };
   cleanups.push(fake.close);
   return fake;
@@ -91,6 +107,12 @@ function resultText(result: Awaited<ReturnType<Client["callTool"]>>): string {
     .filter((item) => item.type === "text")
     .map((item) => item.text ?? "")
     .join("\n");
+}
+
+async function callToolSuccessfully(client: Client, request: Parameters<Client["callTool"]>[0]) {
+  const result = await client.callTool(request);
+  expect(result.isError ?? false, resultText(result)).toBe(false);
+  return result;
 }
 
 function findRequest(fake: FakeControlPlane, method: string, path: string): RecordedRequest {
@@ -267,7 +289,7 @@ describe("provisioning tool delegation to the SDK", () => {
     const fake = await startFakeControlPlane();
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
 
-    await client.callTool({ name: "thalovant_clear_hub_rating", arguments: { hubId: "hub-1" } });
+    await callToolSuccessfully(client, { name: "thalovant_clear_hub_rating", arguments: { hubId: "hub-1" } });
     findRequest(fake, "DELETE", "/v1/hubs/hub-1/rating");
   }, 15_000);
 
@@ -275,7 +297,7 @@ describe("provisioning tool delegation to the SDK", () => {
     const fake = await startFakeControlPlane();
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
 
-    await client.callTool({ name: "thalovant_get_hub_runtime_capabilities", arguments: { hubId: "hub-9" } });
+    await callToolSuccessfully(client, { name: "thalovant_get_hub_runtime_capabilities", arguments: { hubId: "hub-9" } });
     findRequest(fake, "GET", "/v1/hubs/hub-9/runtime-capabilities");
   }, 15_000);
 
@@ -283,7 +305,7 @@ describe("provisioning tool delegation to the SDK", () => {
     const fake = await startFakeControlPlane();
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
 
-    await client.callTool({
+    await callToolSuccessfully(client, {
       name: "thalovant_release_hub",
       arguments: { hubId: "hub-3", channel: "stable", reason: "pin" },
     });
@@ -296,7 +318,7 @@ describe("provisioning tool delegation to the SDK", () => {
     const fake = await startFakeControlPlane();
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
 
-    await client.callTool({ name: "thalovant_list_marketplace_skills", arguments: { forceRefresh: true } });
+    await callToolSuccessfully(client, { name: "thalovant_list_marketplace_skills", arguments: { forceRefresh: true } });
     const request = findRequest(fake, "GET", "/v1/marketplace/skills");
     expect(request.query.force_refresh).toBe("true");
   }, 15_000);
@@ -305,13 +327,13 @@ describe("provisioning tool delegation to the SDK", () => {
     const fake = await startFakeControlPlane();
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
 
-    await client.callTool({
+    await callToolSuccessfully(client, {
       name: "thalovant_list_runtime_group_marketplace",
       arguments: { runtimeGroupId: "rg-1", refreshInventory: true },
     });
     expect(findRequest(fake, "GET", "/v1/runtime-groups/rg-1/marketplace").query.refresh_inventory).toBe("true");
 
-    await client.callTool({
+    await callToolSuccessfully(client, {
       name: "thalovant_list_runtime_group_inventory",
       arguments: { runtimeGroupId: "rg-1", refresh: true },
     });
@@ -322,19 +344,19 @@ describe("provisioning tool delegation to the SDK", () => {
     const fake = await startFakeControlPlane();
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
 
-    await client.callTool({ name: "thalovant_list_runtime_groups", arguments: {} });
+    await callToolSuccessfully(client, { name: "thalovant_list_runtime_groups", arguments: {} });
     findRequest(fake, "GET", "/v1/runtime-groups");
 
-    await client.callTool({ name: "thalovant_get_runtime_group", arguments: { runtimeGroupId: "rg-2" } });
+    await callToolSuccessfully(client, { name: "thalovant_get_runtime_group", arguments: { runtimeGroupId: "rg-2" } });
     findRequest(fake, "GET", "/v1/runtime-groups/rg-2");
 
-    await client.callTool({
+    await callToolSuccessfully(client, {
       name: "thalovant_create_runtime_group",
       arguments: { name: "edge", cloneFromDefault: true },
     });
     expect(findRequest(fake, "POST", "/v1/runtime-groups").body).toMatchObject({ name: "edge", clone_from_default: true });
 
-    await client.callTool({
+    await callToolSuccessfully(client, {
       name: "thalovant_update_runtime_group",
       arguments: { runtimeGroupId: "rg-2", description: "edge group" },
     });
@@ -342,17 +364,17 @@ describe("provisioning tool delegation to the SDK", () => {
     expect(patch.body).toMatchObject({ description: "edge group" });
     expect(patch.headers["if-match"]).toBeUndefined();
 
-    await client.callTool({ name: "thalovant_get_runtime_group_config", arguments: { runtimeGroupId: "rg-2" } });
+    await callToolSuccessfully(client, { name: "thalovant_get_runtime_group_config", arguments: { runtimeGroupId: "rg-2" } });
     findRequest(fake, "GET", "/v1/runtime-groups/rg-2/config");
 
-    await client.callTool({
+    await callToolSuccessfully(client, {
       name: "thalovant_update_runtime_group_config",
       arguments: { runtimeGroupId: "rg-2", config: { tts: "piper" }, personas: { default: "helpful" } },
     });
     const configPatch = findRequest(fake, "PATCH", "/v1/runtime-groups/rg-2/config");
     expect(configPatch.body).toMatchObject({ config: { tts: "piper" }, personas: { default: "helpful" } });
 
-    await client.callTool({
+    await callToolSuccessfully(client, {
       name: "thalovant_release_runtime_group",
       arguments: { runtimeGroupId: "rg-2", version: "1.2.3" },
     });
@@ -363,7 +385,7 @@ describe("provisioning tool delegation to the SDK", () => {
     const fake = await startFakeControlPlane();
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
 
-    await client.callTool({
+    await callToolSuccessfully(client, {
       name: "thalovant_install_runtime_group_skill",
       arguments: { runtimeGroupId: "rg-1", skillId: "skill-news" },
     });
@@ -380,7 +402,7 @@ describe("provisioning tool delegation to the SDK", () => {
       THALOVANT_ENABLE_GIT_SKILL_SOURCES: "true",
     });
 
-    await client.callTool({
+    await callToolSuccessfully(client, {
       name: "thalovant_install_runtime_group_skill",
       arguments: {
         runtimeGroupId: "rg-1",
@@ -485,7 +507,7 @@ describe("provisioning tool delegation to the SDK", () => {
     const fake = await startFakeControlPlane();
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
 
-    await client.callTool({
+    await callToolSuccessfully(client, {
       name: "thalovant_uninstall_runtime_group_skill",
       arguments: { runtimeGroupId: "rg-1", skillId: "skill-news" },
     });
@@ -500,10 +522,10 @@ describe("provisioning tool delegation to the SDK", () => {
       THALOVANT_ENABLE_DESTRUCTIVE_TOOLS: "true",
     });
 
-    await client.callTool({ name: "thalovant_delete_hub", arguments: { hubId: "hub-42", etag: 'W/"9"' } });
+    await callToolSuccessfully(client, { name: "thalovant_delete_hub", arguments: { hubId: "hub-42", etag: 'W/"9"' } });
     expect(findRequest(fake, "DELETE", "/v1/hubs/hub-42").headers["if-match"]).toBe('W/"9"');
 
-    await client.callTool({ name: "thalovant_delete_runtime_group", arguments: { runtimeGroupId: "rg-5" } });
+    await callToolSuccessfully(client, { name: "thalovant_delete_runtime_group", arguments: { runtimeGroupId: "rg-5" } });
     findRequest(fake, "DELETE", "/v1/runtime-groups/rg-5");
   }, 15_000);
 
@@ -520,26 +542,10 @@ describe("provisioning tool delegation to the SDK", () => {
 
 describe("control-plane error guidance", () => {
   async function startFailingControlPlane(status: number, body: string): Promise<FakeControlPlane> {
-    const requests: RecordedRequest[] = [];
-    const server: Server = createServer((req, res) => {
-      const url = new URL(req.url ?? "/", "http://127.0.0.1");
-      req.resume();
-      req.on("end", () => {
-        requests.push({ method: req.method ?? "GET", path: url.pathname, query: {}, headers: {} });
-        res.statusCode = status;
-        res.setHeader("Content-Type", "application/json");
-        res.end(body);
-      });
+    return startFakeControlPlane((_request, response) => {
+      response.statusCode = status;
+      response.end(body);
     });
-    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const { port } = server.address() as AddressInfo;
-    const fake: FakeControlPlane = {
-      url: `http://127.0.0.1:${port}`,
-      requests,
-      close: () => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
-    };
-    cleanups.push(fake.close);
-    return fake;
   }
 
   it("explains a 412 as a stale or missing etag", async () => {
@@ -572,6 +578,7 @@ describe("control-plane error guidance", () => {
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
 
     const result = await client.callTool({ name: "thalovant_create_hub", arguments: { name: "kitchen", spec: { version: "1" } } });
+    expect(result.isError).toBe(true);
     expect(resultText(result)).toContain("API access requires a paid plan");
   }, 15_000);
 

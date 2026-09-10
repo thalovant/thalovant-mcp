@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.22
+
+- Require Node SDK 0.3.14 for fail-closed persistent Noise trust, complete filesystem state transactions across Node processes, active reply-ID guards, and intent-description timeouts that only recover when usable definitions were received. Preserve process-local runtime identity leases and require distinct identities across independently running MCP processes.
+- Correct global-deny precedence, process restart guidance, and historical unmatched-intent/redaction release notes.
+- Validate successful provisioning results and protected identity-file creation, including nonempty credentials, matching persisted values, redacted output and private permissions. Share the fake control-plane server and handle malformed test requests safely.
+- Require Node 22.22.2 or newer within the 22.x line for the pinned npm 12 publisher.
+
 ## 0.1.21
 
 - Propagate MCP request cancellation through runtime identity acquisition and SDK connection, Ask, Query and event waits in stdio and Streamable HTTP mode. Require Node SDK 0.3.12 for Query cancellation and explicit HTTP admission cleanup failures, including contradictory disconnect acknowledgments.
@@ -29,15 +36,13 @@
 - Use Node SDK 0.3.4 or newer for authenticated HiveMind v3 Noise across WSS, HTTPS and MQTT. HTTPS retains replica affinity and uses binary encrypted polling; MQTT reauthenticates when reconnecting.
 - Derive the advertised MCP server version from the package manifest so stdio, Streamable HTTP, npm, OCI and registry metadata agree. Add transport smoke assertions for version consistency.
 
-## Unreleased
+## Historical updates before 0.1.18
 
 ### Fixed
 
 - The server talks to HiveMind 5.x hubs. `@thalovant/sdk` 0.3.x speaks the protocol v3 Noise transport (the published 0.1.16 bundled 0.2.37 and could not connect to a 5.x hub at all); 0.3.3 additionally derives the v3 pre-shared key with WebAssembly argon2id and caches the derived key (only the key, never a password fingerprint) beside the client identity, so a reconnect skips the ~3 s derivation. Bumped the dependency floor to `^0.3.3` and refreshed the lockfile so the npm package and OCI image both ship it (thalovant-mcp#50).
 - `thalovant_ask` picks up the reply-correlation fixes from `@thalovant/sdk` 0.2.37: a hub-rewritten session id no longer rejects replies, and replies are correlated by request id rather than the session id a hub replaces. Bumped the dependency floor to `^0.2.37` and refreshed the lockfile so the npm package and OCI image both ship them.
-- The `thalovant_ask` tool surfaces an unrecovered intent miss promptly instead of waiting out the full timeout, and still lets a fallback reply win, via `@thalovant/sdk` 0.2.35's soft-failure ask path (thalovant-python-sdk#22). Bumped the dependency floor to `^0.2.35` and refreshed the lockfile.
-- The `thalovant_ask` tool recognises `ovos.intent.unmatched` on the bus ask path. `@thalovant/sdk` 0.2.33 fixed only the query path; the bus path (which `ask()` uses) registered handlers per event name and dropped the current OVOS intent-miss name. Bumped the dependency floor to `@thalovant/sdk ^0.2.34` and refreshed the lockfile so the npm package and OCI image ship it (thalovant-python-sdk#22).
-- The `thalovant_ask` tool now fails fast when an utterance matches no intent. It depends on `@thalovant/sdk`, whose ask loop previously only recognised the legacy `complete_intent_failure` event and missed the current OVOS `ovos.intent.unmatched` name, so an unmatched utterance waited out the full timeout. Bumped the dependency floor to `@thalovant/sdk ^0.2.33` (which carries the fix) and refreshed the lockfile, so the published npm package and OCI image both ship it (thalovant-python-sdk#22).
+- Earlier unmatched-intent fixes progressed from query-path recognition in `@thalovant/sdk` 0.2.33 to bus-path event collection in 0.2.34, then recoverable soft-miss settlement in 0.2.35. The earlier event-only changes did not by themselves finish a silent bus Ask promptly. Later releases above supersede these dependency floors and preserve fallback replies within the documented fixed wait.
 
 ### Security
 
@@ -45,7 +50,7 @@
 - `thalovant_create_client_identity` now confines the optional `savePath` to a configurable identity directory (`THALOVANT_MCP_IDENTITY_DIR`, default `<config-dir>/thalovant/identities`). Absolute paths outside the directory and `..` traversal are rejected, and the destination is validated before the identity is created in the control plane, so a model can no longer drop a `0600` credential file into a git working tree or synced folder. `thalovant_config_status` reports `identityDir`.
 - `thalovant_healthcheck` output is now passed through `redactSecrets`, matching every other tool output.
 - `thalovant_get_analytics_overview` no longer advertises the `admin` and (admin-only) `ownerId` arguments to the model, so it no longer teaches an admin mode that only ever 403s for non-admin callers; only the plain overview call remains. Injected `admin`/`ownerId` values are stripped and never reach the control plane.
-- Extended output redaction to additional secret-ish keys: `device_code`, `user_code`, `psk`, `cert`, and `jwt`.
+- Extended output redaction to additional secret-ish keys: `device_code`, `deviceCode`, `user_code`, `userCode`, `authToken`, `authorization`, `bearer`, `psk`, `cert`, and `jwt`.
 - Added an opt-in read-only mode (`THALOVANT_MCP_READONLY`): only tools annotated `readOnlyHint: true` are registered, so an observe-only agent needs no hand-written denylist. `thalovant_config_status` reports `readOnly`.
 
 ## 0.1.10
