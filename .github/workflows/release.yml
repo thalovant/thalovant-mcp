@@ -24,7 +24,7 @@ jobs:
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
-          node-version: 22
+          node-version: "^22.22.2"
           cache: npm
         # No registry-url: it makes setup-node write
         # //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} into .npmrc, and

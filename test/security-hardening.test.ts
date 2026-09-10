@@ -3,7 +3,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { createServer, type Server, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { promisify } from "node:util";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -358,6 +358,40 @@ describe("M1: non-catalog skill sources are gated", () => {
 });
 
 describe("M2: client-identity save path is confined to the identity directory", () => {
+  it("saves a valid identity inside the configured directory with private permissions", async () => {
+    const fake = await startFakeControlPlane({ id: "hub-1", domain: "hub.example" });
+    const identityDir = await mkdtemp(join(tmpdir(), "mcp-identity-save-"));
+    cleanups.push(() => rm(identityDir, { recursive: true, force: true }));
+    const client = await connectStdioClient({
+      THALOVANT_API_TOKEN: API_TOKEN,
+      THALOVANT_API_URL: fake.url,
+      THALOVANT_MCP_IDENTITY_DIR: identityDir,
+    });
+
+    const result = await client.callTool({
+      name: "thalovant_create_client_identity",
+      arguments: { hubId: "hub-1", name: "edge", savePath: "my-hub.json" },
+    });
+
+    expect(result.isError ?? false, resultText(result)).toBe(false);
+    const output = JSON.parse(resultText(result)) as { savedIdentityPath: string };
+    const savedPath = join(identityDir, "my-hub.json");
+    expect(output.savedIdentityPath).toBe(savedPath);
+    const saved = JSON.parse(await readFile(savedPath, "utf8")) as Record<string, unknown>;
+    const created = fake.requests.find(request => request.method === "POST" && request.path === "/v1/clients");
+    expect(created).toBeDefined();
+    const sentSpec = created!.body!.spec as Record<string, unknown>;
+    expect(typeof sentSpec.apiKey).toBe("string");
+    expect(typeof sentSpec.password).toBe("string");
+    expect((sentSpec.apiKey as string).length).toBeGreaterThan(0);
+    expect((sentSpec.password as string).length).toBeGreaterThan(0);
+    expect(saved.access_key).toBe(sentSpec.apiKey);
+    expect(saved.password).toBe(sentSpec.password);
+    expect(resultText(result)).not.toContain(sentSpec.apiKey as string);
+    expect(resultText(result)).not.toContain(String(sentSpec.password));
+    if (process.platform !== "win32") expect((await stat(savedPath)).mode & 0o777).toBe(0o600);
+  }, 15_000);
+
   it("rejects a traversal savePath before any control-plane call", async () => {
     const fake = await startFakeControlPlane();
     const identityDir = join(tmpdir(), `mcp-id-${randomUUID()}`);

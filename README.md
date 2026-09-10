@@ -385,17 +385,17 @@ A long-lived control-plane token combined with an always-available delete tool i
 export THALOVANT_ENABLE_DESTRUCTIVE_TOOLS="true"
 ```
 
-Accepted true values are `1`, `true`, `yes`, and `on`; anything else, including unset, leaves the tools off. The flag is read when a server instance is created, so restart the server (or, in Streamable HTTP mode, start a new session) after changing it. `thalovant_config_status` reports the current state as `destructiveToolsEnabled` and lists the tools the flag controls.
+Accepted true values are `1`, `true`, `yes`, and `on`; anything else, including unset, leaves the tools off. The flag is read when a server instance is created. Restart the server process with the updated environment after changing it. `thalovant_config_status` reports the current state as `destructiveToolsEnabled` and lists the tools the flag controls.
 
 This is a separate mechanism from the existing tool policy, deliberately. `MCP_TOOL_ALLOWLIST` / `MCP_TOOL_DENYLIST` and the per-principal `allowedTools` / `deniedTools` are call-time filters where an empty allowlist means "allow everything"; they cannot express a tool that is off until an operator turns it on, and they cannot hide a tool from `tools/list`. Once `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` is set the delete tools are ordinary tools again and remain subject to that policy, so the two layers compose:
 
 ```bash
-# Enable deletes server-wide, but deny them to everyone except trusted principals.
+# Register delete tools, then deny their use by every principal.
 export THALOVANT_ENABLE_DESTRUCTIVE_TOOLS="true"
 export MCP_TOOL_DENYLIST="thalovant_delete_hub,thalovant_delete_runtime_group"
 ```
 
-with the trusted principal's credential file granting them back via `allowedTools`.
+The global deny applies to every principal and cannot be overridden by a principal's `allowedTools`. To restrict only selected principals, leave these tools out of the global denylist and use those principals' `deniedTools` instead.
 
 Deleting a hub still requires a current etag (`412` otherwise), and deleting a runtime group fails with `409` while it is the workspace default or still has hubs attached.
 
@@ -419,7 +419,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.1.21 uses `@thalovant/sdk` `^0.3.12` (0.3.12 through versions below 0.4.0). This release enforces
+Version 0.1.22 uses `@thalovant/sdk` `^0.3.14` (0.3.14 through versions below 0.4.0). This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
