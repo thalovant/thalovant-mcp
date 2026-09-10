@@ -87,7 +87,7 @@ Grant fewer scopes for narrower deployments: a read-only assistant needs only `h
 
 Each write answers `202` with `operation_id`, `hub_id`, `runtime_group_id`, `skill`, `version` (`null` for a removal), `previous_version`, and `state` (`installing`, `updating`, or `removing`); pass `wait: true` to poll that operation every 2 s until it converges (`installed`, or `removed` for a removal; a `failed` or `timed_out` operation raises an error carrying its `error_message`), with a 120 s default `timeoutMs`, or follow it yourself with `thalovant_get_operation`. Installing a skill that is already installed at another version performs an update; the same version fails `409` with code `skill_version_already_installed`. A hub with no runtime group fails `404` with code `hub_without_runtime_group` (a plain `404` means an unknown hub or a skill that is not installed), and an unresolvable `latest` or an invalid version fails `422`. Errors are RFC 7807 problem bodies; the tool error keeps the short `message` and appends the root `code` in parentheses, for example `Thalovant API request failed with HTTP 409: Skill version already installed. (skill_version_already_installed)`.
 
-Listing needs `hubs:inspect` (implied by `hubs:read`); the writes need `hubs:write` and a paid plan, and because scope is checked before plan a free-plan token sees `403`, never `402`. Hub-restricted tokens (a `hub_ids` allowlist) are honoured on all four routes. Until `@thalovant/sdk` ships these methods (0.3.15) the server calls the hub-skill routes directly, with the SDK's header, TLS, and redirect conventions.
+Listing needs `hubs:inspect` (implied by `hubs:read`); the writes need `hubs:write` and a paid plan, and because scope is checked before plan a free-plan token sees `403`, never `402`. Hub-restricted tokens (a `hub_ids` allowlist) are honoured on all four routes. The server uses the published Node SDK hub-skill methods and preserves MCP cancellation checks during polling. A failed status read retains the accepted operation ID; use `thalovant_get_operation` with that ID instead of submitting the write again. No new poll starts at or after the polling deadline. That deadline does not cancel an HTTP request already in flight.
 
 ### Login Fallback
 
@@ -436,7 +436,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.1.23 uses `@thalovant/sdk` `^0.3.14` (0.3.14 through versions below 0.4.0). This release enforces
+Version 0.1.24 uses `@thalovant/sdk` `^0.3.16` (0.3.16 through versions below 0.4.0). This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
