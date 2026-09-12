@@ -560,7 +560,7 @@ Read history with `thalovant_list_hub_skill_history` (`hubId`, optional `limit`)
 
 
 Inventory `sentence: true` implies speakable rendering and capitalizes/punctuates
-examples using bundled thalovant-languages 0.1.1 rules. Regional locale matching
+examples using bundled thalovant-languages 0.2.1 rules. Regional locale matching
 follows OVOS distances; explicit `slots` override locale sample values. Complete
 phrases rank first, and `exampleLimit` counts unique nonempty rendered results.
 Raw intent definitions remain in the response; unknown locales retain bare text.
