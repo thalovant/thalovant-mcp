@@ -51,7 +51,7 @@ describe("stdio MCP server", () => {
       const requiredInputs = {
         thalovant_ask: ["sttLang", "pipeline", "location", "includeAudio"],
         thalovant_query: ["includeAudio"],
-        thalovant_intent_inventory: ["speakable", "slots", "exampleLimit"],
+        thalovant_intent_inventory: ["speakable", "sentence", "slots", "exampleLimit"],
         thalovant_update_runtime_group_config: ["merge"],
       };
       for (const [name, fields] of Object.entries(requiredInputs)) {

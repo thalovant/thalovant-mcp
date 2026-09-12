@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0 — 2026-09-12
+
+- Add locale-aware sentence inventory examples with SDK 0.6.0, canonical slot defaults and unique rendered limits.
+- Handle SIGTERM/SIGINT explicitly and close MCP sessions and HTTP connections when running as PID 1.
+- Align the Dockerfile version label with the package and registry metadata.
+
 ## 0.3.0 — 2026-09-12
 
 - Use Node SDK 0.5.0 request hints, bounded embedded audio replies, and speakable intent examples. Keep embedded audio out of model text; offer explicit audio/resource content blocks through includeAudio.

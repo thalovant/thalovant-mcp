@@ -1645,7 +1645,8 @@ export function createServer(): McpServer {
       inputSchema: {
         ...runtimeAuthSchema,
         languages: z.array(z.string().trim().min(1).max(100)).min(1).max(20).default(["en-us"]),
-        speakable: z.boolean().default(false).describe("Render intent patterns into example sentences; preserve whole-sentence priority."),
+        speakable: z.boolean().default(false).describe("Render intent patterns with locale slot examples; preserve complete-phrase priority."),
+        sentence: z.boolean().default(false).describe("Capitalize and punctuate examples using the selected locale. Implies speakable rendering."),
         slots: z.record(z.string().max(500)).optional().describe("Example values for named intent slots."),
         exampleLimit: z.number().int().min(1).max(20).default(2),
         describe: z.boolean().default(true),
@@ -1654,14 +1655,14 @@ export function createServer(): McpServer {
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async ({ languages, describe, fallback, timeoutMs, speakable, slots, exampleLimit, ...runtime }) => withRuntimeClient(runtime, async (client, signal) => {
+    async ({ languages, describe, fallback, timeoutMs, speakable, sentence, slots, exampleLimit, ...runtime }) => withRuntimeClient(runtime, async (client, signal) => {
       await client.connect(undefined, signal);
       throwIfRuntimeCancelled(signal);
       const inventory = await client.intents(languages, { describe, fallback, timeoutMs: clampTimeout(timeoutMs) });
       return jsonContent(redactSecrets({
         ...inventory.asObject(),
         examples: inventory.intents.map(intent => ({ id: intent.id,
-          languages: Object.fromEntries(inventory.languages.map(lang => [lang, intent.examples(lang, exampleLimit, { speakable, slots })])),
+          languages: Object.fromEntries(inventory.languages.map(lang => [lang, intent.examples(lang, exampleLimit, { speakable, sentence, slots })])),
         })),
         may_answer: Object.fromEntries(inventory.languages.map(lang => [lang, inventory.mayAnswer(lang)])),
       }));
@@ -2874,8 +2875,13 @@ export async function startHttpServer(config = getHttpConfig()): Promise<{ close
   }, Math.min(config.sessionTtlMs, 60_000));
   cleanupTimer.unref();
 
+  let closing: Promise<void> | undefined;
   const httpServer = createHttpServer(async (req, res) => {
     setSecurityHeaders(res);
+    if (closing) {
+      sendJson(res, 503, { error: "Server is shutting down." });
+      return;
+    }
 
     try {
       if (!validateHost(req, config)) {
@@ -2926,6 +2932,7 @@ export async function startHttpServer(config = getHttpConfig()): Promise<{ close
       }
 
       const auth = await authenticate(req, config);
+      if (closing) { sendJson(res, 503, { error: "Server is shutting down." }); return; }
       const authenticatedReq = req as IncomingMessage & {
         auth?: AuthInfo;
       };
@@ -2934,6 +2941,7 @@ export async function startHttpServer(config = getHttpConfig()): Promise<{ close
 
       if (req.method === "POST") {
         const body = await readJsonBody(req, config.maxBodyBytes);
+        if (closing) { sendJson(res, 503, { error: "Server is shutting down." }); return; }
         const sessionId = typeof req.headers["mcp-session-id"] === "string" ? req.headers["mcp-session-id"] : undefined;
 
         if (sessionId) {
@@ -2992,6 +3000,11 @@ export async function startHttpServer(config = getHttpConfig()): Promise<{ close
         };
 
         await mcpServer.connect(transport);
+        if (closing) {
+          await mcpServer.close();
+          sendJson(res, 503, { error: "Server is shutting down." });
+          return;
+        }
         await transport.handleRequest(authenticatedReq, res, body);
         return;
       }
@@ -3054,19 +3067,52 @@ export async function startHttpServer(config = getHttpConfig()): Promise<{ close
 
   return {
     url,
-    close: async () => {
+    close: () => {
+      if (closing) return closing;
       clearInterval(cleanupTimer);
-      for (const sessionId of Array.from(sessions.keys())) {
-        await closeSession(sessionId);
-      }
-      await new Promise<void>((resolveClose, rejectClose) => {
+      // Stop admission before closing sessions; then release remaining HTTP sockets.
+      const stopped = new Promise<void>((resolveClose, rejectClose) => {
         httpServer.close((error) => {
           if (error) rejectClose(error);
           else resolveClose();
         });
       });
+      closing = Promise.all([
+        stopped,
+        (async () => {
+          try {
+            await Promise.all(Array.from(sessions.keys(), closeSession));
+          } finally {
+            httpServer.closeAllConnections();
+          }
+        })(),
+      ]).then(() => undefined);
+      return closing;
     },
   };
+}
+
+// CLI signal handling is explicit because Node may run as PID 1 in the OCI image.
+function handleShutdown(close: () => Promise<void>): void {
+  let stopping = false;
+  const shutdown = () => {
+    if (stopping) return;
+    stopping = true;
+    const deadline = setTimeout(() => {
+      console.error("MCP shutdown exceeded 10 seconds.");
+      process.exit(1);
+    }, 10_000);
+    void Promise.resolve().then(close).then(() => {
+      clearTimeout(deadline);
+      process.exit(0);
+    }, (error: unknown) => {
+      clearTimeout(deadline);
+      console.error("Error during MCP shutdown:", error);
+      process.exit(1);
+    });
+  };
+  process.on("SIGTERM", shutdown);
+  process.on("SIGINT", shutdown);
 }
 
 export async function main() {
@@ -3077,13 +3123,15 @@ export async function main() {
       : (process.env.MCP_TRANSPORT ?? "stdio");
 
   if (requestedTransport === "http" || requestedTransport === "streamable-http") {
-    await startHttpServer();
+    const http = await startHttpServer();
+    handleShutdown(http.close);
     return;
   }
 
   const transport = new StdioServerTransport();
   const server = createServer();
   await server.connect(transport);
+  handleShutdown(() => server.close());
 }
 
 function isMainModule(): boolean {

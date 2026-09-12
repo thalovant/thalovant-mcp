@@ -1,0 +1,15 @@
+{
+  "name": "thalovant_intent_inventory",
+  "arguments": {
+    "identityFile": "/path/to/identity.json",
+    "languages": [
+      "fr-CA",
+      "en-US"
+    ],
+    "sentence": true,
+    "slots": {
+      "location": "Montréal"
+    },
+    "exampleLimit": 3
+  }
+}
