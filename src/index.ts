@@ -2666,7 +2666,7 @@ export function createServer(): McpServer {
     {
       title: "List Hub Skill History",
       description: "Read newest-first skill events and operations for the runtime group attached to a hub. This history is shared by all hubs using that runtime. Requires hubs:inspect (hubs:read implies it); restricted tokens must cover all served hubs. Returns event/operation kind, timestamps, versions, actors and outcome fields. No changes are made.",
-      inputSchema: { ...controlPlaneSchema, hubId: z.string().min(1), limit: z.number().int().min(1).max(200).default(50) },
+      inputSchema: { ...controlPlaneSchema, hubId: z.string().uuid().describe("Hub UUID (not the slug)."), limit: z.number().int().min(1).max(200).default(50) },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
     async ({ hubId, limit, ...auth }) => {
