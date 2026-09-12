@@ -1,5 +1,10 @@
-import type { ThalovantReply } from "@thalovant/sdk";
+import type { ThalovantEvent, ThalovantReply } from "@thalovant/sdk";
 import { createHash } from "node:crypto";
+
+function eventSummary(event: ThalovantEvent) {
+  const { binary_data: _encoded, ...data } = event.data;
+  return { ...event.asObject(), data };
+}
 
 /** Keep embedded skill bytes out of the language model's text context. */
 export function runtimeReplyContent(reply: ThalovantReply, includeAudio = false) {
@@ -8,10 +13,8 @@ export function runtimeReplyContent(reply: ThalovantReply, includeAudio = false)
   }> = [];
   const media: Array<{ eventIndex: number; byteLength?: number; mimeType?: string; error?: string }> = [];
   const events = reply.events.map((event, eventIndex) => {
-    const output = event.asObject();
+    const output = eventSummary(event);
     if (!event.isAudio) return output;
-    const { binary_data: _encoded, ...data } = event.data;
-    output.data = data;
     try {
       const bytes = Buffer.from(event.audioBytes());
       const mimeType = bytes.subarray(0, 4).toString() === "RIFF" && bytes.subarray(8, 12).toString() === "WAVE" ? "audio/wav"
@@ -33,6 +36,8 @@ export function runtimeReplyContent(reply: ThalovantReply, includeAudio = false)
     handled: reply.handled, ok: reply.ok, sessionId: reply.sessionId, requestId: reply.requestId,
     lang: reply.lang, hasAudio: reply.hasAudio ?? false, droppedMedia: reply.droppedMedia ?? 0,
     displayItems: reply.displayItems({ maxTextChars: 1_000 }), events, media,
-    failureEvent: reply.failureEvent?.asObject(),
+    // A failure reference must not bypass text sanitization or add a clip
+    // outside the SDK's admitted event sequence and aggregate media budget.
+    failureEvent: reply.failureEvent ? eventSummary(reply.failureEvent) : undefined,
   }, clips };
 }

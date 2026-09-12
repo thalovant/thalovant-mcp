@@ -1084,3 +1084,17 @@ it("runtime config merge uses revision preconditions and retries only explicit c
   expect(fake.requests.map(r => r.method)).toEqual(["GET", "PUT", "GET", "PUT"]);
   expect(fake.requests[3].body).toMatchObject({ config: { nested: { original: true, concurrent: true, caller: true } }, expected_revision: "2".padStart(64, "0") });
 });
+
+it.each([400, 500])("runtime config merge never retries an HTTP %i write failure", async status => {
+  const fake = await startFakeControlPlane(jsonResponder(request => {
+    if (request.method === "GET") return { body: { config: {}, revision: "0".repeat(64) } };
+    expect(request.method).toBe("PUT");
+    return { status, body: { detail: "fixture write failure" } };
+  }));
+  const client = await connectStdioClient({ THALOVANT_API_URL: fake.url, THALOVANT_API_TOKEN: API_TOKEN });
+  const result = await client.callTool({ name: "thalovant_update_runtime_group_config", arguments: {
+    runtimeGroupId: "x", config: { lang: "fr" },
+  } });
+  expect(result.isError).toBe(true);
+  expect(fake.requests.map(request => request.method)).toEqual(["GET", "PUT"]);
+});

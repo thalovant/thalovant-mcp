@@ -8,6 +8,19 @@ function reply(events: ThalovantEvent[]): ThalovantReply {
     lang: "fr", hasAudio: true, droppedMedia: 2, displayItems: () => [] };
 }
 describe("embedded audio reply output", () => {
+  it("sanitizes a failure reference without duplicating admitted audio", () => {
+    const event = new ThalovantEvent("mycroft.audio.queue", { binary_data: "01ff", reason: "fixture" });
+    const input = { ...reply([event]), failureEvent: event };
+    const output = runtimeReplyContent(input, true);
+    expect(JSON.stringify(output.summary)).not.toContain("binary_data");
+    expect(output.summary.failureEvent?.data).toEqual({ reason: "fixture" });
+    expect(output.clips).toHaveLength(1);
+    expect(output.summary.media).toHaveLength(1);
+    expect(event.data.binary_data).toBe("01ff");
+    const unadmitted = runtimeReplyContent({ ...reply([]), failureEvent: event }, true);
+    expect(unadmitted.clips).toEqual([]);
+    expect(JSON.stringify(unadmitted.summary)).not.toContain("binary_data");
+  });
   it("keeps hex out of text while retaining ordered metadata and explicit audio content", () => {
     const bytes = Buffer.from("RIFF1234WAVEtest");
     const encoded = bytes.toString("hex");
