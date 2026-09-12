@@ -47,7 +47,7 @@ jobs:
           PACKAGE_VERSION: ${{ steps.target.outputs.version }}
         run: |
           docker pull "ghcr.io/thalovant/thalovant-mcp:$PACKAGE_VERSION"
-          docker run --rm -d --name thalovant-mcp-smoke -p 127.0.0.1:3000:3000 -e MCP_HTTP_AUTH_TOKEN=published-smoke-token -e MCP_HTTP_ALLOWED_HOSTS=127.0.0.1:3000,localhost:3000 "ghcr.io/thalovant/thalovant-mcp:$PACKAGE_VERSION"
+          docker run -d --name thalovant-mcp-smoke -p 127.0.0.1:3000:3000 -e MCP_HTTP_AUTH_TOKEN=published-smoke-token -e MCP_HTTP_ALLOWED_HOSTS=127.0.0.1:3000,localhost:3000 "ghcr.io/thalovant/thalovant-mcp:$PACKAGE_VERSION"
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:3000/healthz >/dev/null; then
               exit 0
@@ -58,6 +58,10 @@ jobs:
           exit 1
       - name: Verify the published OCI Streamable HTTP artifact
         run: node scripts/smoke-published.mjs http http://127.0.0.1:3000/mcp published-smoke-token
+      - name: Verify clean PID 1 shutdown
+        run: |
+          docker stop --time 12 thalovant-mcp-smoke
+          test "$(docker inspect -f '{{.State.ExitCode}}' thalovant-mcp-smoke)" = 0
       - name: Verify aligned MCP Registry metadata
         env:
           PACKAGE_VERSION: ${{ steps.target.outputs.version }}

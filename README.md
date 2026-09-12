@@ -384,7 +384,7 @@ Destructive, **not registered unless explicitly enabled** (see [Destructive Tool
 Tool outputs redact credential-shaped fields. `thalovant_create_client_identity` does not return secret identity material; pass `savePath` when you want the full identity written to a local file with mode `0600`. `savePath` is confined to the server's identity directory (`THALOVANT_MCP_IDENTITY_DIR`, default `<config-dir>/thalovant/identities`): pass a plain filename, since absolute paths outside that directory and `..` traversal are rejected, so a model cannot drop a credential file into a git working tree or synced folder. `thalovant_config_status` reports the active `identityDir`.
 
 `thalovant_intent_inventory` uses the runtime identity and accepts `languages`,
-`describe`, `fallback`, `speakable`, `slots`, `exampleLimit`, and a per-query/batch `timeoutMs`. It returns registered
+`describe`, `fallback`, `speakable`, `sentence`, `slots`, `exampleLimit`, and a per-query/batch `timeoutMs`. It returns registered
 intents and examples, fallback skills, `fallbacks_known`, and `may_answer` by
 requested language. A missing or denied optional fallback-skill query remains
 unknown, rather than being reported as a known empty list. The optional probe
@@ -464,7 +464,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.3.0 requires `@thalovant/sdk` `^0.5.1` (0.5.1 through versions below 0.6.0). This release enforces
+Version 0.4.0 requires `@thalovant/sdk` `^0.6.0` (0.6.0 through versions below 0.7.0). This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
@@ -557,3 +557,14 @@ never repeats an accepted mutation and starts no new read after its deadline;
 an already-running HTTP request retains its normal request timeout.
 
 Read history with `thalovant_list_hub_skill_history` (`hubId`, optional `limit`). This tool remains available in read-only mode.
+
+
+Inventory `sentence: true` implies speakable rendering and capitalizes/punctuates
+examples using bundled thalovant-languages 0.1.1 rules. Regional locale matching
+follows OVOS distances; explicit `slots` override locale sample values. Complete
+phrases rank first, and `exampleLimit` counts unique nonempty rendered results.
+Raw intent definitions remain in the response; unknown locales retain bare text.
+
+The CLI handles SIGTERM and SIGINT in stdio and HTTP modes, including when it
+runs as the container's PID 1. It closes sessions and HTTP connections before a
+successful exit, with a ten-second failure deadline for stalled cleanup.

@@ -17,6 +17,28 @@ afterEach(async () => {
 });
 
 describe("streamable HTTP MCP server", () => {
+  it.each(["SIGTERM", "SIGINT"] as const)("closes an active MCP session and exits cleanly on %s", async (signal) => {
+    const port = await freePort();
+    const child = spawnHttpServer(port, { MCP_HTTP_AUTH_TOKEN: "shutdown-test-token" });
+    await waitForHealth(port);
+    const client = new Client({ name: "shutdown-regression", version: "0.0.0" });
+    const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+      requestInit: { headers: { Authorization: "Bearer shutdown-test-token" } },
+    });
+    try {
+      await client.connect(transport);
+      expect((await client.listTools()).tools.length).toBeGreaterThan(0);
+      const result = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve, reject) => {
+        const timeout = setTimeout(() => reject(new Error("MCP did not shut down cleanly")), 3_000);
+        child.once("exit", (code, exitSignal) => { clearTimeout(timeout); resolve({ code, signal: exitSignal }); });
+      });
+      child.kill(signal);
+      expect(await result).toEqual({ code: 0, signal: null });
+    } finally {
+      await client.close();
+    }
+  }, 20_000);
+
   it("requires bearer auth and serves MCP over Streamable HTTP", async () => {
     const port = await freePort();
     spawnHttpServer(port, {

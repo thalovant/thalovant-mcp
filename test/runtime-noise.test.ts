@@ -166,7 +166,7 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     expect(failed.isError).toBe(true); expect(recovered.isError).not.toBe(true);
     expect(content(recovered).text).toBe("reply recovered");
     const inventoryResult = await mcp.callTool({ name: "thalovant_intent_inventory", arguments: {
-      identityFile: identity, protocol: "https", languages: ["en-us", "fr-fr"], timeoutMs: 5000, speakable: true,
+      identityFile: identity, protocol: "https", languages: ["en-us", "fr-fr"], timeoutMs: 5000, sentence: true,
     } });
     expect(inventoryResult.isError).not.toBe(true);
     const inventory = content(inventoryResult);
@@ -175,7 +175,7 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     expect(inventory.fallbacks).toEqual([{ skill_id: "test.llm", priority: 100 }]);
     expect(inventory.may_answer).toEqual({ "en-us": true, "fr-fr": true });
     expect(inventory.skills[0].intents[0].phrases["en-us"]).toEqual(["[please] what is the weather"]);
-    expect(inventory.examples[0].languages["en-us"]).toEqual(["what is the weather"]);
+    expect(inventory.examples[0].languages["en-us"]).toEqual(["What is the weather?"]);
     const queryResult = await mcp.callTool({ name: "thalovant_query", arguments: {
       identityFile: identity, protocol: "https", text: "routed query", lang: "fr-fr", timeoutMs: 5000,
       queryId: "query-fixture", requestId: "request-fixture", sessionId: "session-fixture", replySettleMs: 0,
