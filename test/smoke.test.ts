@@ -48,6 +48,16 @@ describe("stdio MCP server", () => {
       expect(toolNames).toContain("thalovant_intent_inventory");
       expect(toolNames).toContain("thalovant_get_operation");
       expect(toolNames).toContain("thalovant_create_client_identity");
+      const requiredInputs = {
+        thalovant_ask: ["sttLang", "pipeline", "location", "includeAudio"],
+        thalovant_query: ["includeAudio"],
+        thalovant_intent_inventory: ["speakable", "slots", "exampleLimit"],
+        thalovant_update_runtime_group_config: ["merge"],
+      };
+      for (const [name, fields] of Object.entries(requiredInputs)) {
+        const properties = tools.tools.find((tool) => tool.name === name)?.inputSchema.properties;
+        for (const field of fields) expect(properties, `${name}.${field}`).toHaveProperty(field);
+      }
 
       const result = await client.callTool({
         name: "thalovant_config_status",

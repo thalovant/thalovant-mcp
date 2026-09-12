@@ -413,7 +413,7 @@ describe("provisioning tool delegation to the SDK", () => {
 
     await callToolSuccessfully(client, {
       name: "thalovant_update_runtime_group_config",
-      arguments: { runtimeGroupId: "rg-2", config: { tts: "piper" }, personas: { default: "helpful" } },
+      arguments: { runtimeGroupId: "rg-2", config: { tts: "piper" }, personas: { default: "helpful" }, merge: false },
     });
     const configPatch = findRequest(fake, "PATCH", "/v1/runtime-groups/rg-2/config");
     expect(configPatch.body).toMatchObject({ config: { tts: "piper" }, personas: { default: "helpful" } });
@@ -1063,4 +1063,38 @@ it("reads an asynchronous operation without replaying the provisioning write", a
   expect(fake.requests).toHaveLength(1);
   const request = findRequest(fake, "GET", "/v1/operations/op-fixture");
   expect(request.headers.authorization).toBe("Bearer synthetic-operation-token");
+});
+
+
+it("runtime config merge uses revision preconditions and retries only explicit conflicts", async () => {
+  let reads = 0, writes = 0;
+  const fake = await startFakeControlPlane(jsonResponder(request => {
+    if (request.method === "GET") {
+      reads++;
+      return { body: { config: { nested: { original: true, concurrent: reads > 1 } }, revision: String(reads).padStart(64, "0") } };
+    }
+    expect(request.method).toBe("PUT");
+    writes++;
+    return writes === 1 ? { status: 412, body: {} } : { body: request.body };
+  }));
+  const client = await connectStdioClient({ THALOVANT_API_URL: fake.url, THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_MCP_ENABLE_WRITE_TOOLS: "true" });
+  await callToolSuccessfully(client, { name: "thalovant_update_runtime_group_config", arguments: {
+    runtimeGroupId: "x", config: { nested: { caller: true } },
+  } });
+  expect(fake.requests.map(r => r.method)).toEqual(["GET", "PUT", "GET", "PUT"]);
+  expect(fake.requests[3].body).toMatchObject({ config: { nested: { original: true, concurrent: true, caller: true } }, expected_revision: "2".padStart(64, "0") });
+});
+
+it.each([400, 500])("runtime config merge never retries an HTTP %i write failure", async status => {
+  const fake = await startFakeControlPlane(jsonResponder(request => {
+    if (request.method === "GET") return { body: { config: {}, revision: "0".repeat(64) } };
+    expect(request.method).toBe("PUT");
+    return { status, body: { detail: "fixture write failure" } };
+  }));
+  const client = await connectStdioClient({ THALOVANT_API_URL: fake.url, THALOVANT_API_TOKEN: API_TOKEN });
+  const result = await client.callTool({ name: "thalovant_update_runtime_group_config", arguments: {
+    runtimeGroupId: "x", config: { lang: "fr" },
+  } });
+  expect(result.isError).toBe(true);
+  expect(fake.requests.map(request => request.method)).toEqual(["GET", "PUT"]);
 });

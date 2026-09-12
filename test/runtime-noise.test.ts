@@ -85,7 +85,7 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
                 if (message.payload.type === "ovos.intent.list") {
                   active.reply({ type: "ovos.intent.list.response", data: { ok: true, intents: [{
                     skill_id: "test.weather", intent_name: "weather", lang: message.payload.data.lang,
-                    method: "template", enabled: true, definition: { samples: ["what is the weather"] },
+                    method: "template", enabled: true, definition: { samples: ["[please] what is the weather"] },
                   }] }, context: message.payload.context });
                   reply({ status: "message sent" }); return;
                 }
@@ -98,6 +98,9 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
                 expect(message.payload.type).toBe("recognizer_loop:utterance");
                 const text = message.payload.data.utterances[0] as string;
                 requests.push(text);
+                expect(message.payload.context.stt_lang).toBe("fr-ca");
+                expect(message.payload.context.session.pipeline).toEqual(["test-stage"]);
+                expect(message.payload.context.location).toMatchObject({ city: "Montréal", country_code: "CA" });
                 requestWaiters.get(text)?.();
                 requestWaiters.delete(text);
                 if (text === "fail") {
@@ -107,6 +110,7 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
                 const peer = active;
                 setTimeout(() => {
                   if (active !== peer) { errors.push("session replaced before encrypted reply"); return; }
+                  peer.reply({ type: "mycroft.audio.queue", data: { binary_data: Buffer.from("RIFF1234WAVEtest").toString("hex") }, context: message.payload.context });
                   peer.reply({ type: "speak", data: { utterance: `reply ${text}` }, context: message.payload.context });
                 }, 100);
               }
@@ -140,7 +144,7 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     const transport = new StdioClientTransport({ command: process.execPath, args: ["dist/index.js"], env });
     mcp = new Client({ name: "noise-regression", version: "0.0.0" });
     await mcp.connect(transport);
-    const ask = (text: string) => mcp!.callTool({ name: "thalovant_ask", arguments: { identityFile: identity, protocol: "https", text, timeoutMs: 5_000, replySettleMs: 0 } });
+    const ask = (text: string) => mcp!.callTool({ name: "thalovant_ask", arguments: { identityFile: identity, protocol: "https", text, timeoutMs: 5_000, replySettleMs: 0, sttLang: "fr-ca", pipeline: ["test-stage"], location: { city: " Montréal ", country: "ca" }, includeAudio: true } });
     const content = (result: Awaited<ReturnType<typeof ask>>) => JSON.parse((result.content as Array<{ type: string; text: string }>).find(item => item.type === "text")!.text);
     const status = await mcp.callTool({ name: "thalovant_identity_status", arguments: { identityFile: identity, protocol: "https" } });
     expect(status.isError).not.toBe(true);
@@ -150,7 +154,11 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     await oneObserved;
     const [one, two] = await Promise.all([first, ask("two")]);
     expect(one.isError).not.toBe(true); expect(two.isError).not.toBe(true);
-    expect(content(one).text).toBe("reply one"); expect(content(two).text).toBe("reply two");
+    expect(content(one).text).toBe("reply one");
+    expect(content(one).hasAudio).toBe(true);
+    expect(content(one).media).toMatchObject([{ eventIndex: 0, mimeType: "audio/wav" }]);
+    expect(one.content).toEqual(expect.arrayContaining([expect.objectContaining({ type: "audio", mimeType: "audio/wav" })]));
+    expect(JSON.stringify(content(one))).not.toContain("binary_data"); expect(content(two).text).toBe("reply two");
     const failureObserved = observeRequest("fail");
     const failing = ask("fail");
     await failureObserved;
@@ -158,7 +166,7 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     expect(failed.isError).toBe(true); expect(recovered.isError).not.toBe(true);
     expect(content(recovered).text).toBe("reply recovered");
     const inventoryResult = await mcp.callTool({ name: "thalovant_intent_inventory", arguments: {
-      identityFile: identity, protocol: "https", languages: ["en-us", "fr-fr"], timeoutMs: 5000,
+      identityFile: identity, protocol: "https", languages: ["en-us", "fr-fr"], timeoutMs: 5000, speakable: true,
     } });
     expect(inventoryResult.isError).not.toBe(true);
     const inventory = content(inventoryResult);
@@ -166,7 +174,8 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     expect(inventory.fallbacks_known).toBe(true);
     expect(inventory.fallbacks).toEqual([{ skill_id: "test.llm", priority: 100 }]);
     expect(inventory.may_answer).toEqual({ "en-us": true, "fr-fr": true });
-    expect(inventory.skills[0].intents[0].phrases["en-us"]).toEqual(["what is the weather"]);
+    expect(inventory.skills[0].intents[0].phrases["en-us"]).toEqual(["[please] what is the weather"]);
+    expect(inventory.examples[0].languages["en-us"]).toEqual(["what is the weather"]);
     const queryResult = await mcp.callTool({ name: "thalovant_query", arguments: {
       identityFile: identity, protocol: "https", text: "routed query", lang: "fr-fr", timeoutMs: 5000,
       queryId: "query-fixture", requestId: "request-fixture", sessionId: "session-fixture", replySettleMs: 0,

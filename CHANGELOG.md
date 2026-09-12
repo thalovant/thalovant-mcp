@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 — 2026-09-12
+
+- Use Node SDK 0.5.0 request hints, bounded embedded audio replies, and speakable intent examples. Keep embedded audio out of model text; offer explicit audio/resource content blocks through includeAudio.
+- Default runtime configuration tools to revision-guarded merging with at most three attempts and only HTTP 412 retries. Preserve explicit replacement with merge: false. Guarded merging requires hubs:read and paid hubs:write.
+- Cover actual encrypted runtime hints/audio and default conditional-write conflict handling through MCP tool calls. Preserve the existing tool catalog and align npm/OCI/registry versions.
+
 ## 0.2.0 — 2026-09-12
 
 - Add a read-only hub skill history tool using Node SDK 0.4.0. The catalog now has 46 default tools, 23 in read-only mode, and 48 with destructive tools enabled.
