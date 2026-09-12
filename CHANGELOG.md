@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.0 — 2026-09-12
+
+- Add a read-only hub skill history tool using Node SDK 0.4.0. The catalog now has 46 default tools, 23 in read-only mode, and 48 with destructive tools enabled.
+- Correct shared-runtime skill scope and token requirements.
+
 ## 0.1.24
 
 - Require Node SDK 0.3.16 and use its public hub-skill methods instead of the temporary duplicate HTTP and polling implementation. Preserve tool schemas, accepted-operation output, API guidance and MCP cancellation checks.

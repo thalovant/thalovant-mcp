@@ -81,7 +81,7 @@ Grant fewer scopes for narrower deployments: a read-only assistant needs only `h
 
 ### Hub Skills
 
-`thalovant_list_hub_skills`, `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, and `thalovant_remove_hub_skill` act on **one hub**, not on a runtime group's skill set. A hub can start with no skills at all and gain them one at a time; a change applies live on the hub in about 15 seconds with no restart. `hubId` must be the hub UUID — the authenticated hub routes reject slugs.
+`thalovant_list_hub_skills`, `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, and `thalovant_remove_hub_skill` select a hub's attached runtime group; all hubs sharing it are affected. A hub can start with no skills at all and gain them one at a time; a change applies live on the hub in about 15 seconds with no restart. `hubId` must be the hub UUID — the authenticated hub routes reject slugs.
 
 `thalovant_list_hub_skills` returns the whole `GET /v1/hubs/{hub_id}/skills` envelope: `hub_id`, `runtime_group_id`, `observed_at`, `source`, the runtime's phase and message, and `data`, one row per skill (possibly empty) with `skill`, `title`, `marketplace_skill_id`, `package_name`, `source_type`, `install_source`, `version`, `version_pin`, `installed_version`, `observed_version`, `previous_version`, `latest_version`, `available_version`, `update_available`, `changelog`, `active`, `state`, the runtime's phase, message and last error, and `last_transition_at`. `state` is one of `pending`, `installed`, `failed`, `removing`, `drifted`, `quarantined`, or `unmanaged`; a change in progress shows as `pending`.
 
@@ -368,7 +368,7 @@ Hub and runtime-group provisioning:
 - `thalovant_install_runtime_group_skill`
 - `thalovant_uninstall_runtime_group_skill`
 
-Hub skills, acting on one hub (see [Hub Skills](#hub-skills); the list tool is read-only):
+Hub skills, acting on the hub’s shared runtime (see [Hub Skills](#hub-skills); the list tool is read-only):
 
 - `thalovant_list_hub_skills`
 - `thalovant_install_hub_skill`
@@ -436,7 +436,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.1.24 uses `@thalovant/sdk` `^0.3.16` (0.3.16 through versions below 0.4.0). This release enforces
+Version 0.2.0 uses `@thalovant/sdk` `^0.3.16` (0.3.16 through versions below 0.4.0). This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
@@ -510,3 +510,22 @@ options, and returns the same normalized reply shape as `thalovant_ask`. A query
 may trigger actions, so read-only mode hides it. Conversation workflows use
 `sessionId` with ask/query and the existing event-wait tool; MCP does not expose
 one tool for every SDK conversation or event-listener method.
+
+
+### Shared-runtime skill management
+
+The catalog has 46 default tools, 23 in read-only mode, and 48 with destructive tools enabled.
+
+Hub-addressed skill methods select the runtime group attached to the hub UUID.
+Every hub sharing that group sees the same skill changes and history. The API
+requires a restricted token to cover all served hubs. Reads need `hubs:inspect`
+(`hubs:read` implies it); writes need `hubs:write`, an eligible paid plan and ownership.
+
+The history response contains newest-first `event` and `operation` entries,
+including nullable actor/version fields. Its limit is 1–200 (50 where omitted).
+An accepted mutation is not proof the skill is ready. Optional waiting polls the
+operation, with a 120-second default timeout and two-second interval. Polling
+never repeats an accepted mutation and starts no new read after its deadline;
+an already-running HTTP request retains its normal request timeout.
+
+Read history with `thalovant_list_hub_skill_history` (`hubId`, optional `limit`). This tool remains available in read-only mode.
