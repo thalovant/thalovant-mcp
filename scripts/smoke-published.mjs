@@ -34,7 +34,7 @@ try {
   }
   const tools = await client.listTools();
   const names = new Set(tools.tools.map((tool) => tool.name));
-  for (const required of ["thalovant_config_status", "thalovant_list_public_hubs", "thalovant_ask"]) {
+  for (const required of ["thalovant_config_status", "thalovant_list_public_hubs", "thalovant_ask", "thalovant_list_hub_skill_history"]) {
     if (!names.has(required)) {
       throw new Error(`${mode} published artifact is missing ${required}`);
     }

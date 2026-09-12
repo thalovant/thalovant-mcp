@@ -2662,11 +2662,27 @@ export function createServer(): McpServer {
   );
 
   registerThalovantTool(server,
+    "thalovant_list_hub_skill_history",
+    {
+      title: "List Hub Skill History",
+      description: "Read newest-first skill events and operations for the runtime group attached to a hub. This history is shared by all hubs using that runtime. Requires hubs:inspect (hubs:read implies it); restricted tokens must cover all served hubs. Returns event/operation kind, timestamps, versions, actors and outcome fields. No changes are made.",
+      inputSchema: { ...controlPlaneSchema, hubId: z.string().uuid().describe("Hub UUID (not the slug)."), limit: z.number().int().min(1).max(200).default(50) },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ hubId, limit, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      throwIfRuntimeCancelled(requestContext.getStore()?.signal);
+      return jsonContent(redactSecrets(await callControlPlane("read", () => api.listHubSkillHistory(hubId, { limit }))));
+    },
+  );
+
+  registerThalovantTool(server,
     "thalovant_list_hub_skills",
     {
       title: "List Hub Skills",
       description:
-        "List the skills installed on ONE Thalovant hub. Returns the whole envelope: hub_id, runtime_group_id, observed_at, source, the runtime's phase and message, and data — one row per skill with version, version_pin, installed_version, observed_version, previous_version, latest_version, available_version, update_available, changelog, active, state (pending, installed, failed, removing, drifted, quarantined, unmanaged; a change in progress shows as pending), the runtime's last error and last_transition_at. This is per-hub, not the runtime group's skill set: a hub can start with an empty data array and gain skills one at a time with thalovant_install_hub_skill. hubId must be the hub UUID — the authenticated hub routes reject slugs; a hub with no runtime group attached fails 404 with code hub_without_runtime_group. Requires the hubs:inspect scope (hubs:read implies it); hub-restricted tokens only see the hubs in their allowlist.",
+        "List the skills installed on the runtime group attached to a Thalovant hub. Returns the whole envelope: hub_id, runtime_group_id, observed_at, source, the runtime's phase and message, and data — one row per skill with version, version_pin, installed_version, observed_version, previous_version, latest_version, available_version, update_available, changelog, active, state (pending, installed, failed, removing, drifted, quarantined, unmanaged; a change in progress shows as pending), the runtime's last error and last_transition_at. The hub UUID selects its attached runtime group. Skills and changes are shared by every hub using that group; restricted tokens must cover all served hubs. hubId must be the hub UUID — the authenticated hub routes reject slugs; a hub with no runtime group attached fails 404 with code hub_without_runtime_group. Requires the hubs:inspect scope (hubs:read implies it); hub-restricted tokens only see the hubs in their allowlist.",
       inputSchema: {
         ...controlPlaneSchema,
         hubId: z.string().min(1).describe("Hub UUID (not the slug)."),
@@ -2686,7 +2702,7 @@ export function createServer(): McpServer {
     {
       title: "Install Hub Skill",
       description:
-        "Install a skill on ONE Thalovant hub (not a runtime group or skill set). The change applies live on the hub in about 15 seconds, with no hub restart; a hub may start with no skills and gain them one at a time. Discover the skill name with thalovant_list_marketplace_skills. The API answers 202 with an operation_id and state \"installing\": pass wait: true to poll the operation until it converges (state \"installed\", or an error carrying the operation's failure message), with a 120 s default timeout; otherwise follow it with thalovant_get_operation. The 202 body also carries hub_id, runtime_group_id and previous_version. Installing a skill that is already installed at ANOTHER version performs an update; the SAME version fails 409 with code skill_version_already_installed. Fails 404 with code hub_without_runtime_group when the hub has no runtime group attached yet, and 422 when \"latest\" cannot be resolved or the version string is invalid. hubId must be the hub UUID — the authenticated hub routes reject slugs. Requires the hubs:write scope and a paid plan; scope is checked before plan, so a free-plan token sees 403, never 402. Hub-restricted tokens may only act on the hubs in their allowlist.",
+        "Install a skill on the runtime group attached to a Thalovant hub. All hubs sharing that runtime group are affected. The change applies live on the hub in about 15 seconds, with no hub restart; a hub may start with no skills and gain them one at a time. Discover the skill name with thalovant_list_marketplace_skills. The API answers 202 with an operation_id and state \"installing\": pass wait: true to poll the operation until it converges (state \"installed\", or an error carrying the operation's failure message), with a 120 s default timeout; otherwise follow it with thalovant_get_operation. The 202 body also carries hub_id, runtime_group_id and previous_version. Installing a skill that is already installed at ANOTHER version performs an update; the SAME version fails 409 with code skill_version_already_installed. Fails 404 with code hub_without_runtime_group when the hub has no runtime group attached yet, and 422 when \"latest\" cannot be resolved or the version string is invalid. hubId must be the hub UUID — the authenticated hub routes reject slugs. Requires the hubs:write scope and a paid plan; scope is checked before plan, so a free-plan token sees 403, never 402. A hub-restricted token must cover every hub sharing the affected runtime group.",
       inputSchema: {
         ...controlPlaneSchema,
         hubId: z.string().min(1).describe("Hub UUID (not the slug)."),
@@ -2718,7 +2734,7 @@ export function createServer(): McpServer {
     {
       title: "Update Hub Skill",
       description:
-        "Move a skill already installed on ONE Thalovant hub to a specific version (not a runtime group or skill set). The change applies live on the hub in about 15 seconds, with no hub restart. version is required — read the current version and latest_version from thalovant_list_hub_skills. The API answers 202 with an operation_id, hub_id, runtime_group_id, previous_version and state \"updating\": pass wait: true to poll the operation until it converges (state \"installed\", or an error carrying the operation's failure message), with a 120 s default timeout; otherwise follow it with thalovant_get_operation. Fails 404 when the skill is not installed on the hub (code hub_without_runtime_group when the hub has no runtime group), 409 with code skill_version_already_installed when it is already at that version, and 422 for an invalid version. hubId must be the hub UUID — the authenticated hub routes reject slugs. Requires the hubs:write scope and a paid plan; scope is checked before plan, so a free-plan token sees 403, never 402. Hub-restricted tokens may only act on the hubs in their allowlist.",
+        "Move a skill already installed on the runtime group attached to a Thalovant hub to a specific version (not a runtime group or skill set). The change applies live on the hub in about 15 seconds, with no hub restart. version is required — read the current version and latest_version from thalovant_list_hub_skills. The API answers 202 with an operation_id, hub_id, runtime_group_id, previous_version and state \"updating\": pass wait: true to poll the operation until it converges (state \"installed\", or an error carrying the operation's failure message), with a 120 s default timeout; otherwise follow it with thalovant_get_operation. Fails 404 when the skill is not installed on the hub (code hub_without_runtime_group when the hub has no runtime group), 409 with code skill_version_already_installed when it is already at that version, and 422 for an invalid version. hubId must be the hub UUID — the authenticated hub routes reject slugs. Requires the hubs:write scope and a paid plan; scope is checked before plan, so a free-plan token sees 403, never 402. A hub-restricted token must cover every hub sharing the affected runtime group.",
       inputSchema: {
         ...controlPlaneSchema,
         hubId: z.string().min(1).describe("Hub UUID (not the slug)."),
@@ -2748,7 +2764,7 @@ export function createServer(): McpServer {
     {
       title: "Remove Hub Skill",
       description:
-        "Remove one skill from ONE Thalovant hub (not a runtime group or skill set). Only the named skill is removed; the hub and its other skills are untouched, and the change applies live on the hub in about 15 seconds with no hub restart. The API answers 202 with an operation_id, hub_id, runtime_group_id, previous_version (version is null) and state \"removing\": pass wait: true to poll the operation until it converges (state \"removed\", or an error carrying the operation's failure message), with a 120 s default timeout; otherwise follow it with thalovant_get_operation. Fails 404 when the skill is not installed on the hub (code hub_without_runtime_group when the hub has no runtime group). hubId must be the hub UUID — the authenticated hub routes reject slugs. Requires the hubs:write scope and a paid plan; scope is checked before plan, so a free-plan token sees 403, never 402. Hub-restricted tokens may only act on the hubs in their allowlist.",
+        "Remove one skill from the runtime group attached to a Thalovant hub. Every hub sharing the runtime loses this skill; other skill attachments are unchanged, and the change applies live on the hub in about 15 seconds with no hub restart. The API answers 202 with an operation_id, hub_id, runtime_group_id, previous_version (version is null) and state \"removing\": pass wait: true to poll the operation until it converges (state \"removed\", or an error carrying the operation's failure message), with a 120 s default timeout; otherwise follow it with thalovant_get_operation. Fails 404 when the skill is not installed on the hub (code hub_without_runtime_group when the hub has no runtime group). hubId must be the hub UUID — the authenticated hub routes reject slugs. Requires the hubs:write scope and a paid plan; scope is checked before plan, so a free-plan token sees 403, never 402. A hub-restricted token must cover every hub sharing the affected runtime group.",
       inputSchema: {
         ...controlPlaneSchema,
         hubId: z.string().min(1).describe("Hub UUID (not the slug)."),

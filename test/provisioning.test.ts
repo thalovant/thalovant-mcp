@@ -162,15 +162,16 @@ const ENABLED_TOOLS = [
   "thalovant_clear_hub_rating",
   "thalovant_get_hub_runtime_capabilities",
   "thalovant_list_hub_skills",
+  "thalovant_list_hub_skill_history",
   "thalovant_install_hub_skill",
   "thalovant_update_hub_skill",
   "thalovant_remove_hub_skill",
 ];
 
 // Registered tool counts per mode. README and CHANGELOG quote these numbers.
-const DEFAULT_TOOL_COUNT = 45;
-const READ_ONLY_TOOL_COUNT = 22;
-const DESTRUCTIVE_ENABLED_TOOL_COUNT = 47;
+const DEFAULT_TOOL_COUNT = 46;
+const READ_ONLY_TOOL_COUNT = 23;
+const DESTRUCTIVE_ENABLED_TOOL_COUNT = 48;
 
 describe("provisioning and discovery tool registration", () => {
   it("registers every non-destructive provisioning and discovery tool by default", async () => {
@@ -189,6 +190,7 @@ describe("provisioning and discovery tool registration", () => {
     const readOnlyNames = await toolNames(readOnly);
     expect(readOnlyNames).toHaveLength(READ_ONLY_TOOL_COUNT);
     expect(readOnlyNames).toContain("thalovant_list_hub_skills");
+    expect(readOnlyNames).toContain("thalovant_list_hub_skill_history");
     expect(readOnlyNames).not.toContain("thalovant_install_hub_skill");
     expect(readOnlyNames).not.toContain("thalovant_update_hub_skill");
     expect(readOnlyNames).not.toContain("thalovant_remove_hub_skill");
@@ -647,6 +649,27 @@ describe("hub skill tools", () => {
     operator_message: null,
     data: [HUB_SKILL_ROW],
   };
+
+  it("reads shared-runtime history and rejects out-of-range limits without a request", async () => {
+    const history = { hub_id: "00000000-0000-4000-8000-000000000001", runtime_group_id: "shared", data: [
+      { id: "event:1", kind: "event", actor_email: null, version: "1.2.0" },
+      { id: "operation:1", kind: "operation", operation_id: "op-1", status: "failed" },
+    ] };
+    const fake = await startFakeControlPlane(jsonResponder((request) => request.path === "/v1/hubs/00000000-0000-4000-8000-000000000001/skills/history" && request.query.limit === "200" ? { body: history } : undefined));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url, THALOVANT_MCP_READONLY: "true" });
+    const result = await client.callTool({ name: "thalovant_list_hub_skill_history", arguments: { hubId: "00000000-0000-4000-8000-000000000001", limit: 200 } });
+    expect(result.isError ?? false).toBe(false);
+    expect(JSON.parse(resultText(result))).toEqual(history);
+    expect(findRequest(fake, "GET", "/v1/hubs/00000000-0000-4000-8000-000000000001/skills/history").headers.authorization).toBe(`Bearer ${API_TOKEN}`);
+    const requestCount = fake.requests.length;
+    for (const limit of [0, 201, 1.5]) {
+      const invalid = await client.callTool({ name: "thalovant_list_hub_skill_history", arguments: { hubId: "00000000-0000-4000-8000-000000000001", limit } });
+      expect(invalid.isError).toBe(true);
+    }
+    const invalidHub = await client.callTool({ name: "thalovant_list_hub_skill_history", arguments: { hubId: "a-slug" } });
+    expect(invalidHub.isError).toBe(true);
+    expect(fake.requests).toHaveLength(requestCount);
+  }, 15_000);
 
   it("lists the skills of one hub with the bearer token and returns the whole envelope", async () => {
     const fake = await startFakeControlPlane(jsonResponder((request) => (request.path === "/v1/hubs/hub-1/skills" ? { body: HUB_SKILL_LIST } : undefined)));
