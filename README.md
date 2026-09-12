@@ -57,7 +57,7 @@ Minimum scopes for the full control-plane tool surface:
 | Scope | Used by |
 |-------|---------|
 | `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, `thalovant_list_marketplace_skills`, `thalovant_list_runtime_groups`, `thalovant_get_runtime_group`, `thalovant_get_runtime_group_config`, and the hub lookup inside `thalovant_create_client_identity` |
-| `hubs:inspect` | `thalovant_get_hub_runtime_capabilities`, `thalovant_list_runtime_group_marketplace`, `thalovant_list_runtime_group_inventory`, `thalovant_list_hub_skills` |
+| `hubs:inspect` | `thalovant_get_hub_runtime_capabilities`, `thalovant_list_runtime_group_marketplace`, `thalovant_list_runtime_group_inventory`, `thalovant_list_hub_skills`, `thalovant_list_hub_skill_history` |
 | `hubs:write` | All hub and runtime-group provisioning: `thalovant_create_hub`, `thalovant_update_hub`, `thalovant_release_hub`, `thalovant_create_runtime_group`, `thalovant_update_runtime_group`, `thalovant_update_runtime_group_config`, `thalovant_release_runtime_group`, `thalovant_install_runtime_group_skill`, `thalovant_uninstall_runtime_group_skill`, the per-hub `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, `thalovant_remove_hub_skill`, the hub rating tools, and the opt-in delete tools |
 | `clients:write` | `thalovant_create_client_identity` (`POST /v1/clients`) |
 | `memory:read` | `thalovant_list_memory_items`, `thalovant_get_memory_summary`, `thalovant_get_memory_item` |
@@ -371,6 +371,7 @@ Hub and runtime-group provisioning:
 Hub skills, acting on the hub’s shared runtime (see [Hub Skills](#hub-skills); the list tool is read-only):
 
 - `thalovant_list_hub_skills`
+- `thalovant_list_hub_skill_history`
 - `thalovant_install_hub_skill`
 - `thalovant_update_hub_skill`
 - `thalovant_remove_hub_skill`
