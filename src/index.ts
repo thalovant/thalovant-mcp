@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { runtimeReplyContent } from "./reply-output.js";
 import { throwIfRuntimeCancelled, withRuntimeLease } from "./runtime-lease.js";
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -14,6 +15,7 @@ import {
   ThalovantControlPlane,
   ThalovantIdentity,
   buildClientContext,
+  buildLocation,
 } from "@thalovant/sdk";
 import type {
   AnalyticsOverviewOptions,
@@ -27,8 +29,6 @@ import type {
   ReleaseOptions,
   RuntimeGroupPayload,
   RuntimeGroupSkillInstallOptions,
-  ThalovantDisplayItem,
-  ThalovantReply,
 } from "@thalovant/sdk";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
@@ -920,21 +920,6 @@ async function withRuntimeClient<T>(
   return withRuntimeLease(key, () => new ThalovantClient(identity, { protocol: options.protocol ?? "wss" }), client => run(client, signal), 6000, signal);
 }
 
-function summarizeReply(reply: ThalovantReply) {
-  const displayItems = reply.displayItems({ maxTextChars: 1_000 }) as ThalovantDisplayItem[];
-  return {
-    text: reply.text,
-    displayText: reply.displayText,
-    utterances: reply.utterances,
-    handled: reply.handled,
-    ok: reply.ok,
-    sessionId: reply.sessionId,
-    requestId: reply.requestId,
-    displayItems,
-    events: reply.events.map((event) => redactSecrets(event.asObject())),
-    failureEvent: reply.failureEvent ? redactSecrets(reply.failureEvent.asObject()) : undefined,
-  };
-}
 
 /**
  * Base directory that saved client-identity files are confined to.
@@ -1660,18 +1645,24 @@ export function createServer(): McpServer {
       inputSchema: {
         ...runtimeAuthSchema,
         languages: z.array(z.string().trim().min(1).max(100)).min(1).max(20).default(["en-us"]),
+        speakable: z.boolean().default(false).describe("Render intent patterns into example sentences; preserve whole-sentence priority."),
+        slots: z.record(z.string().max(500)).optional().describe("Example values for named intent slots."),
+        exampleLimit: z.number().int().min(1).max(20).default(2),
         describe: z.boolean().default(true),
         fallback: z.boolean().default(true).describe("Try engine manifests if the intent listing is refused or unanswered."),
         timeoutMs: z.number().int().min(1_000).max(MAX_TIMEOUT_MS).default(DEFAULT_TIMEOUT_MS).describe("Per-query/batch timeout; the optional fallback-skill probe is capped at 1500ms."),
       },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    async ({ languages, describe, fallback, timeoutMs, ...runtime }) => withRuntimeClient(runtime, async (client, signal) => {
+    async ({ languages, describe, fallback, timeoutMs, speakable, slots, exampleLimit, ...runtime }) => withRuntimeClient(runtime, async (client, signal) => {
       await client.connect(undefined, signal);
       throwIfRuntimeCancelled(signal);
       const inventory = await client.intents(languages, { describe, fallback, timeoutMs: clampTimeout(timeoutMs) });
       return jsonContent(redactSecrets({
         ...inventory.asObject(),
+        examples: inventory.intents.map(intent => ({ id: intent.id,
+          languages: Object.fromEntries(inventory.languages.map(lang => [lang, intent.examples(lang, exampleLimit, { speakable, slots })])),
+        })),
         may_answer: Object.fromEntries(inventory.languages.map(lang => [lang, inventory.mayAnswer(lang)])),
       }));
     }),
@@ -1686,6 +1677,12 @@ export function createServer(): McpServer {
         ...runtimeAuthSchema,
         text: z.string().min(1).max(20_000),
         timeoutMs: z.number().int().min(1_000).max(MAX_TIMEOUT_MS).default(DEFAULT_TIMEOUT_MS),
+        sttLang: z.string().trim().min(1).max(100).optional().describe("Language recognized by speech-to-text; the hub validates this hint."),
+        pipeline: z.array(z.string().trim().min(1).max(200)).max(32).optional(),
+        location: z.object({ city: z.string().trim().min(1).max(500), region: z.string().max(500).optional(), country: z.string().max(100).optional(),
+          latitude: z.number().finite().min(-90).max(90).optional(), longitude: z.number().finite().min(-180).max(180).optional(), timezone: z.string().max(200).optional(),
+        }).optional().describe("Request location, preferred over the hub's configured city."),
+        includeAudio: z.boolean().default(false).describe("Include bounded embedded skill clips as MCP audio/resources; default returns metadata without placing audio hex in text."),
         lang: z.string().min(1).optional(),
         sessionId: z.string().min(1).optional(),
         requestId: z.string().min(1).optional(),
@@ -1700,7 +1697,7 @@ export function createServer(): McpServer {
         openWorldHint: true,
       },
     },
-    async ({ text, timeoutMs, lang, sessionId, requestId, context, replySettleMs, emptyReplyWaitMs, ...runtime }) => {
+    async ({ text, timeoutMs, lang, sessionId, requestId, context, replySettleMs, emptyReplyWaitMs, sttLang, pipeline, location, includeAudio, ...runtime }) => {
       return withRuntimeClient(runtime, async (client, signal) => {
         const builtContext = context ? buildClientContext({}, context) : undefined;
         const reply = await client.ask(text, {
@@ -1710,10 +1707,12 @@ export function createServer(): McpServer {
           sessionId,
           requestId,
           context: builtContext,
+          sttLang, pipeline, location: location ? buildLocation(location) : undefined,
           replySettleMs,
           emptyReplyWaitMs,
         });
-        return jsonContent(redactSecrets(summarizeReply(reply)));
+        const output = runtimeReplyContent(reply, includeAudio);
+        return { content: [...jsonContent(redactSecrets(output.summary)).content, ...output.clips] };
       });
     },
   );
@@ -1727,6 +1726,7 @@ export function createServer(): McpServer {
         ...runtimeAuthSchema,
         text: z.string().trim().min(1).max(20_000),
         timeoutMs: z.number().int().min(1_000).max(MAX_TIMEOUT_MS).default(DEFAULT_TIMEOUT_MS),
+        includeAudio: z.boolean().default(false).describe("Include bounded embedded skill clips as MCP audio/resources."),
         lang: z.string().min(1).optional(),
         sessionId: z.string().min(1).optional(),
         requestId: z.string().min(1).optional(),
@@ -1736,14 +1736,15 @@ export function createServer(): McpServer {
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    async ({ text, timeoutMs, lang, sessionId, requestId, queryId, context, replySettleMs, ...runtime }) => {
+    async ({ text, timeoutMs, lang, sessionId, requestId, queryId, context, replySettleMs, includeAudio, ...runtime }) => {
       return withRuntimeClient(runtime, async (client, signal) => {
         const reply = await client.query(text, {
           signal,
           timeoutMs: clampTimeout(timeoutMs), lang, sessionId, requestId, queryId,
           context: context ? buildClientContext({}, context) : undefined, replySettleMs,
         });
-        return jsonContent(redactSecrets(summarizeReply(reply)));
+        const output = runtimeReplyContent(reply, includeAudio);
+        return { content: [...jsonContent(redactSecrets(output.summary)).content, ...output.clips] };
       });
     },
   );
@@ -2500,7 +2501,7 @@ export function createServer(): McpServer {
     {
       title: "Get Runtime Group Config",
       description:
-        "Read a Thalovant runtime group's runtime configuration and personas. Requires the hubs:read scope. Read this before thalovant_update_runtime_group_config so you know what the merge will land on.",
+        "Read a Thalovant runtime group's runtime configuration and personas. Requires the hubs:read scope. The revision returned by this call is used by safe configuration merges.",
       inputSchema: {
         ...controlPlaneSchema,
         runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
@@ -2522,25 +2523,26 @@ export function createServer(): McpServer {
     {
       title: "Update Runtime Group Config",
       description:
-        "Merge runtime configuration into a Thalovant runtime group. The API MERGES config into the stored configuration rather than replacing it, and marks the group pending so the runtime operator reconciles the change. personas, when provided, is REPLACED wholesale rather than merged; omit it to leave stored personas untouched. Requires the hubs:write scope and a paid plan.",
+        "Merge runtime configuration into a Thalovant runtime group. The SDK reads and deep-merges config, then writes with a revision precondition. Only explicit HTTP 412 conflicts retry, at most three attempts; older APIs fail before a write. Set merge=false for explicit unconditional replacement. personas, when provided, is REPLACED wholesale rather than merged; omit it to leave stored personas untouched. Requires hubs:read and paid hubs:write for merging; replacement needs paid hubs:write.",
       inputSchema: {
         ...controlPlaneSchema,
         runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
+        merge: z.boolean().default(true).describe("False explicitly replaces the full configuration without a revision precondition."),
         config: jsonRecordSchema.describe("Configuration object merged into the stored configuration. Required."),
         personas: jsonRecordSchema.optional().describe("Replaces the stored personas outright. Left untouched when omitted."),
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: false,
         openWorldHint: true,
       },
     },
-    async ({ runtimeGroupId, config, personas, ...auth }) => {
+    async ({ runtimeGroupId, config, personas, merge, ...auth }) => {
       const api = await createControlPlane(auth);
       ensureAuthenticated(api);
       return jsonContent(
-        redactSecrets(await callControlPlane("write", () => api.updateRuntimeGroupConfig(runtimeGroupId, config, { personas }))),
+        redactSecrets(await callControlPlane("write", () => api.updateRuntimeGroupConfig(runtimeGroupId, config, { personas, merge }))),
       );
     },
   );

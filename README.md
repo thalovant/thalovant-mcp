@@ -56,7 +56,7 @@ Minimum scopes for the full control-plane tool surface:
 
 | Scope | Used by |
 |-------|---------|
-| `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, `thalovant_list_marketplace_skills`, `thalovant_list_runtime_groups`, `thalovant_get_runtime_group`, `thalovant_get_runtime_group_config`, and the hub lookup inside `thalovant_create_client_identity` |
+| `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, `thalovant_list_marketplace_skills`, `thalovant_list_runtime_groups`, `thalovant_get_runtime_group`, `thalovant_get_runtime_group_config`, the guarded merge read in `thalovant_update_runtime_group_config`, and the hub lookup inside `thalovant_create_client_identity` |
 | `hubs:inspect` | `thalovant_get_hub_runtime_capabilities`, `thalovant_list_runtime_group_marketplace`, `thalovant_list_runtime_group_inventory`, `thalovant_list_hub_skills`, `thalovant_list_hub_skill_history` |
 | `hubs:write` | All hub and runtime-group provisioning: `thalovant_create_hub`, `thalovant_update_hub`, `thalovant_release_hub`, `thalovant_create_runtime_group`, `thalovant_update_runtime_group`, `thalovant_update_runtime_group_config`, `thalovant_release_runtime_group`, `thalovant_install_runtime_group_skill`, `thalovant_uninstall_runtime_group_skill`, the per-hub `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, `thalovant_remove_hub_skill`, the hub rating tools, and the opt-in delete tools |
 | `clients:write` | `thalovant_create_client_identity` (`POST /v1/clients`) |
@@ -384,7 +384,7 @@ Destructive, **not registered unless explicitly enabled** (see [Destructive Tool
 Tool outputs redact credential-shaped fields. `thalovant_create_client_identity` does not return secret identity material; pass `savePath` when you want the full identity written to a local file with mode `0600`. `savePath` is confined to the server's identity directory (`THALOVANT_MCP_IDENTITY_DIR`, default `<config-dir>/thalovant/identities`): pass a plain filename, since absolute paths outside that directory and `..` traversal are rejected, so a model cannot drop a credential file into a git working tree or synced folder. `thalovant_config_status` reports the active `identityDir`.
 
 `thalovant_intent_inventory` uses the runtime identity and accepts `languages`,
-`describe`, `fallback`, and a per-query/batch `timeoutMs`. It returns registered
+`describe`, `fallback`, `speakable`, `slots`, `exampleLimit`, and a per-query/batch `timeoutMs`. It returns registered
 intents and examples, fallback skills, `fallbacks_known`, and `may_answer` by
 requested language. A missing or denied optional fallback-skill query remains
 unknown, rather than being reported as a known empty list. The optional probe
@@ -392,6 +392,33 @@ adds at most 1500ms. A silent listing can use engine manifests; disable this wit
 `fallback: false`. Both new tools are available in read-only mode and respect
 per-principal policy. `thalovant_get_operation` reads an operation ID returned by
 provisioning without replaying the write.
+
+## Request hints, embedded audio, and configuration merging
+
+`thalovant_ask` accepts `sttLang`, an ordered `pipeline`, and `location`
+with required `city` and optional `region`, `country`, `timezone`, `latitude`,
+and `longitude`. Hints apply to the current request. Omit unused hints;
+an empty pipeline is ignored, and blank language or city strings are rejected.
+
+Ask and Query return language, ordered event metadata, `hasAudio` and
+`droppedMedia`. Embedded hex stays out of text output. Opt into separate MCP
+audio blocks with `includeAudio: true`; unknown formats become embedded binary
+resource blocks. Clip and reply limits are 4 MiB and 16 MiB respectively,
+checked by the SDK before retention. The client owns playback. No skill-supplied
+path or URL is fetched. Inventory `speakable: true` renders examples without
+changing the raw patterns; `slots` supplies illustrative slot values, and
+`exampleLimit` limits examples per language to 1–20 (default 2).
+
+Configuration updates default to `merge: true`: GET the revision, deep-merge
+the caller's delta and PUT with `expected_revision`. Only HTTP 412 retries,
+with a fresh read and at most three total attempts. This requires `hubs:read`,
+`hubs:write`, and a paid plan. An older API without revision support fails before
+writing. There is no unconditional fallback. Supplied personas replace;
+omitted personas stay unchanged. For an intentional full replacement, pass
+`merge: false`, requiring `hubs:write`, a paid plan, and coordination with other writers.
+Guarded merges reject integers outside JavaScript's safe integer range in the
+delta or stored configuration before writing. Store large identifiers as strings
+or use an SDK that preserves large JSON integers.
 
 ## Destructive Tools
 
@@ -437,7 +464,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.2.0 uses `@thalovant/sdk` `^0.4.0` (0.4.0 through versions below 0.5.0). This release enforces
+Version 0.3.0 requires `@thalovant/sdk` `^0.5.0` (0.5.0 through versions below 0.6.0). This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
