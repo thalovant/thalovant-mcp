@@ -85,7 +85,7 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
                 if (message.payload.type === "ovos.intent.list") {
                   active.reply({ type: "ovos.intent.list.response", data: { ok: true, intents: [{
                     skill_id: "test.weather", intent_name: "weather", lang: message.payload.data.lang,
-                    method: "template", enabled: true, definition: { samples: ["[please] what is the weather"] },
+                    method: "template", enabled: true, definition: { samples: [message.payload.data.lang === "es-es" ? "qué hora es" : message.payload.data.lang === "fr-fr" ? "coupe le son" : "[please] what is the weather"] },
                   }] }, context: message.payload.context });
                   reply({ status: "message sent" }); return;
                 }
@@ -166,16 +166,18 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     expect(failed.isError).toBe(true); expect(recovered.isError).not.toBe(true);
     expect(content(recovered).text).toBe("reply recovered");
     const inventoryResult = await mcp.callTool({ name: "thalovant_intent_inventory", arguments: {
-      identityFile: identity, protocol: "https", languages: ["en-us", "fr-fr"], timeoutMs: 5000, sentence: true,
+      identityFile: identity, protocol: "https", languages: ["en-us", "fr-fr", "es-es"], timeoutMs: 5000, sentence: true,
     } });
     expect(inventoryResult.isError).not.toBe(true);
     const inventory = content(inventoryResult);
     expect(inventory.source).toBe("intent-manifest");
     expect(inventory.fallbacks_known).toBe(true);
     expect(inventory.fallbacks).toEqual([{ skill_id: "test.llm", priority: 100 }]);
-    expect(inventory.may_answer).toEqual({ "en-us": true, "fr-fr": true });
+    expect(inventory.may_answer).toEqual({ "en-us": true, "fr-fr": true, "es-es": true });
     expect(inventory.skills[0].intents[0].phrases["en-us"]).toEqual(["[please] what is the weather"]);
     expect(inventory.examples[0].languages["en-us"]).toEqual(["What is the weather?"]);
+    expect(inventory.examples[0].languages["fr-fr"]).toEqual(["Coupe le son."]);
+    expect(inventory.examples[0].languages["es-es"]).toEqual(["Qué hora es?"]);
     const queryResult = await mcp.callTool({ name: "thalovant_query", arguments: {
       identityFile: identity, protocol: "https", text: "routed query", lang: "fr-fr", timeoutMs: 5000,
       queryId: "query-fixture", requestId: "request-fixture", sessionId: "session-fixture", replySettleMs: 0,

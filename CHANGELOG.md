@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 — 2026-09-12
+
+- Use Node SDK 0.6.1 with thalovant-languages 0.2.1 listing data, matching Python 0.6.8 across 270 languages.
+- Verify Spanish questions and complete French phrases through the encrypted runtime inventory tool.
+
 ## 0.4.0 — 2026-09-12
 
 - Add locale-aware sentence inventory examples with SDK 0.6.0, canonical slot defaults and unique rendered limits.
