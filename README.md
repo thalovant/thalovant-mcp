@@ -464,7 +464,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.3.0 requires `@thalovant/sdk` `^0.5.0` (0.5.0 through versions below 0.6.0). This release enforces
+Version 0.3.0 requires `@thalovant/sdk` `^0.5.1` (0.5.1 through versions below 0.6.0). This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
