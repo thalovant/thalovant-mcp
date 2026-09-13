@@ -172,6 +172,11 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     const inventory = content(inventoryResult);
     expect(inventory.source).toBe("intent-manifest");
     expect(inventory.fallbacks_known).toBe(true);
+    expect(inventory.presentation).toMatchObject({ cache_version: 1, hub_id: "", hub_name: "", source: "hub",
+      languages_present: ["en-us", "es-es", "fr-fr"] });
+    expect(inventory.presentation.skills[0].locales).toEqual([]);
+    expect(inventory.presentation.skills[0].intents[0].phrases).toEqual(inventory.skills[0].intents[0].phrases);
+    expect(inventory.presentation.notes).toContain("Runtime discovery source: intent-manifest.");
     expect(inventory.fallbacks).toEqual([{ skill_id: "test.llm", priority: 100 }]);
     expect(inventory.may_answer).toEqual({ "en-us": true, "fr-fr": true, "es-es": true });
     expect(inventory.skills[0].intents[0].phrases["en-us"]).toEqual(["[please] what is the weather"]);

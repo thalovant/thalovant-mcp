@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0 — 2026-09-13
+
+- Use Node SDK 0.7.0 inventory models and Python-compatible question detection.
+- Add an inventory `presentation` view with derived skill titles, explicit phrase-language order, and unknown catalog metadata preserved.
+- Gate PRs and publication on the shared SDK acceptance contract and check for drift every six hours.
+
 ## 0.4.1 — 2026-09-12
 
 - Use Node SDK 0.6.1 with thalovant-languages 0.2.1 listing data, matching Python 0.6.8 across 270 languages.
