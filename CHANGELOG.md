@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1 — 2026-09-13
+
+- Expose advisory reply claim status and first-seen pipeline/skill identifiers, with shared conformance for fallback, mixed stages, legacy hubs and malformed stamps. Existing reply construction remains compatible.
+
 ## 0.5.0 — 2026-09-13
 
 - Use Node SDK 0.7.0 inventory models and Python-compatible question detection.
