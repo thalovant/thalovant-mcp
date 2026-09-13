@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "reference_digests": [
+    "1133ac83dca463a5b7c69c980d1b5db46a1314d08151b31508982ad1cf41b6c6",
+    "c13f62bf0c5ff9a8b06808542f89481f961e7c4e24af13928055598b76e2550c"
+  ],
+  "capabilities": {
+    "runtime": {
+      "status": "required",
+      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
+      "implementation": {
+        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7",
+        "src/runtime-lease.ts": "fa7183fd9036a8717ff5c543822d004ea005505e3fa15e1211604390c6fd1ab5",
+        "src/reply-output.ts": "38fb5941660059944ca2cd1f1803337b8635309e83c734be090e44bc7446fddf"
+      },
+      "tests": {
+        "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba",
+        "test/runtime-cancellation.test.ts": "a506cd17cffd5b35dd6344c1d3c1a5b8cde3d8f985166df08bd94bac9b113afc"
+      }
+    },
+    "control": {
+      "status": "required",
+      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
+      "implementation": {
+        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+      },
+      "tests": {
+        "test/security-hardening.test.ts": "c3e07c5b310a86c8339f716b158490dfd7e1ff98082d6f99c691efccd70fe932",
+        "test/provisioning.test.ts": "7ea794a79b5dbee8a641d572de3e1621e988b2f951e699b941df8a260d3352e5"
+      }
+    },
+    "identity": {
+      "status": "required",
+      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
+      "implementation": {
+        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+      },
+      "tests": {
+        "test/runtime-cancellation.test.ts": "a506cd17cffd5b35dd6344c1d3c1a5b8cde3d8f985166df08bd94bac9b113afc",
+        "test/http.test.ts": "d278606147046fc5cc32c88ee2c49a6ded655bd6f921fa4f5aaac177c45ba515"
+      }
+    },
+    "listing": {
+      "status": "required",
+      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
+      "implementation": {
+        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+      },
+      "tests": {
+        "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba"
+      }
+    },
+    "inventory": {
+      "status": "required",
+      "reason": "The inventory tool adds the SDK presentation model while preserving native fields and unknown catalogue locales. Per-tool identity leases do not share disk caches.",
+      "implementation": {
+        "src/inventory-output.ts": "57ca6a40c84f4d85661d2b70d079bb774b75dedf87ad902b4e4048f059217115",
+        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+      },
+      "tests": {
+        "test/inventory-output.test.ts": "a6927875f1411bacf5e50ecebdd429cc119f67b3ddb9b39686549b851874b290"
+      }
+    },
+    "session": {
+      "status": "not-applicable",
+      "reason": "MCP runtime connections and identity leases are scoped to a tool invocation; persistent sockets and origin overrides are not exposed."
+    },
+    "cli": {
+      "status": "not-applicable",
+      "reason": "Python command line entry point; consumers expose idiomatic language APIs or MCP tools."
+    }
+  }
+}

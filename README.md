@@ -393,6 +393,14 @@ adds at most 1500ms. A silent listing can use engine manifests; disable this wit
 per-principal policy. `thalovant_get_operation` reads an operation ID returned by
 provisioning without replaying the write.
 
+The additive `presentation` object contains the shared SDK inventory shape:
+`cache_version`, `hub_id`, `hub_name`, `source`, `generated_at`, `skills`, `notes`,
+and `languages_present`. Skill titles are derived from IDs. Runtime discovery
+cannot prove catalog locales or hub display metadata, so those fields remain
+unknown (empty lists/strings), with explanatory notes. Intent language order is
+explicit and survives JSON key sorting. Each tool call retains its own identity
+lease; the server does not persist inventory or share a session across callers.
+
 ## Request hints, embedded audio, and configuration merging
 
 `thalovant_ask` accepts `sttLang`, an ordered `pipeline`, and `location`
@@ -464,7 +472,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.4.1 requires `@thalovant/sdk` `^0.6.1` (0.6.1 through versions below 0.7.0). This release enforces
+Version 0.5.0 requires `@thalovant/sdk` `^0.7.0` (0.7.0 through versions below 0.8.0). This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
@@ -569,7 +577,7 @@ The CLI handles SIGTERM and SIGINT in stdio and HTTP modes, including when it
 runs as the container's PID 1. It closes sessions and HTTP connections before a
 successful exit, with a ten-second failure deadline for stalled cleanup.
 
-Version 0.4.1 uses Node SDK 0.6.1 and the same 270-language listing data as
-Python 0.6.8. With `sentence: true`, Spanish questions receive their question
+Version 0.5.0 uses Node SDK 0.7.0 with Python 0.7.2-compatible inventory
+and question detection, including Unicode question marks and omitted-language patterns. With `sentence: true`, Spanish questions receive their question
 mark and complete French phrases keep their final period. Undescribed
 languages remain bare.

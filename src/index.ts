@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { inventoryPresentation } from "./inventory-output.js";
 import { runtimeReplyContent } from "./reply-output.js";
 import { throwIfRuntimeCancelled, withRuntimeLease } from "./runtime-lease.js";
 
@@ -1661,6 +1662,7 @@ export function createServer(): McpServer {
       const inventory = await client.intents(languages, { describe, fallback, timeoutMs: clampTimeout(timeoutMs) });
       return jsonContent(redactSecrets({
         ...inventory.asObject(),
+        presentation: inventoryPresentation(inventory),
         examples: inventory.intents.map(intent => ({ id: intent.id,
           languages: Object.fromEntries(inventory.languages.map(lang => [lang, intent.examples(lang, exampleLimit, { speakable, sentence, slots })])),
         })),
