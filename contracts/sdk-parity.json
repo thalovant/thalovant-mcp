@@ -19,7 +19,7 @@
       "tests": {
         "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba",
         "test/runtime-cancellation.test.ts": "a506cd17cffd5b35dd6344c1d3c1a5b8cde3d8f985166df08bd94bac9b113afc",
-        "test/reply-claims.test.ts": "7c9b1194534c0d2a9f590af2cfdec5ba2394cf2c38f0836794859e80555c79fb",
+        "test/reply-claims.test.ts": "e8ee5a7865447ae12f2cd607db9d32fbadc3e9202f763fd454123f94095ce2f8",
         "test/reply-claim-vectors.json": "bfcd4a649fa8ecb0cede0ccd495cdbdc1a9881760e4654cd776cf81bed558cb1"
       }
     },

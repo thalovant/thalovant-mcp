@@ -12,4 +12,6 @@ for (const row of data.cases) test(`MCP reply claim: ${row.name}`, () => {
     assert.deepEqual(summary.pipelineIds, row.expected.pipeline_ids);
     assert.deepEqual(summary.skillIds, row.expected.skill_ids);
     assert.equal(summary.claimed, row.expected.claimed);
+    assert.equal(summary.text, "reply");
+    assert.equal(summary.ok, row.handled && !row.failed);
 });
