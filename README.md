@@ -472,7 +472,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.5.0 requires `@thalovant/sdk` `^0.7.0` (0.7.0 through versions below 0.8.0). This release enforces
+Version 0.5.1 requires `@thalovant/sdk` `^0.7.0` (0.7.0 through versions below 0.8.0). This release enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
@@ -577,7 +577,7 @@ The CLI handles SIGTERM and SIGINT in stdio and HTTP modes, including when it
 runs as the container's PID 1. It closes sessions and HTTP connections before a
 successful exit, with a ten-second failure deadline for stalled cleanup.
 
-Version 0.5.0 uses Node SDK 0.7.0 with Python 0.7.2-compatible inventory
+Version 0.5.1 uses Node SDK 0.7.0 with Python 0.7.2-compatible inventory
 and question detection, including Unicode question marks and omitted-language patterns. With `sentence: true`, Spanish questions receive their question
 mark and complete French phrases keep their final period. Undescribed
 languages remain bare.

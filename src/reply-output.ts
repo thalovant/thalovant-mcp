@@ -1,3 +1,4 @@
+import { replyClaimMetadata } from "@thalovant/sdk";
 import type { ThalovantEvent, ThalovantReply } from "@thalovant/sdk";
 import { createHash } from "node:crypto";
 
@@ -32,6 +33,7 @@ export function runtimeReplyContent(reply: ThalovantReply, includeAudio = false)
     return output;
   });
   return { summary: {
+    ...replyClaimMetadata(reply),
     text: reply.text, displayText: reply.displayText, utterances: reply.utterances,
     handled: reply.handled, ok: reply.ok, sessionId: reply.sessionId, requestId: reply.requestId,
     lang: reply.lang, hasAudio: reply.hasAudio ?? false, droppedMedia: reply.droppedMedia ?? 0,
