@@ -1,79 +1,85 @@
 {
-  "schema_version": 1,
+  "capabilities": {
+    "cli": {
+      "reason": "Python command line entry point; consumers expose idiomatic language APIs or MCP tools.",
+      "status": "not-applicable"
+    },
+    "control": {
+      "implementation": {
+        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+      },
+      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
+      "status": "required",
+      "tests": {
+        "test/provisioning.test.ts": "7ea794a79b5dbee8a641d572de3e1621e988b2f951e699b941df8a260d3352e5",
+        "test/security-hardening.test.ts": "c3e07c5b310a86c8339f716b158490dfd7e1ff98082d6f99c691efccd70fe932"
+      }
+    },
+    "identity": {
+      "implementation": {
+        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+      },
+      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
+      "status": "required",
+      "tests": {
+        "test/http.test.ts": "d278606147046fc5cc32c88ee2c49a6ded655bd6f921fa4f5aaac177c45ba515",
+        "test/runtime-cancellation.test.ts": "a506cd17cffd5b35dd6344c1d3c1a5b8cde3d8f985166df08bd94bac9b113afc"
+      }
+    },
+    "inventory": {
+      "implementation": {
+        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7",
+        "src/inventory-output.ts": "57ca6a40c84f4d85661d2b70d079bb774b75dedf87ad902b4e4048f059217115"
+      },
+      "reason": "The inventory tool adds the SDK presentation model while preserving native fields and unknown catalogue locales. Per-tool identity leases do not share disk caches.",
+      "status": "required",
+      "tests": {
+        "test/inventory-output.test.ts": "a6927875f1411bacf5e50ecebdd429cc119f67b3ddb9b39686549b851874b290"
+      }
+    },
+    "listing": {
+      "implementation": {
+        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+      },
+      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
+      "status": "required",
+      "tests": {
+        "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba"
+      }
+    },
+    "native_auth": {
+      "reason": "An MCP server is not an interactive client: nobody is sitting at it to approve a browser prompt, and it is handed a token rather than obtaining one.",
+      "status": "not-applicable"
+    },
+    "runtime": {
+      "implementation": {
+        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7",
+        "src/reply-output.ts": "d2ce7fcfad12f4ee1024a00770162180eb062781d04a44529015940845cf5eba",
+        "src/runtime-lease.ts": "fa7183fd9036a8717ff5c543822d004ea005505e3fa15e1211604390c6fd1ab5"
+      },
+      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures. HiveMind #251/#252 only changes the Python upstream client dispatcher; this consumer uses native single-dispatch transports (MCP delegates to the Node SDK), or caller-owned frame parsing in embedded C. No Python HiveMind bus dependency or slave-protocol reinjection exists here. Python now requires fixed upstream 1.1.9a1 and removes its identity-based suppression; equal independent native frames remain distinct. Reply claim metadata follows the Python string-ID contract, with first-seen ordering, case-sensitive fallback stages and legacy unstamped success. Invalid non-string stamps are ignored. Embedded C exposes bounded extraction and claim classification while its caller retains ordered IDs.",
+      "status": "required",
+      "tests": {
+        "test/reply-claim-vectors.json": "bfcd4a649fa8ecb0cede0ccd495cdbdc1a9881760e4654cd776cf81bed558cb1",
+        "test/reply-claims.test.ts": "e8ee5a7865447ae12f2cd607db9d32fbadc3e9202f763fd454123f94095ce2f8",
+        "test/runtime-cancellation.test.ts": "a506cd17cffd5b35dd6344c1d3c1a5b8cde3d8f985166df08bd94bac9b113afc",
+        "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba"
+      }
+    },
+    "session": {
+      "reason": "MCP runtime connections and identity leases are scoped to a tool invocation; persistent sockets and origin overrides are not exposed.",
+      "status": "not-applicable"
+    }
+  },
   "reference_digests": [
     "1133ac83dca463a5b7c69c980d1b5db46a1314d08151b31508982ad1cf41b6c6",
     "c13f62bf0c5ff9a8b06808542f89481f961e7c4e24af13928055598b76e2550c",
     "2440dd10059c468ca5012a3e4e9e057c9bd2df7ef442eba1d5dcdeb4afb3eafd",
     "4f17f2e999105c5629defd1c1ea71a197ecf725a9b559ff7b3bf9932638645bd",
     "676e935e66330f8614d6c23cccddd48e1c4577c3af761775f18e1ea0128b8007",
-    "8b71292c815a4b7219be7b1a7a5d01e9500faaa23e7c97c6a48683fc0411e1d0"
+    "8b71292c815a4b7219be7b1a7a5d01e9500faaa23e7c97c6a48683fc0411e1d0",
+    "e1a17c218e70eb278e4a06161314076269c6d7f3fd24afc522711e1eedb2c2e8",
+    "c1b37fdf37eba918c14fcbd234d02a4c80ffd6a72a55c3db5566cd8ed59e7a5b"
   ],
-  "capabilities": {
-    "runtime": {
-      "status": "required",
-      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures. HiveMind #251/#252 only changes the Python upstream client dispatcher; this consumer uses native single-dispatch transports (MCP delegates to the Node SDK), or caller-owned frame parsing in embedded C. No Python HiveMind bus dependency or slave-protocol reinjection exists here. Python now requires fixed upstream 1.1.9a1 and removes its identity-based suppression; equal independent native frames remain distinct. Reply claim metadata follows the Python string-ID contract, with first-seen ordering, case-sensitive fallback stages and legacy unstamped success. Invalid non-string stamps are ignored. Embedded C exposes bounded extraction and claim classification while its caller retains ordered IDs.",
-      "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7",
-        "src/runtime-lease.ts": "fa7183fd9036a8717ff5c543822d004ea005505e3fa15e1211604390c6fd1ab5",
-        "src/reply-output.ts": "d2ce7fcfad12f4ee1024a00770162180eb062781d04a44529015940845cf5eba"
-      },
-      "tests": {
-        "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba",
-        "test/runtime-cancellation.test.ts": "a506cd17cffd5b35dd6344c1d3c1a5b8cde3d8f985166df08bd94bac9b113afc",
-        "test/reply-claims.test.ts": "e8ee5a7865447ae12f2cd607db9d32fbadc3e9202f763fd454123f94095ce2f8",
-        "test/reply-claim-vectors.json": "bfcd4a649fa8ecb0cede0ccd495cdbdc1a9881760e4654cd776cf81bed558cb1"
-      }
-    },
-    "control": {
-      "status": "required",
-      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
-      "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
-      },
-      "tests": {
-        "test/security-hardening.test.ts": "c3e07c5b310a86c8339f716b158490dfd7e1ff98082d6f99c691efccd70fe932",
-        "test/provisioning.test.ts": "7ea794a79b5dbee8a641d572de3e1621e988b2f951e699b941df8a260d3352e5"
-      }
-    },
-    "identity": {
-      "status": "required",
-      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
-      "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
-      },
-      "tests": {
-        "test/runtime-cancellation.test.ts": "a506cd17cffd5b35dd6344c1d3c1a5b8cde3d8f985166df08bd94bac9b113afc",
-        "test/http.test.ts": "d278606147046fc5cc32c88ee2c49a6ded655bd6f921fa4f5aaac177c45ba515"
-      }
-    },
-    "listing": {
-      "status": "required",
-      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
-      "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
-      },
-      "tests": {
-        "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba"
-      }
-    },
-    "inventory": {
-      "status": "required",
-      "reason": "The inventory tool adds the SDK presentation model while preserving native fields and unknown catalogue locales. Per-tool identity leases do not share disk caches.",
-      "implementation": {
-        "src/inventory-output.ts": "57ca6a40c84f4d85661d2b70d079bb774b75dedf87ad902b4e4048f059217115",
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
-      },
-      "tests": {
-        "test/inventory-output.test.ts": "a6927875f1411bacf5e50ecebdd429cc119f67b3ddb9b39686549b851874b290"
-      }
-    },
-    "session": {
-      "status": "not-applicable",
-      "reason": "MCP runtime connections and identity leases are scoped to a tool invocation; persistent sockets and origin overrides are not exposed."
-    },
-    "cli": {
-      "status": "not-applicable",
-      "reason": "Python command line entry point; consumers expose idiomatic language APIs or MCP tools."
-    }
-  }
+  "schema_version": 1
 }
