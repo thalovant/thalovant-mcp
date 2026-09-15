@@ -47,10 +47,6 @@
         "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba"
       }
     },
-    "native_auth": {
-      "reason": "An MCP server is not an interactive client: nobody is sitting at it to approve a browser prompt, and it is handed a token rather than obtaining one.",
-      "status": "not-applicable"
-    },
     "runtime": {
       "implementation": {
         "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7",
