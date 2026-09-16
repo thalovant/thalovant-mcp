@@ -1,7 +1,7 @@
 {
   "capabilities": {
     "binary": {
-      "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: test/inherited-parity.test.ts drives the shared vectors through whatever version actually resolves here. Turns required the moment @thalovant/sdk 0.8.0 is published -- the range already asks for it, and until then this cannot install. A range on its own was never evidence.",
+      "reason": "Inherited from @thalovant/sdk: this server passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames. The shared vectors are vendored here ready to be run, but the test that runs them has to land with the range bump to ^0.8.0 -- CI installs with `npm ci`, which refuses a manifest the lockfile does not match, and no 0.8.x is published yet. A range was never evidence; neither is a test that cannot import what it asserts.",
       "status": "planned"
     },
     "cli": {
@@ -20,7 +20,7 @@
       }
     },
     "conversation": {
-      "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: test/inherited-parity.test.ts drives the shared vectors through whatever version actually resolves here. Turns required the moment @thalovant/sdk 0.8.0 is published -- the range already asks for it, and until then this cannot install. A range on its own was never evidence.",
+      "reason": "Inherited from @thalovant/sdk: this server passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames. The shared vectors are vendored here ready to be run, but the test that runs them has to land with the range bump to ^0.8.0 -- CI installs with `npm ci`, which refuses a manifest the lockfile does not match, and no 0.8.x is published yet. A range was never evidence; neither is a test that cannot import what it asserts.",
       "status": "planned"
     },
     "identity": {
@@ -42,7 +42,7 @@
       "reason": "The inventory tool adds the SDK presentation model while preserving native fields and unknown catalogue locales. Per-tool identity leases do not share disk caches.",
       "status": "required",
       "tests": {
-        "test/inherited-parity.test.ts": "11eabd29f07c1a04acad24436d091706ff39a73d4d66744773fa83b8371a1d9c",
+        "test/inherited-parity.test.ts": "a93b0a2fb5ce8b2a28be98c291ad87a42b28879027779b3c6eb34ef2a08d28d3",
         "test/inventory-output.test.ts": "a6927875f1411bacf5e50ecebdd429cc119f67b3ddb9b39686549b851874b290"
       },
       "vectors": {
@@ -56,14 +56,14 @@
       "reason": "The question vectors are run against whatever @thalovant/sdk resolves here. The evidence used to name a Noise test, which is how a capability passes on a filename.",
       "status": "required",
       "tests": {
-        "test/inherited-parity.test.ts": "11eabd29f07c1a04acad24436d091706ff39a73d4d66744773fa83b8371a1d9c"
+        "test/inherited-parity.test.ts": "a93b0a2fb5ce8b2a28be98c291ad87a42b28879027779b3c6eb34ef2a08d28d3"
       },
       "vectors": {
         "question-vectors.json": "test/question-vectors.json"
       }
     },
     "mesh": {
-      "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: test/inherited-parity.test.ts drives the shared vectors through whatever version actually resolves here. Turns required the moment @thalovant/sdk 0.8.0 is published -- the range already asks for it, and until then this cannot install. A range on its own was never evidence.",
+      "reason": "Inherited from @thalovant/sdk: this server passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames. The shared vectors are vendored here ready to be run, but the test that runs them has to land with the range bump to ^0.8.0 -- CI installs with `npm ci`, which refuses a manifest the lockfile does not match, and no 0.8.x is published yet. A range was never evidence; neither is a test that cannot import what it asserts.",
       "status": "planned"
     },
     "runtime": {
