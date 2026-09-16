@@ -1,10 +1,8 @@
 {
   "capabilities": {
     "binary": {
-      "implementation": {},
-      "reason": "Inherited from @thalovant/sdk, which decodes a WIRE-1 header but JSON-parses the payload, so a BINARY frame carrying raw audio still fails. No hub emits one today.",
-      "status": "planned",
-      "tests": {}
+      "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: test/inherited-parity.test.ts drives the shared vectors through whatever version actually resolves here. Turns required the moment @thalovant/sdk 0.8.0 is published -- the range already asks for it, and until then this cannot install. A range on its own was never evidence.",
+      "status": "planned"
     },
     "cli": {
       "reason": "Python command line entry point; consumers expose idiomatic language APIs or MCP tools.",
@@ -22,10 +20,8 @@
       }
     },
     "conversation": {
-      "implementation": {},
-      "reason": "Inherited, not implemented: this server passes sessionId through to @thalovant/sdk's ask, so the carry is the SDK's. The range is bumped to ^0.8.0; this turns required, with the shared vectors run against whatever actually resolves, once that version is published. A range is not evidence -- an older SDK satisfying it would leave every follow-up reaching the fallback with nothing here to say so.",
-      "status": "planned",
-      "tests": {}
+      "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: test/inherited-parity.test.ts drives the shared vectors through whatever version actually resolves here. Turns required the moment @thalovant/sdk 0.8.0 is published -- the range already asks for it, and until then this cannot install. A range on its own was never evidence.",
+      "status": "planned"
     },
     "identity": {
       "implementation": {
@@ -46,24 +42,29 @@
       "reason": "The inventory tool adds the SDK presentation model while preserving native fields and unknown catalogue locales. Per-tool identity leases do not share disk caches.",
       "status": "required",
       "tests": {
+        "test/inherited-parity.test.ts": "11eabd29f07c1a04acad24436d091706ff39a73d4d66744773fa83b8371a1d9c",
         "test/inventory-output.test.ts": "a6927875f1411bacf5e50ecebdd429cc119f67b3ddb9b39686549b851874b290"
+      },
+      "vectors": {
+        "inventory-vectors.json": "test/inventory-vectors.json"
       }
     },
     "listing": {
       "implementation": {
         "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
       },
-      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
+      "reason": "The question vectors are run against whatever @thalovant/sdk resolves here. The evidence used to name a Noise test, which is how a capability passes on a filename.",
       "status": "required",
       "tests": {
-        "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba"
+        "test/inherited-parity.test.ts": "11eabd29f07c1a04acad24436d091706ff39a73d4d66744773fa83b8371a1d9c"
+      },
+      "vectors": {
+        "question-vectors.json": "test/question-vectors.json"
       }
     },
     "mesh": {
-      "implementation": {},
-      "reason": "Inherited from @thalovant/sdk, which has onHive and propagate/escalate/broadcast as of 0.8.0; no MCP tool exposes them yet.",
-      "status": "planned",
-      "tests": {}
+      "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: test/inherited-parity.test.ts drives the shared vectors through whatever version actually resolves here. Turns required the moment @thalovant/sdk 0.8.0 is published -- the range already asks for it, and until then this cannot install. A range on its own was never evidence.",
+      "status": "planned"
     },
     "runtime": {
       "implementation": {
@@ -74,10 +75,13 @@
       "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures. HiveMind #251/#252 only changes the Python upstream client dispatcher; this consumer uses native single-dispatch transports (MCP delegates to the Node SDK), or caller-owned frame parsing in embedded C. No Python HiveMind bus dependency or slave-protocol reinjection exists here. Python now requires fixed upstream 1.1.9a1 and removes its identity-based suppression; equal independent native frames remain distinct. Reply claim metadata follows the Python string-ID contract, with first-seen ordering, case-sensitive fallback stages and legacy unstamped success. Invalid non-string stamps are ignored. Embedded C exposes bounded extraction and claim classification while its caller retains ordered IDs.",
       "status": "required",
       "tests": {
-        "test/reply-claim-vectors.json": "bfcd4a649fa8ecb0cede0ccd495cdbdc1a9881760e4654cd776cf81bed558cb1",
+        "test/reply-claim-vectors.json": "45f2731589e612d5a849376d94073c57b0fef426a92e1d065c58c48442b1ffdc",
         "test/reply-claims.test.ts": "e8ee5a7865447ae12f2cd607db9d32fbadc3e9202f763fd454123f94095ce2f8",
         "test/runtime-cancellation.test.ts": "a506cd17cffd5b35dd6344c1d3c1a5b8cde3d8f985166df08bd94bac9b113afc",
         "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba"
+      },
+      "vectors": {
+        "reply-claim-vectors.json": "test/reply-claim-vectors.json"
       }
     },
     "session": {
@@ -86,26 +90,10 @@
     }
   },
   "reference_digests": [
-    "1133ac83dca463a5b7c69c980d1b5db46a1314d08151b31508982ad1cf41b6c6",
-    "c13f62bf0c5ff9a8b06808542f89481f961e7c4e24af13928055598b76e2550c",
-    "2440dd10059c468ca5012a3e4e9e057c9bd2df7ef442eba1d5dcdeb4afb3eafd",
-    "4f17f2e999105c5629defd1c1ea71a197ecf725a9b559ff7b3bf9932638645bd",
-    "676e935e66330f8614d6c23cccddd48e1c4577c3af761775f18e1ea0128b8007",
-    "8b71292c815a4b7219be7b1a7a5d01e9500faaa23e7c97c6a48683fc0411e1d0",
-    "e1a17c218e70eb278e4a06161314076269c6d7f3fd24afc522711e1eedb2c2e8",
-    "c1b37fdf37eba918c14fcbd234d02a4c80ffd6a72a55c3db5566cd8ed59e7a5b",
-    "c18d57ee45159a53773222e64586c9d36769ebc55475d1a283dc483296bb9107",
-    "d02b21380724ae606673f1b7e74b57f7962c2dea1b0640fe642856c2f2be97e2",
-    "8c8c6d952c7d86633eb65eee20415f06ee114389b3cd5efc138e59a858ffdbab",
-    "20cc677bf3ca8d61c32f0f2d3fbf6562899cf83f951685d57a2bdd10e8d30a45",
-    "9ef680aa6e5dd5519ade3954b16ac14219117df45a87ca7112dca961fad7486d",
-    "c4973d48241c9f14e0aaf6aab6b4b1c7e798b81099d0c5783079af7b4a138392",
-    "a6fe69439f14c75a2cf37d14a2d2ad1e2426639def8e1757a738a3ec6683af17",
-    "8669034d6987af946303913780cce419efaff2a9181de7d46fbffe7092d7be9e",
-    "c0d883e69ee7fa301c6e4c1b1a5c433ed290d63f79a3e6b397fdb0a988d111fa",
     "49bab2a8922b69b5cd886e7acadf217cdaa78bd94bfb48374e2f4b1cde85dfc0",
     "003cdf02562e53bd24cc58ac8eb44411cc7ac42d06ba3bbfa46e82386ea92ef7",
-    "9af92bcafd77385cd7c9cfede859eeb3586f65d0b24c9dbff36352089e94821c"
+    "9af92bcafd77385cd7c9cfede859eeb3586f65d0b24c9dbff36352089e94821c",
+    "083b2da8b256cd970b3050218d8d51f13e7355633913d086c9f4147d8790165b"
   ],
   "schema_version": 1
 }
