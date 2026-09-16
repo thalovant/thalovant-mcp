@@ -1,5 +1,7 @@
 # Thalovant MCP Server
 
+[![M8ven Live Monitored](https://m8ven.ai/badge/mcp/thalovant-thalovant-mcp-1cyhb4)](https://m8ven.ai/mcp/thalovant-thalovant-mcp-1cyhb4)
+
 Public-ready MCP server for Thalovant control-plane and hub runtime APIs.
 
 It uses the official Thalovant Node.js SDK and the production MCP TypeScript SDK over stdio and Streamable HTTP, so it works with local MCP hosts such as Claude Desktop, Codex, Cursor, and remote MCP clients.
