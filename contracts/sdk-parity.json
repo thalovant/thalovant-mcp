@@ -1,5 +1,11 @@
 {
   "capabilities": {
+    "binary": {
+      "implementation": {},
+      "reason": "Inherited from @thalovant/sdk, which decodes a WIRE-1 header but JSON-parses the payload, so a BINARY frame carrying raw audio still fails. No hub emits one today.",
+      "status": "planned",
+      "tests": {}
+    },
     "cli": {
       "reason": "Python command line entry point; consumers expose idiomatic language APIs or MCP tools.",
       "status": "not-applicable"
@@ -14,6 +20,12 @@
         "test/provisioning.test.ts": "7ea794a79b5dbee8a641d572de3e1621e988b2f951e699b941df8a260d3352e5",
         "test/security-hardening.test.ts": "c3e07c5b310a86c8339f716b158490dfd7e1ff98082d6f99c691efccd70fe932"
       }
+    },
+    "conversation": {
+      "implementation": {},
+      "reason": "Inherited, not implemented: this server passes sessionId through to @thalovant/sdk's ask, so the carry is the SDK's. The range is bumped to ^0.8.0; this turns required, with the shared vectors run against whatever actually resolves, once that version is published. A range is not evidence -- an older SDK satisfying it would leave every follow-up reaching the fallback with nothing here to say so.",
+      "status": "planned",
+      "tests": {}
     },
     "identity": {
       "implementation": {
@@ -46,6 +58,12 @@
       "tests": {
         "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba"
       }
+    },
+    "mesh": {
+      "implementation": {},
+      "reason": "Inherited from @thalovant/sdk, which has onHive and propagate/escalate/broadcast as of 0.8.0; no MCP tool exposes them yet.",
+      "status": "planned",
+      "tests": {}
     },
     "runtime": {
       "implementation": {
@@ -86,7 +104,8 @@
     "8669034d6987af946303913780cce419efaff2a9181de7d46fbffe7092d7be9e",
     "c0d883e69ee7fa301c6e4c1b1a5c433ed290d63f79a3e6b397fdb0a988d111fa",
     "49bab2a8922b69b5cd886e7acadf217cdaa78bd94bfb48374e2f4b1cde85dfc0",
-    "003cdf02562e53bd24cc58ac8eb44411cc7ac42d06ba3bbfa46e82386ea92ef7"
+    "003cdf02562e53bd24cc58ac8eb44411cc7ac42d06ba3bbfa46e82386ea92ef7",
+    "9af92bcafd77385cd7c9cfede859eeb3586f65d0b24c9dbff36352089e94821c"
   ],
   "schema_version": 1
 }
