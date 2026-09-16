@@ -42,7 +42,7 @@
       "reason": "The inventory tool adds the SDK presentation model while preserving native fields and unknown catalogue locales. Per-tool identity leases do not share disk caches.",
       "status": "required",
       "tests": {
-        "test/inherited-parity.test.ts": "a93b0a2fb5ce8b2a28be98c291ad87a42b28879027779b3c6eb34ef2a08d28d3",
+        "test/inherited-parity.test.ts": "4d1c5166d9ea0d3079ba5eba3dec534d2d0a9c92d6f4c8b98e6023497bd657f9",
         "test/inventory-output.test.ts": "a6927875f1411bacf5e50ecebdd429cc119f67b3ddb9b39686549b851874b290"
       },
       "vectors": {
@@ -56,7 +56,7 @@
       "reason": "The question vectors are run against whatever @thalovant/sdk resolves here. The evidence used to name a Noise test, which is how a capability passes on a filename.",
       "status": "required",
       "tests": {
-        "test/inherited-parity.test.ts": "a93b0a2fb5ce8b2a28be98c291ad87a42b28879027779b3c6eb34ef2a08d28d3"
+        "test/inherited-parity.test.ts": "4d1c5166d9ea0d3079ba5eba3dec534d2d0a9c92d6f4c8b98e6023497bd657f9"
       },
       "vectors": {
         "question-vectors.json": "test/question-vectors.json"
@@ -93,7 +93,8 @@
     "49bab2a8922b69b5cd886e7acadf217cdaa78bd94bfb48374e2f4b1cde85dfc0",
     "003cdf02562e53bd24cc58ac8eb44411cc7ac42d06ba3bbfa46e82386ea92ef7",
     "9af92bcafd77385cd7c9cfede859eeb3586f65d0b24c9dbff36352089e94821c",
-    "083b2da8b256cd970b3050218d8d51f13e7355633913d086c9f4147d8790165b"
+    "083b2da8b256cd970b3050218d8d51f13e7355633913d086c9f4147d8790165b",
+    "1e8b76b34b755207bb754e5f4c7364334f14476dee70fce1d2687bfdc1545f30"
   ],
   "schema_version": 1
 }
