@@ -8,15 +8,33 @@
  * a Noise test as its proof, which reads none of these cases.
  *
  * The conversation carry, the hive kinds and the binary frames are inherited
- * too, and their vectors are vendored beside these. They are not run here yet:
- * the exports they need arrive in @thalovant/sdk 0.8.0, and CI installs with
- * `npm ci`, which refuses a manifest the lockfile does not match. Those land
- * with the range bump.
+ * the same way, and now run here too. The exports they need arrived in
+ * @thalovant/sdk 0.8.0 and the range bump has landed, so `npm ci` resolves a
+ * version that has them.
+ *
+ * These three also record what they produced, because naming a vector was
+ * never evidence that it ran. `binary-frames.json` is vendored beside the
+ * vectors: it is hivemind-bus-client's own encoder output, so the frames
+ * decoded here are the wire a hub really puts out rather than bytes this
+ * repository built for itself. (`encodeHiveBinaryFrame` refuses to build one,
+ * deliberately -- it would drop `binary.data`.)
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "vitest";
-import { defaultListing, Inventory, InventoryCache } from "@thalovant/sdk";
+import {
+  BINARY_PAYLOAD_KINDS,
+  binaryKindName,
+  carryConversation,
+  CONVERSATION_SESSION_FIELDS,
+  decodeHiveBinaryFrame,
+  defaultListing,
+  HIVE_KINDS,
+  Inventory,
+  InventoryCache,
+} from "@thalovant/sdk";
+
+import { record } from "./conformance-record.js";
 
 const vectors = (name: string) =>
   JSON.parse(readFileSync(new URL(`./${name}`, import.meta.url), "utf8"));
@@ -46,4 +64,61 @@ test("the SDK under this server reads an inventory as the vectors say", () => {
     assert.equal(inventory.skills[0].speaks(row.language), row.expected, JSON.stringify(row));
   }
   assert.equal(inventory.skills[1].speaks("en"), undefined);
+});
+
+test("the SDK under this server carries a conversation as the vectors say", () => {
+  const spec = vectors("conversation-vectors.json");
+  for (const row of spec.cases) {
+    const carried = carryConversation(row.previous, row.session);
+    // Recorded before the assert: what the SDK produced, not a restatement of
+    // what the vector says it should have.
+    record("conversation-vectors.json", row.name, carried);
+    assert.deepEqual(carried, row.expected, row.name);
+  }
+  assert.deepEqual([...CONVERSATION_SESSION_FIELDS].sort(), [...spec.carried_fields].sort());
+  for (const field of spec.never_carried) {
+    // A remembered `lang` would pin a bilingual conversation to whichever
+    // language it opened in, which is the failure that list prevents.
+    assert.ok(!(CONVERSATION_SESSION_FIELDS as readonly string[]).includes(field), field);
+  }
+});
+
+test("the SDK under this server names the hive kinds as the vectors say", () => {
+  const spec = vectors("mesh-vectors.json");
+  assert.deepEqual([...HIVE_KINDS].sort(), [...spec.kinds].sort());
+  for (const kind of spec.refused_kinds) {
+    assert.ok(!(HIVE_KINDS as readonly string[]).includes(kind), kind);
+  }
+});
+
+test("the SDK under this server decodes the reference encoder's binary frames", () => {
+  const spec = vectors("binary-vectors.json");
+  const frames = vectors("binary-frames.json");
+
+  const named: Record<string, string> = {};
+  for (const [wire, name] of Object.entries(BINARY_PAYLOAD_KINDS)) named[wire] = name as string;
+  assert.deepEqual(named, spec.payload_kinds);
+  for (const [wire, name] of Object.entries(spec.unnamed_kind_names as Record<string, string>)) {
+    assert.equal(binaryKindName(Number(wire)), name, wire);
+  }
+
+  for (const row of spec.cases) {
+    const carrier = frames.cases.find((one: { name: string }) => one.name === row.name);
+    assert.ok(carrier, `${row.name}: the vectors describe a case the frames do not carry`);
+    const message = decodeHiveBinaryFrame(new Uint8Array(Buffer.from(carrier.frame, "base64")));
+    const binary = message.binary!;
+    // Recorded before the assert, for the same reason as the carry. `file_name`
+    // is the wire spelling the reference records under; `fileName` is only how
+    // this language spells it.
+    record("binary-vectors.json", row.name, {
+      kind: binary.kind,
+      utterance: binary.utterance,
+      lang: binary.lang,
+      file_name: binary.fileName,
+    });
+    assert.equal(binary.kind, row.expected.kind, row.name);
+    assert.equal(binary.utterance, row.expected.utterance, row.name);
+    assert.equal(binary.lang, row.expected.lang, row.name);
+    assert.equal(binary.fileName, row.expected.file_name, row.name);
+  }
 });
