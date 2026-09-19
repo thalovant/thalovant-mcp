@@ -8,7 +8,7 @@
       "status": "required",
       "tests": {
         "test/conformance-record.ts": "d1e58d18fa1eb36ca604451ab23e665e0739398d6c3a72548c67465b461857cd",
-        "test/inherited-parity.test.ts": "b798efcb4947fb298967ea71fe9a72d851421238703d8d06b97c319afd990d7e"
+        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d"
       },
       "vectors": {
         "binary-frames.json": "test/binary-frames.json",
@@ -38,7 +38,7 @@
       "status": "required",
       "tests": {
         "test/conformance-record.ts": "d1e58d18fa1eb36ca604451ab23e665e0739398d6c3a72548c67465b461857cd",
-        "test/inherited-parity.test.ts": "b798efcb4947fb298967ea71fe9a72d851421238703d8d06b97c319afd990d7e"
+        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d"
       },
       "vectors": {
         "conversation-vectors.json": "test/conversation-vectors.json"
@@ -63,7 +63,7 @@
       "reason": "The inventory tool adds the SDK presentation model while preserving native fields and unknown catalogue locales. Per-tool identity leases do not share disk caches.",
       "status": "required",
       "tests": {
-        "test/inherited-parity.test.ts": "b798efcb4947fb298967ea71fe9a72d851421238703d8d06b97c319afd990d7e",
+        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d",
         "test/inventory-output.test.ts": "a6927875f1411bacf5e50ecebdd429cc119f67b3ddb9b39686549b851874b290"
       },
       "vectors": {
@@ -77,7 +77,7 @@
       "reason": "The question vectors are run against whatever @thalovant/sdk resolves here. The evidence used to name a Noise test, which is how a capability passes on a filename.",
       "status": "required",
       "tests": {
-        "test/inherited-parity.test.ts": "b798efcb4947fb298967ea71fe9a72d851421238703d8d06b97c319afd990d7e"
+        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d"
       },
       "vectors": {
         "question-vectors.json": "test/question-vectors.json"
@@ -91,15 +91,26 @@
       "status": "required",
       "tests": {
         "test/conformance-record.ts": "d1e58d18fa1eb36ca604451ab23e665e0739398d6c3a72548c67465b461857cd",
-        "test/inherited-parity.test.ts": "b798efcb4947fb298967ea71fe9a72d851421238703d8d06b97c319afd990d7e"
+        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d"
       },
       "vectors": {
         "mesh-vectors.json": "test/mesh-vectors.json"
       }
     },
     "refusal": {
-      "reason": "This server implements no part of an ask itself: it hands every turn to @thalovant/sdk, so the refusal behaviour arrives with the dependency. Being on par means running the shared vectors against the version that actually resolves here, as the other inherited capabilities do -- and @thalovant/sdk 0.8.2, which carries the rule and exports failureError/refusalBelongsToAsk, is not published yet. Planned rather than claimed: the range bump and the inherited-parity cases land the day it is, and --release refuses to publish over this until they do.",
-      "status": "planned"
+      "implementation": {
+        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+      },
+      "reason": "Inherited from @thalovant/sdk and run rather than asserted: this server implements no part of an ask itself -- it hands every turn to the SDK -- so what is on par is the SDK beneath it, and the shared refusal vectors go through the version that actually resolves here. @thalovant/sdk 0.8.2 carries the rule and exports failureError, refusalBelongsToAsk and UNTRACKED_UTTERANCE_GRACE_MS; the range is ^0.8.2, so npm ci resolves a version that has them. Every classification case is recorded before it is asserted, as the carry and the frames are, because naming a vector was never evidence that it ran.",
+      "status": "required",
+      "tests": {
+        "test/conformance-record.ts": "d1e58d18fa1eb36ca604451ab23e665e0739398d6c3a72548c67465b461857cd",
+        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d",
+        "test/refusal-vectors.json": "6b0f4128f1cc9fd8a54944410ce93c6515bac6cde9257284e313a4fea825bfcb"
+      },
+      "vectors": {
+        "refusal-vectors.json": "test/refusal-vectors.json"
+      }
     },
     "runtime": {
       "implementation": {

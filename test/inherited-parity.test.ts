@@ -29,9 +29,15 @@ import {
   CONVERSATION_SESSION_FIELDS,
   decodeHiveBinaryFrame,
   defaultListing,
+  failureError,
   HIVE_KINDS,
   Inventory,
   InventoryCache,
+  refusalBelongsToAsk,
+  ThalovantEvent,
+  ThalovantPolicyDeniedError,
+  ThalovantUnansweredError,
+  UNTRACKED_UTTERANCE_GRACE_MS,
 } from "@thalovant/sdk";
 
 import { record } from "./conformance-record.js";
@@ -121,4 +127,62 @@ test("the SDK under this server decodes the reference encoder's binary frames", 
     assert.equal(binary.lang, row.expected.lang, row.name);
     assert.equal(binary.fileName, row.expected.file_name, row.name);
   }
+});
+
+test("the SDK under this server ends a refused ask the way the vectors say", () => {
+  const spec = vectors("refusal-vectors.json");
+  for (const one of spec.classification) {
+    // A real ThalovantEvent, not a shape that looks like one: `text` is a
+    // getter over the wire's several spellings, and a plain object has none.
+    const event = new ThalovantEvent(one.event.type, one.event.data ?? {}, one.event.context ?? {});
+    const error = failureError(event);
+    if (one.expect.kind === "unanswered") {
+      assert.ok(error instanceof ThalovantUnansweredError, one.name);
+      assert.equal((error as InstanceType<typeof ThalovantUnansweredError>).said, one.expect.said, one.name);
+      record("refusal-vectors.json", one.name, { kind: "unanswered", said: one.expect.said });
+      continue;
+    }
+    assert.ok(error instanceof ThalovantPolicyDeniedError, one.name);
+    const refused = error as InstanceType<typeof ThalovantPolicyDeniedError>;
+    const produced = {
+      kind: "refused",
+      denied_type: refused.deniedType,
+      code: refused.code,
+      reason: refused.reason,
+      allowed: refused.allowed,
+      quota: refused.quota
+        ? {
+            period: refused.quota.period,
+            limit: refused.quota.limit,
+            used: refused.quota.used,
+            reset_after: refused.quota.resetAfter,
+          }
+        : null,
+    };
+    // Recorded before the assert, as the carry and the frames are: what this
+    // produced is the evidence, and a case that threw would otherwise record
+    // nothing at all.
+    record("refusal-vectors.json", one.name, produced);
+    assert.deepEqual(produced, one.expect, one.name);
+  }
+
+  for (const one of spec.correlation) {
+    const requestId = one.request_id === null
+      ? undefined
+      : one.request_id === "own" ? "req-own" : "req-other";
+    assert.equal(
+      refusalBelongsToAsk({
+        requestId,
+        ownRequestId: "req-own",
+        deniedType: one.denied_type,
+        asksInFlight: one.asks_in_flight,
+        queriesInFlight: one.queries_in_flight,
+        sendsInFlight: one.sends_in_flight,
+      }),
+      one.taken,
+      one.name,
+    );
+  }
+
+  assert.equal(UNTRACKED_UTTERANCE_GRACE_MS, spec.untracked_grace_seconds * 1000);
 });
