@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.2 — 2026-09-19
+
+- Take `@thalovant/sdk` ^0.8.2, which ends an ask the hub refuses at once as a typed refusal rather than waiting out its deadline and reporting that the hub did not answer in time. This server implements no part of an ask, so the behaviour arrives with the dependency -- and the shared refusal vectors now run here, against whatever version actually resolves, beside the conversation carry, the hive kinds and the binary frames.
+- The parity contract's `refusal` capability moves from `planned` to `required`. It was the last capability holding the reference's release gate.
+
 ## 0.5.1 — 2026-09-13
 
 - Expose advisory reply claim status and first-seen pipeline/skill identifiers, with shared conformance for fallback, mixed stages, legacy hubs and malformed stamps. Existing reply construction remains compatible.
