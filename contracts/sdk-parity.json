@@ -97,6 +97,10 @@
         "mesh-vectors.json": "test/mesh-vectors.json"
       }
     },
+    "refusal": {
+      "reason": "This server implements no part of an ask itself: it hands every turn to @thalovant/sdk, so the refusal behaviour arrives with the dependency. Being on par means running the shared vectors against the version that actually resolves here, as the other inherited capabilities do -- and @thalovant/sdk 0.8.2, which carries the rule and exports failureError/refusalBelongsToAsk, is not published yet. Planned rather than claimed: the range bump and the inherited-parity cases land the day it is, and --release refuses to publish over this until they do.",
+      "status": "planned"
+    },
     "runtime": {
       "implementation": {
         "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7",
@@ -127,7 +131,8 @@
     "083b2da8b256cd970b3050218d8d51f13e7355633913d086c9f4147d8790165b",
     "1e8b76b34b755207bb754e5f4c7364334f14476dee70fce1d2687bfdc1545f30",
     "f6a74ead44d53658228da3f4457334f3e922b67dd1e33b43c3ba8b6f7c066bf9",
-    "6f5f697b07eb86da6877faf8aa27138430f886495ac965d08a28fba780e411cd"
+    "6f5f697b07eb86da6877faf8aa27138430f886495ac965d08a28fba780e411cd",
+    "2377330566e575bb3fda77998d943667bf0795940f9d569a5b8bc7f4f0e5e486"
   ],
   "schema_version": 1
 }
