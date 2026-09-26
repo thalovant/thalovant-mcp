@@ -2,7 +2,7 @@
   "capabilities": {
     "binary": {
       "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
       },
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. The frames decoded are hivemind-bus-client's own encoder output, vendored as binary-frames.json, so this is the wire a hub really puts out rather than bytes built here -- encodeHiveBinaryFrame refuses to build one, because re-encoding would drop binary.data.",
       "status": "required",
@@ -21,7 +21,7 @@
     },
     "control": {
       "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
       },
       "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
       "status": "required",
@@ -32,7 +32,7 @@
     },
     "conversation": {
       "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
       },
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. The carry is what makes a follow-up reach the skill that just answered rather than the fallback, and this server is the thing holding the session id between turns.",
       "status": "required",
@@ -46,7 +46,7 @@
     },
     "identity": {
       "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
       },
       "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
       "status": "required",
@@ -57,7 +57,7 @@
     },
     "inventory": {
       "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7",
+        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa",
         "src/inventory-output.ts": "57ca6a40c84f4d85661d2b70d079bb774b75dedf87ad902b4e4048f059217115"
       },
       "reason": "The inventory tool adds the SDK presentation model while preserving native fields and unknown catalogue locales. Per-tool identity leases do not share disk caches.",
@@ -72,7 +72,7 @@
     },
     "listing": {
       "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
       },
       "reason": "The question vectors are run against whatever @thalovant/sdk resolves here. The evidence used to name a Noise test, which is how a capability passes on a filename.",
       "status": "required",
@@ -85,7 +85,7 @@
     },
     "mesh": {
       "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
       },
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. Only the kind names are checkable here: a hive frame arrives unsolicited and MCP has no channel to deliver one on, so there is no subscription for this server to own.",
       "status": "required",
@@ -99,7 +99,7 @@
     },
     "refusal": {
       "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7"
+        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
       },
       "reason": "Inherited from @thalovant/sdk and run rather than asserted: this server implements no part of an ask itself -- it hands every turn to the SDK -- so what is on par is the SDK beneath it, and the shared refusal vectors go through the version that actually resolves here. @thalovant/sdk 0.8.2 carries the rule and exports failureError, refusalBelongsToAsk and UNTRACKED_UTTERANCE_GRACE_MS; the range is ^0.8.2, so npm ci resolves a version that has them. Every classification case is recorded before it is asserted, as the carry and the frames are, because naming a vector was never evidence that it ran.",
       "status": "required",
@@ -114,7 +114,7 @@
     },
     "runtime": {
       "implementation": {
-        "src/index.ts": "6b2614642ee79c93a20ae31e15429c3e5da4f98127bb1fd2702a379613a210a7",
+        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa",
         "src/reply-output.ts": "d2ce7fcfad12f4ee1024a00770162180eb062781d04a44529015940845cf5eba",
         "src/runtime-lease.ts": "fa7183fd9036a8717ff5c543822d004ea005505e3fa15e1211604390c6fd1ab5"
       },
