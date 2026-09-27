@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.3 — 2026-09-26
 
 - A tool error says what the API said, not only the SDK's one-line message. That line is cut at 160 characters, and a `platform_image_required` refusal names every image each refused key may be instead -- longer than that -- so the list a model needed to retry was the part cut off, and `refused_images`, `allowed_images` and `allowed_repositories` never reached it at all. The error text now goes on with `code:`, `detail:` (the whole sentence, when the first line had to shorten it) and `fields:`, every other member of the body as compact, redacted JSON. A value a validation error echoes back from the request is redacted there and never reaches the first line.
 - A `platform_image_required` or `plan_limit` 403 gets a hint that fits it instead of the general "Insufficient scopes" hint: granting a scope changes neither.
