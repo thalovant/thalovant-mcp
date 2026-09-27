@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- A tool error says what the API said, not only the SDK's one-line message. That line is cut at 160 characters, and a `platform_image_required` refusal names every image each refused key may be instead -- longer than that -- so the list a model needed to retry was the part cut off, and `refused_images`, `allowed_images` and `allowed_repositories` never reached it at all. The error text now goes on with `code:`, `detail:` (the whole sentence, when the first line had to shorten it) and `fields:`, every other member of the body as compact, redacted JSON. A value a validation error echoes back from the request is redacted there and never reaches the first line.
+- A `platform_image_required` or `plan_limit` 403 gets a hint that fits it instead of the general "Insufficient scopes" hint: granting a scope changes neither.
+- The status behind a hint is read from the SDK error's `statusCode`, not parsed out of its message.
+- Take `@thalovant/sdk` ^0.8.7, whose `ThalovantApiError` carries `code`, `detail` and `problem`. The shared `api-error-vectors.json` run here twice: through the SDK that resolves, recorded before it is asserted, and through a real tool call against the built server.
+- New `api-errors` capability in the parity contract, declared `required`.
+
 ## 0.5.2 — 2026-09-19
 
 - Take `@thalovant/sdk` ^0.8.2, which ends an ask the hub refuses at once as a typed refusal rather than waiting out its deadline and reporting that the hub did not answer in time. This server implements no part of an ask, so the behaviour arrives with the dependency -- and the shared refusal vectors now run here, against whatever version actually resolves, beside the conversation carry, the hive kinds and the binary frames.
