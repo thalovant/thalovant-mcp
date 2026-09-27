@@ -252,7 +252,7 @@ const releaseOptionsSchema = {
   channel: z.string().min(1).optional().describe("Release channel. Falls back to the workspace release policy when omitted."),
   mode: z.string().min(1).optional().describe('Release mode. Passing images without mode switches to "custom".'),
   version: z.string().min(1).optional().describe("Pinned release version."),
-  images: z.record(z.string().min(1)).optional().describe("Explicit image overrides. Switches to custom mode unless mode is also set."),
+  images: z.record(z.string().min(1)).optional().describe("Explicit image overrides. Switches to custom mode unless mode is also set. Non-admins may pass only platform images (a catalog, current or recommended image, or a tag of the platform's own repository); anything else fails with 403 platform_image_required."),
   reason: z.string().min(1).optional().describe("Audit reason recorded with the release."),
 };
 
@@ -2289,7 +2289,7 @@ export function createServer(): McpServer {
     {
       title: "Release Hub",
       description:
-        "Apply a release policy to a hub and return the updated hub. Every option is optional; omitted fields fall back to the workspace release policy. Passing images switches the hub to custom mode unless mode is also set. Requires the hubs:write scope and a paid plan. No etag is needed.",
+        "Apply a release policy to a hub and return the updated hub. Every option is optional; omitted fields fall back to the workspace release policy. Passing images switches the hub to custom mode unless mode is also set; non-admins may pass only platform images. Requires the hubs:write scope and a paid plan. No etag is needed.",
       inputSchema: {
         ...controlPlaneSchema,
         hubId: z.string().min(1).describe("Hub UUID."),
@@ -2555,7 +2555,7 @@ export function createServer(): McpServer {
     {
       title: "Release Runtime Group",
       description:
-        "Apply a runtime image policy to a Thalovant runtime group and return the updated group. Options behave like thalovant_release_hub: everything is optional, omitted fields fall back to the workspace release policy, and passing images switches to custom mode unless mode is also set. Requires the hubs:write scope and a paid plan.",
+        "Apply a runtime image policy to a Thalovant runtime group and return the updated group. Options behave like thalovant_release_hub: everything is optional, omitted fields fall back to the workspace release policy, and passing images switches to custom mode unless mode is also set (non-admins: platform images only). Requires the hubs:write scope and a paid plan.",
       inputSchema: {
         ...controlPlaneSchema,
         runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),
