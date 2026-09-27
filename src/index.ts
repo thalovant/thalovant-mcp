@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { apiErrorText } from "./api-error-output.js";
 import { inventoryPresentation } from "./inventory-output.js";
 import { runtimeReplyContent } from "./reply-output.js";
 import { throwIfRuntimeCancelled, withRuntimeLease } from "./runtime-lease.js";
@@ -12,6 +13,7 @@ import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import {
   DEFAULT_CONTROL_API_URL,
+  ThalovantApiError,
   ThalovantClient,
   ThalovantControlPlane,
   ThalovantIdentity,
@@ -252,7 +254,7 @@ const releaseOptionsSchema = {
   channel: z.string().min(1).optional().describe("Release channel. Falls back to the workspace release policy when omitted."),
   mode: z.string().min(1).optional().describe('Release mode. Passing images without mode switches to "custom".'),
   version: z.string().min(1).optional().describe("Pinned release version."),
-  images: z.record(z.string().min(1)).optional().describe("Explicit image overrides. Switches to custom mode unless mode is also set. Non-admins may pass only platform images (a catalog, current or recommended image, or a tag of the platform's own repository); anything else fails with 403 platform_image_required."),
+  images: z.record(z.string().min(1)).optional().describe("Explicit image overrides. Switches to custom mode unless mode is also set. Non-admins may pass only images the platform releases for each key: a catalog pin of the stable or alpha channel, the resource's current, recommended or release-policy image, or the platform's default image; runtime core also accepts any tag or digest of ghcr.io/thalovant/ovos-core and hub listener any tag or digest of ghcr.io/thalovant/hivemind-listener, while bus and preview_bridge take only the listed images. Anything else fails with 403 platform_image_required, whose error lists allowed_images and allowed_repositories per refused key."),
   reason: z.string().min(1).optional().describe("Audit reason recorded with the release."),
 };
 
@@ -272,6 +274,12 @@ type ControlPlaneErrorProfile = "read" | "write" | "hubWrite" | "skillInstall" |
 const SCOPE_HINT_403 =
   'HTTP 403 "Insufficient scopes" — the token lacks the scope this route needs: hubs:write for provisioning, hubs:read for the marketplace catalog, hubs:inspect for runtime-group and hub runtime views (hubs:write implies hubs:read, which implies hubs:inspect and hubs:preview). The API checks scope BEFORE the paid-plan gate, so a 403 can mask a plan problem and granting the scope may surface a 402 next. Free-plan API tokens are capped at hubs:read, clients:read, and clients:write, so a free-tier API token fails provisioning with this 403 and never reaches the 402. A 403 here can also mean the caller does not own the resource ("Ownership required"), or a plan restriction such as HUB_AUTOSCALING_NOT_INCLUDED or a custom hub domain the plan does not allow.';
 
+const PLATFORM_IMAGE_HINT_403 =
+  'HTTP 403 platform_image_required — only a platform administrator can run an image the platform does not release. This is not a scope problem: pick, for each key in refused_images, one of that key\'s allowed_images, or any tag or digest of its allowed_repositories entry (both are in the fields above), and retry.';
+
+const PLAN_LIMIT_HINT_403 =
+  'HTTP 403 plan_limit — the plan\'s allowance for the named resource is used up (see resource, used and limit in the fields above). Granting a scope will not help: free one (delete or reuse an existing one) or move the workspace to a larger plan.';
+
 const PLAN_HINT_402 =
   'HTTP 402 "API access requires a paid plan." — the token is valid and correctly scoped but the tenant is on the free plan. Free-tier callers can browse the catalog (thalovant_list_marketplace_skills) and set hub ratings, but cannot create, update, release, or delete hubs and runtime groups, and cannot install skills.';
 
@@ -284,11 +292,20 @@ const HUB_SKILL_HINT_422 =
 const ETAG_HINT_412 =
   'HTTP 412 "ETag mismatch" — the If-Match etag was missing or stale and nothing changed. Re-fetch the hub with thalovant_get_hub, read the `etag` field from the response BODY (there is no ETag response header), and retry with that exact value. The comparison is exact string equality, so do not rewrite or weaken the value.';
 
-function controlPlaneErrorHint(profile: ControlPlaneErrorProfile, status: number, body: string): string | undefined {
+function controlPlaneErrorHint(
+  profile: ControlPlaneErrorProfile,
+  status: number,
+  body: string,
+  code?: string,
+): string | undefined {
   switch (status) {
     case 402:
       return (profile === "skillInstall" || profile === "hubSkillInstall") && /marketplace/i.test(body) ? MARKETPLACE_HINT_402 : PLAN_HINT_402;
     case 403:
+      // A 403 that names its reason is not the scope problem the general hint
+      // describes, and sending a model off to grant scopes wastes the turn.
+      if (code === "platform_image_required") return PLATFORM_IMAGE_HINT_403;
+      if (code === "plan_limit") return PLAN_LIMIT_HINT_403;
       return SCOPE_HINT_403;
     case 404:
       return /hub_without_runtime_group/.test(body)
@@ -311,19 +328,22 @@ function controlPlaneErrorHint(profile: ControlPlaneErrorProfile, status: number
 /**
  * Run a control-plane call and, on failure, append actionable guidance.
  *
- * The SDK raises ThalovantApiError with the status embedded in the message
- * ("Thalovant API request failed with HTTP 412: ..."), so the status is
- * recovered by parsing rather than from a structured field.
+ * The status and code come from the SDK's ThalovantApiError. What the API
+ * said -- the code, the whole sentence, every other field of the body -- goes
+ * ahead of the hint (see apiErrorText); an error that is not an API error
+ * keeps its own message, and its status is read from it when it names one.
  */
 async function callControlPlane<T>(profile: ControlPlaneErrorProfile, run: () => Promise<T>): Promise<T> {
   try {
     return await run();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    const status = Number(/HTTP (\d{3})/.exec(message)?.[1]);
-    const hint = Number.isFinite(status) ? controlPlaneErrorHint(profile, status, message) : undefined;
+    const apiError = error instanceof ThalovantApiError ? error : undefined;
+    const status = apiError?.statusCode ?? Number(/HTTP (\d{3})/.exec(message)?.[1]);
+    const said = [message, apiError?.code, apiError?.detail].filter(Boolean).join(" ");
+    const hint = Number.isFinite(status) ? controlPlaneErrorHint(profile, status, said, apiError?.code) : undefined;
     if (!hint) throw error;
-    throw new Error(`${message}\n\n${hint}`);
+    throw new Error(`${apiErrorText(error, redactSecrets) ?? message}\n\n${hint}`, { cause: error });
   }
 }
 
@@ -761,7 +781,12 @@ function registerThalovantTool(
         durationMs: Date.now() - start,
         error: error instanceof Error ? error.message : String(error),
       });
-      throw error;
+      // An API error that no hint was added to still says what the API said:
+      // the SDK's message is one bounded line, and the structured fields a
+      // refusal carries (the images a caller may pin, a plan's numbers) are
+      // only on the error itself.
+      const text = apiErrorText(error, redactSecrets);
+      throw text === undefined ? error : new Error(text, { cause: error });
     }
   });
 }
@@ -2289,7 +2314,7 @@ export function createServer(): McpServer {
     {
       title: "Release Hub",
       description:
-        "Apply a release policy to a hub and return the updated hub. Every option is optional; omitted fields fall back to the workspace release policy. Passing images switches the hub to custom mode unless mode is also set; non-admins may pass only platform images. Requires the hubs:write scope and a paid plan. No etag is needed.",
+        "Apply a release policy to a hub and return the updated hub. Every option is optional; omitted fields fall back to the workspace release policy. Passing images switches the hub to custom mode unless mode is also set; non-admins may pass only images the platform releases (see images). Requires the hubs:write scope and a paid plan. No etag is needed.",
       inputSchema: {
         ...controlPlaneSchema,
         hubId: z.string().min(1).describe("Hub UUID."),
@@ -2555,7 +2580,7 @@ export function createServer(): McpServer {
     {
       title: "Release Runtime Group",
       description:
-        "Apply a runtime image policy to a Thalovant runtime group and return the updated group. Options behave like thalovant_release_hub: everything is optional, omitted fields fall back to the workspace release policy, and passing images switches to custom mode unless mode is also set (non-admins: platform images only). Requires the hubs:write scope and a paid plan.",
+        "Apply a runtime image policy to a Thalovant runtime group and return the updated group. Options behave like thalovant_release_hub: everything is optional, omitted fields fall back to the workspace release policy, and passing images switches to custom mode unless mode is also set (non-admins: only images the platform releases, see images). Requires the hubs:write scope and a paid plan.",
       inputSchema: {
         ...controlPlaneSchema,
         runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),

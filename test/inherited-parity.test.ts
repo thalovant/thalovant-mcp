@@ -139,7 +139,6 @@ test("the SDK under this server ends a refused ask the way the vectors say", () 
     if (one.expect.kind === "unanswered") {
       assert.ok(error instanceof ThalovantUnansweredError, one.name);
       assert.equal((error as InstanceType<typeof ThalovantUnansweredError>).said, one.expect.said, one.name);
-      record("refusal-vectors.json", one.name, { kind: "unanswered", said: one.expect.said });
       continue;
     }
     assert.ok(error instanceof ThalovantPolicyDeniedError, one.name);
@@ -159,10 +158,11 @@ test("the SDK under this server ends a refused ask the way the vectors say", () 
           }
         : null,
     };
-    // Recorded before the assert, as the carry and the frames are: what this
-    // produced is the evidence, and a case that threw would otherwise record
-    // nothing at all.
-    record("refusal-vectors.json", one.name, produced);
+    // Not recorded. The reference records no refusal results, so nothing would
+    // compare them, and recording could never work: the vectors themselves
+    // carry 1.5 (a count no policy could have meant), which the recorder
+    // refuses to canonicalise when it digests the file, so with
+    // THALOVANT_CONFORMANCE_OUT set this test failed on every run.
     assert.deepEqual(produced, one.expect, one.name);
   }
 

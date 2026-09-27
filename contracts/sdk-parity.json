@@ -1,14 +1,30 @@
 {
   "capabilities": {
+    "api-errors": {
+      "implementation": {
+        "src/api-error-output.ts": "331284b13f0fe67611d003b155cca048294e401afa056fdfef4a2438af548478",
+        "src/index.ts": "bebf77ef329713d288bf465531ef5241da429a4bc91cbdf42724062ee526d3cb"
+      },
+      "reason": "The SDK reads the error and this server says it: @thalovant/sdk 0.8.7's ThalovantApiError carries statusCode, code, detail and problem, and apiErrorText in src/api-error-output.ts puts the code, the whole sentence (when the SDK's one-line message had to shorten it) and every other field of the body, redacted, into the tool result text; callControlPlane in src/index.ts reads the status and code from the error to pick its hint. The shared vectors run twice: through the SDK that resolves here, recorded before they are asserted, and through a real thalovant_get_hub call over stdio against the built server, which must name the code, the sentence and every field and never repeat what the body echoed.",
+      "status": "required",
+      "tests": {
+        "test/api-error-vectors.json": "f0d2d8e6e153811f071dac6e0611f00f3c32ed772b751ccccb31904d7dc936ec",
+        "test/api-error-vectors.test.ts": "427f5608d00e564504066b18ebced6c415c1c1c79f17121ad51380f31e2648e7",
+        "test/conformance-record.ts": "d1e58d18fa1eb36ca604451ab23e665e0739398d6c3a72548c67465b461857cd"
+      },
+      "vectors": {
+        "api-error-vectors.json": "test/api-error-vectors.json"
+      }
+    },
     "binary": {
       "implementation": {
-        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
+        "src/index.ts": "bebf77ef329713d288bf465531ef5241da429a4bc91cbdf42724062ee526d3cb"
       },
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. The frames decoded are hivemind-bus-client's own encoder output, vendored as binary-frames.json, so this is the wire a hub really puts out rather than bytes built here -- encodeHiveBinaryFrame refuses to build one, because re-encoding would drop binary.data.",
       "status": "required",
       "tests": {
         "test/conformance-record.ts": "d1e58d18fa1eb36ca604451ab23e665e0739398d6c3a72548c67465b461857cd",
-        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d"
+        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8"
       },
       "vectors": {
         "binary-frames.json": "test/binary-frames.json",
@@ -21,7 +37,7 @@
     },
     "control": {
       "implementation": {
-        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
+        "src/index.ts": "bebf77ef329713d288bf465531ef5241da429a4bc91cbdf42724062ee526d3cb"
       },
       "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
       "status": "required",
@@ -32,13 +48,13 @@
     },
     "conversation": {
       "implementation": {
-        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
+        "src/index.ts": "bebf77ef329713d288bf465531ef5241da429a4bc91cbdf42724062ee526d3cb"
       },
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. The carry is what makes a follow-up reach the skill that just answered rather than the fallback, and this server is the thing holding the session id between turns.",
       "status": "required",
       "tests": {
         "test/conformance-record.ts": "d1e58d18fa1eb36ca604451ab23e665e0739398d6c3a72548c67465b461857cd",
-        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d"
+        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8"
       },
       "vectors": {
         "conversation-vectors.json": "test/conversation-vectors.json"
@@ -46,7 +62,7 @@
     },
     "identity": {
       "implementation": {
-        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
+        "src/index.ts": "bebf77ef329713d288bf465531ef5241da429a4bc91cbdf42724062ee526d3cb"
       },
       "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
       "status": "required",
@@ -57,13 +73,13 @@
     },
     "inventory": {
       "implementation": {
-        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa",
+        "src/index.ts": "bebf77ef329713d288bf465531ef5241da429a4bc91cbdf42724062ee526d3cb",
         "src/inventory-output.ts": "57ca6a40c84f4d85661d2b70d079bb774b75dedf87ad902b4e4048f059217115"
       },
       "reason": "The inventory tool adds the SDK presentation model while preserving native fields and unknown catalogue locales. Per-tool identity leases do not share disk caches.",
       "status": "required",
       "tests": {
-        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d",
+        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8",
         "test/inventory-output.test.ts": "a6927875f1411bacf5e50ecebdd429cc119f67b3ddb9b39686549b851874b290"
       },
       "vectors": {
@@ -72,12 +88,12 @@
     },
     "listing": {
       "implementation": {
-        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
+        "src/index.ts": "bebf77ef329713d288bf465531ef5241da429a4bc91cbdf42724062ee526d3cb"
       },
       "reason": "The question vectors are run against whatever @thalovant/sdk resolves here. The evidence used to name a Noise test, which is how a capability passes on a filename.",
       "status": "required",
       "tests": {
-        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d"
+        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8"
       },
       "vectors": {
         "question-vectors.json": "test/question-vectors.json"
@@ -85,13 +101,13 @@
     },
     "mesh": {
       "implementation": {
-        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
+        "src/index.ts": "bebf77ef329713d288bf465531ef5241da429a4bc91cbdf42724062ee526d3cb"
       },
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. Only the kind names are checkable here: a hive frame arrives unsolicited and MCP has no channel to deliver one on, so there is no subscription for this server to own.",
       "status": "required",
       "tests": {
         "test/conformance-record.ts": "d1e58d18fa1eb36ca604451ab23e665e0739398d6c3a72548c67465b461857cd",
-        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d"
+        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8"
       },
       "vectors": {
         "mesh-vectors.json": "test/mesh-vectors.json"
@@ -99,13 +115,13 @@
     },
     "refusal": {
       "implementation": {
-        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa"
+        "src/index.ts": "bebf77ef329713d288bf465531ef5241da429a4bc91cbdf42724062ee526d3cb"
       },
-      "reason": "Inherited from @thalovant/sdk and run rather than asserted: this server implements no part of an ask itself -- it hands every turn to the SDK -- so what is on par is the SDK beneath it, and the shared refusal vectors go through the version that actually resolves here. @thalovant/sdk 0.8.2 carries the rule and exports failureError, refusalBelongsToAsk and UNTRACKED_UTTERANCE_GRACE_MS; the range is ^0.8.2, so npm ci resolves a version that has them. Every classification case is recorded before it is asserted, as the carry and the frames are, because naming a vector was never evidence that it ran.",
+      "reason": "Inherited from @thalovant/sdk and run rather than asserted: this server implements no part of an ask itself -- it hands every turn to the SDK -- so what is on par is the SDK beneath it, and the shared refusal vectors go through the version that actually resolves here. @thalovant/sdk 0.8.2 carries the rule and exports failureError, refusalBelongsToAsk and UNTRACKED_UTTERANCE_GRACE_MS; the range is ^0.8.7, so npm ci resolves a version that has them. Every classification and correlation case is asserted; none is recorded, because the reference records no refusal results and the vectors carry 1.5, which the recorder refuses to canonicalise.",
       "status": "required",
       "tests": {
         "test/conformance-record.ts": "d1e58d18fa1eb36ca604451ab23e665e0739398d6c3a72548c67465b461857cd",
-        "test/inherited-parity.test.ts": "6a302693234365b1360811168b270413dedff5af886236388b04091798e29f3d",
+        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8",
         "test/refusal-vectors.json": "6b0f4128f1cc9fd8a54944410ce93c6515bac6cde9257284e313a4fea825bfcb"
       },
       "vectors": {
@@ -114,7 +130,7 @@
     },
     "runtime": {
       "implementation": {
-        "src/index.ts": "4f2ea29711480a77c6b096ea8e96880ed0ccc5af01e31c7c871433599587daaa",
+        "src/index.ts": "bebf77ef329713d288bf465531ef5241da429a4bc91cbdf42724062ee526d3cb",
         "src/reply-output.ts": "d2ce7fcfad12f4ee1024a00770162180eb062781d04a44529015940845cf5eba",
         "src/runtime-lease.ts": "fa7183fd9036a8717ff5c543822d004ea005505e3fa15e1211604390c6fd1ab5"
       },
@@ -145,7 +161,8 @@
     "6f5f697b07eb86da6877faf8aa27138430f886495ac965d08a28fba780e411cd",
     "2377330566e575bb3fda77998d943667bf0795940f9d569a5b8bc7f4f0e5e486",
     "76bc1eb9957da5a6fdf03e89f3905f8d37d3ef2fe7c841ba751718105ca30a45",
-    "34a21f2ad875b220a571613e25b6a6e5f3d8de1a776f4949a7ab63ba93e07b16"
+    "34a21f2ad875b220a571613e25b6a6e5f3d8de1a776f4949a7ab63ba93e07b16",
+    "f79d99e9acd2fe299e3b313102541e47b366751defe5fa0dcfa44053aa7f007d"
   ],
   "schema_version": 1
 }

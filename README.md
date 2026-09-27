@@ -87,7 +87,7 @@ Grant fewer scopes for narrower deployments: a read-only assistant needs only `h
 
 `thalovant_list_hub_skills` returns the whole `GET /v1/hubs/{hub_id}/skills` envelope: `hub_id`, `runtime_group_id`, `observed_at`, `source`, the runtime's phase and message, and `data`, one row per skill (possibly empty) with `skill`, `title`, `marketplace_skill_id`, `package_name`, `source_type`, `install_source`, `version`, `version_pin`, `installed_version`, `observed_version`, `previous_version`, `latest_version`, `available_version`, `update_available`, `changelog`, `active`, `state`, the runtime's phase, message and last error, and `last_transition_at`. `state` is one of `pending`, `installed`, `failed`, `removing`, `drifted`, `quarantined`, or `unmanaged`; a change in progress shows as `pending`.
 
-Each write answers `202` with `operation_id`, `hub_id`, `runtime_group_id`, `skill`, `version` (`null` for a removal), `previous_version`, and `state` (`installing`, `updating`, or `removing`); pass `wait: true` to poll that operation every 2 s until it converges (`installed`, or `removed` for a removal; a `failed` or `timed_out` operation raises an error carrying its `error_message`), with a 120 s default `timeoutMs`, or follow it yourself with `thalovant_get_operation`. Installing a skill that is already installed at another version performs an update; the same version fails `409` with code `skill_version_already_installed`. A hub with no runtime group fails `404` with code `hub_without_runtime_group` (a plain `404` means an unknown hub or a skill that is not installed), and an unresolvable `latest` or an invalid version fails `422`. Errors are RFC 7807 problem bodies; the tool error keeps the short `message` and appends the root `code` in parentheses, for example `Thalovant API request failed with HTTP 409: Skill version already installed. (skill_version_already_installed)`.
+Each write answers `202` with `operation_id`, `hub_id`, `runtime_group_id`, `skill`, `version` (`null` for a removal), `previous_version`, and `state` (`installing`, `updating`, or `removing`); pass `wait: true` to poll that operation every 2 s until it converges (`installed`, or `removed` for a removal; a `failed` or `timed_out` operation raises an error carrying its `error_message`), with a 120 s default `timeoutMs`, or follow it yourself with `thalovant_get_operation`. Installing a skill that is already installed at another version performs an update; the same version fails `409` with code `skill_version_already_installed`. A hub with no runtime group fails `404` with code `hub_without_runtime_group` (a plain `404` means an unknown hub or a skill that is not installed), and an unresolvable `latest` or an invalid version fails `422`. Errors are RFC 7807 problem bodies; the tool error keeps the short `message`, which appends the root `code` in parentheses, for example `Thalovant API request failed with HTTP 409: Skill version already installed. (skill_version_already_installed)`, and then the code and the body's other fields (see [Tool Errors](#tool-errors)).
 
 Listing needs `hubs:inspect` (implied by `hubs:read`); the writes need `hubs:write` and a paid plan, and because scope is checked before plan a free-plan token sees `403`, never `402`. Hub-restricted tokens (a `hub_ids` allowlist) are honoured on all four routes. The server uses the published Node SDK hub-skill methods and preserves MCP cancellation checks during polling. A failed status read retains the accepted operation ID; use `thalovant_get_operation` with that ID instead of submitting the write again. No new poll starts at or after the polling deadline. That deadline does not cancel an HTTP request already in flight.
 
@@ -402,6 +402,31 @@ cannot prove catalog locales or hub display metadata, so those fields remain
 unknown (empty lists/strings), with explanatory notes. Intent language order is
 explicit and survives JSON key sorting. Each tool call retains its own identity
 lease; the server does not persist inventory or share a session across callers.
+
+## Tool Errors
+
+When the Thalovant API refuses a control-plane call, the tool result is an
+error whose text starts with the SDK's one-line message (which names the HTTP
+status and can be shortened) and then says what the API said, in full:
+
+```text
+Thalovant API request failed with HTTP 403: Only an administrator can run an image the platform does not release: bus may be one of ghcr.io/thalovant/ovos-messagebus:2026.09.2, ... (platform_image_required)
+code: platform_image_required
+detail: Only an administrator can run an image the platform does not release: bus may be one of ghcr.io/thalovant/ovos-messagebus:2026.09.2, ghcr.io/thalovant/ovos-messagebus:2026.09.3-alpha.1, ghcr.io/thalovant/ovos-messagebus:2026.08.7; core may be any tag or digest of ghcr.io/thalovant/ovos-core.
+fields: {"allowed_images":{"bus":[...],"core":[...]},"allowed_repositories":{"core":"ghcr.io/thalovant/ovos-core"},"component":"runtime_group","refused_images":{...}}
+```
+
+- `code` is the API's machine-readable code, when it sent one.
+- `detail` is the whole sentence, and appears only when the first line had to
+  shorten it.
+- `fields` is every other member of the error body as compact JSON (the
+  Problem+JSON `type`, `title`, `status` and `instance` are left out), with the
+  same secret redaction as every other tool output. A value a validation error
+  echoes back from the request is redacted there and never reaches the first
+  line. A plan refusal carries `resource`, `limit`, `used` and `plan` here.
+
+A hint may follow for statuses that need one. A `platform_image_required` or
+`plan_limit` 403 gets its own hint rather than the general scope hint.
 
 ## Request hints, embedded audio, and configuration merging
 
