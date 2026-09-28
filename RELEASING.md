@@ -10,6 +10,12 @@ The npm package, OCI image, `server.json`, and MCP Registry entry use one versio
 4. Tag the aligned commit. The release workflow publishes npm, GHCR, and MCP Registry metadata using npm trusted publishing through GitHub OIDC, `GITHUB_TOKEN` for GHCR, and GitHub OIDC for the MCP Registry. The release workflow intentionally omits `NODE_AUTH_TOKEN` so npm uses its trusted publisher.
 5. Run **Published artifacts smoke** for the released version. It installs the npm package in a clean prefix, lists tools over stdio, starts the published image, lists tools over Streamable HTTP, and verifies the latest registry entry contains both artifacts.
 
+## Finishing a partial release
+
+If the release workflow stops partway, dispatch **Release** from `main` with `release_tag` set to the existing tag (for example `v0.6.0`). It builds and tests the tag's own source and skips every step that already happened: npm and the MCP Registry are checked before publishing, and the GHCR image is never pushed again once the version tag exists. When that tag was built from a different commit than the release tag, the run fails rather than overwrite it. The last steps wait up to about 15 minutes for npm to serve a new version, because its read path lags the publish.
+
+Do not re-run a failed run of the tag push: that re-runs the workflow as it was when the tag was cut.
+
 ## Rollback
 
 Published versions are immutable. Do not overwrite npm, OCI, or MCP Registry artifacts.
