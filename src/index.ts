@@ -1863,7 +1863,7 @@ export function createServer(): McpServer {
     {
       title: "Revoke Device Sign-In",
       description:
-        "Sign out: revoke the API token this principal signed in with through thalovant_poll_device_login, and stop using it. A token may always revoke itself. Tokens configured on the server are never touched.",
+        "Sign out: revoke the API token this principal signed in with through thalovant_poll_device_login, and stop using it. A token may always revoke itself, and one already revoked counts as revoked; signing out again answers alreadyRevoked without a request. Tokens configured on the server are never touched.",
       inputSchema: {},
       annotations: {
         readOnlyHint: false,
@@ -1875,10 +1875,17 @@ export function createServer(): McpServer {
     async () => {
       const principal = currentPrincipal().id;
       const signedIn = deviceLogins.signedInAs(principal);
-      if (!signedIn) throw new Error("This principal has not signed in with a device sign-in, so there is no token of its own to revoke.");
+      if (!signedIn) {
+        // Signing out twice is signing out once: the token is already gone.
+        const earlier = deviceLogins.revokedOf(principal);
+        if (earlier !== undefined) return jsonContent({ revoked: true, tokenId: earlier, alreadyRevoked: true });
+        throw new Error("This principal has not signed in with a device sign-in, so there is no token of its own to revoke.");
+      }
       const tokenId = signedIn.api.tokenId ?? null;
+      // A token the API no longer accepts (401 on its own revoke) is already
+      // revoked; the SDK counts that as done.
       await signedIn.api.revokeApiToken();
-      deviceLogins.signOut(principal);
+      deviceLogins.signOut(principal, tokenId);
       return jsonContent({ revoked: true, tokenId });
     },
   );

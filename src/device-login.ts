@@ -38,6 +38,8 @@ const MAX_PENDING_LOGINS = 256;
 export class DeviceLogins {
   private readonly pending = new Map<string, PendingLogin>();
   private readonly signedIn = new Map<string, SignedIn>();
+  /** The id of the token each principal last revoked, until it signs in again. */
+  private readonly revoked = new Map<string, string | null>();
 
   constructor(private readonly now: () => number = () => Date.now()) {}
 
@@ -81,6 +83,7 @@ export class DeviceLogins {
   /** Keep the token an approved sign-in minted, as `principal`'s. */
   approve(principal: string, api: ThalovantControlPlane): void {
     this.signedIn.set(principal, { api, origin: new URL(api.apiUrl).origin });
+    this.revoked.delete(principal);
   }
 
   /** The token `principal` signed in with on `origin`, if there is one. */
@@ -95,8 +98,18 @@ export class DeviceLogins {
     return signedIn?.api.accessToken ? signedIn : undefined;
   }
 
-  signOut(principal: string): void {
+  /** Forget `principal`'s token, remembering its id as revoked. */
+  signOut(principal: string, tokenId: string | null = null): void {
     this.signedIn.delete(principal);
+    this.revoked.set(principal, tokenId);
+  }
+
+  /**
+   * The id of the token `principal` signed out of, when it has signed out and
+   * not signed in since; undefined when it never signed out.
+   */
+  revokedOf(principal: string): string | null | undefined {
+    return this.revoked.has(principal) ? this.revoked.get(principal)! : undefined;
   }
 
   private prune(): void {

@@ -217,6 +217,8 @@ async function sdkDevice(call: Json): Promise<Json[]> {
   if (call.op === "revoke") {
     await plane.revokeApiToken();
     assert.equal(plane.accessToken, undefined);
+    // Idempotent: revoking again sends nothing and succeeds.
+    await plane.revokeApiToken();
     return [{ outcome: "revoked" }];
   }
   return produced;
@@ -261,23 +263,38 @@ async function sdkKinds(call: Json): Promise<Json> {
   return produced;
 }
 
-async function sdkAdmission(call: Json): Promise<Json> {
+/** Admission as the reference records it: polls on a timeout when the case names them, and the bound a wait met. */
+function admissionShape(expect: Json, produced: Json, waitedMs: number): Json {
+  if (produced.outcome === "timeout" && !("polls" in expect)) delete produced.polls;
+  if ("waited_at_least_ms" in expect) {
+    const bound = expect.waited_at_least_ms as number;
+    produced.waited_at_least_ms = waitedMs >= bound ? bound : Math.floor(waitedMs);
+  }
+  return produced;
+}
+
+async function sdkAdmission(call: Json, expect: Json): Promise<Json> {
   const plane = new ThalovantControlPlane(api.url, { accessToken: TOKEN });
+  const started = performance.now();
+  let produced: Json;
   try {
     await plane.waitForAdmission(call.operation as Json | null, {
-      timeoutMs: (call.timeout_seconds as number) * 1000,
-      pollIntervalMs: (call.poll_interval_seconds as number) * 1000,
+      timeoutMs: call.timeout_ms as number,
+      pollIntervalMs: call.poll_interval_ms as number,
     });
-    return { outcome: "admitted", polls: api.sent.length };
+    produced = { outcome: "admitted", polls: api.sent.length };
   } catch (error) {
     if (error instanceof ThalovantAdmissionTimeoutError) {
       assert.ok(error instanceof ThalovantConnectionError && error instanceof ThalovantTimeoutError);
-      return { outcome: "timeout" };
+      produced = { outcome: "timeout", polls: api.sent.length };
+    } else if (error instanceof ThalovantAdmissionFailedError) {
+      produced = { outcome: "failed", error_code: error.errorCode ?? null, polls: api.sent.length };
+    } else {
+      assert.ok(error instanceof ThalovantApiError, String(error));
+      produced = { outcome: "error", polls: api.sent.length };
     }
-    if (error instanceof ThalovantAdmissionFailedError) return { outcome: "failed", error_code: error.errorCode ?? null, polls: api.sent.length };
-    assert.ok(error instanceof ThalovantApiError, String(error));
-    return { outcome: "error", polls: api.sent.length };
   }
+  return admissionShape(expect, produced, performance.now() - started);
 }
 
 describe("the SDK under this server runs the vectors", () => {
@@ -289,7 +306,7 @@ describe("the SDK under this server runs the vectors", () => {
     for (const one of spec.cases) {
       test(`${file}: ${one.name}`, async () => {
         api.use(one.exchanges);
-        const produced = await (run as (call: Json) => Promise<unknown>)(one.call);
+        const produced = await (run as (call: Json, expect: Json) => Promise<unknown>)(one.call, one.expect as Json);
         // Recorded before the assert: what the SDK produced, not the vector restated.
         record(file, one.name, produced);
         assert.deepEqual(api.mismatches, []);
@@ -405,8 +422,12 @@ describe("the device sign-in tools", () => {
           assert.equal(answer.error, false, answer.text);
           assert.equal(answer.json!.revoked, true);
           produced = [{ outcome: "revoked" }];
-          // Signed out: nothing is left to revoke.
-          assert.equal((await tool(client, "thalovant_revoke_device_login", {})).error, true);
+          // Idempotent: signing out again answers without a request.
+          const sent = api.sent.length;
+          const again = await tool(client, "thalovant_revoke_device_login", {});
+          assert.equal(again.error, false, again.text);
+          assert.equal(again.json!.alreadyRevoked, true);
+          assert.equal(api.sent.length, sent);
         }
         if (!produced.some((item) => item.outcome === "error")) record("device-login-vectors.json", one.name, produced);
         assert.deepEqual(produced, expect);
@@ -486,19 +507,19 @@ describe("the admission tool", () => {
 
   for (const one of ADMISSION.cases) {
     test(one.name, async () => {
-      const call = one.call as { operation: { links: { self: string } } | null; timeout_seconds: number };
+      const call = one.call as { operation: { links: { self: string } } | null; timeout_ms: number };
       api.use(one.exchanges);
+      const started = performance.now();
       // The tool's own floors: a second of waiting and half a second between reads.
       const answer = await tool(client, "thalovant_wait_for_admission", {
         ...(call.operation ? { operationId: call.operation.links.self } : {}),
-        timeoutMs: Math.max(1_000, call.timeout_seconds * 1000),
+        timeoutMs: Math.max(1_000, call.timeout_ms),
         pollIntervalMs: 500,
       });
       const out = answer.json;
-      const produced: Json = answer.error ? { outcome: "error", polls: api.sent.length }
-        : out!.outcome === "timeout" ? { outcome: "timeout" }
+      const produced = admissionShape(one.expect as Json, answer.error ? { outcome: "error", polls: api.sent.length }
         : out!.outcome === "failed" ? { outcome: "failed", error_code: out!.errorCode, polls: api.sent.length }
-        : { outcome: out!.outcome, polls: api.sent.length };
+        : { outcome: out!.outcome, polls: api.sent.length }, performance.now() - started);
       record("connection-admission-vectors.json", one.name, produced);
       assert.deepEqual(api.mismatches, []);
       assert.deepEqual(produced, one.expect);

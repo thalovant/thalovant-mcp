@@ -172,6 +172,10 @@ describe("the sign-in tools", () => {
 
     const revoked = await call(client, "thalovant_revoke_device_login");
     expect(revoked.json).toEqual({ revoked: true, tokenId: "t-1" });
+    // Signing out again is the same sign-out, and asks the API nothing.
+    const deletes = api.seen.filter((request) => request.method === "DELETE").length;
+    expect((await call(client, "thalovant_revoke_device_login")).json).toEqual({ revoked: true, tokenId: "t-1", alreadyRevoked: true });
+    expect(api.seen.filter((request) => request.method === "DELETE")).toHaveLength(deletes);
     const revoke = api.seen.find((request) => request.method === "DELETE");
     expect(revoke).toMatchObject({ path: "/v1/auth/api-tokens/t-1", authorization: `Bearer ${MINTED}` });
     expect((await call(client, "thalovant_get_hub", { hubId: "hub-1" })).error).toBe(true);

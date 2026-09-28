@@ -54,31 +54,6 @@ export function canonicalDigest(value: unknown): string {
   return createHash("sha256").update(canonicalJson(value), "utf8").digest("hex");
 }
 
-/**
- * The digest of a vector file, as the reference computes it.
- *
- * A vector file may carry fractional seconds (`poll_interval_seconds: 0.01`),
- * and the reference digests the file as it parses. Python's `repr` and
- * JavaScript's `String` both write a double's shortest round-trip digits, in
- * fixed notation for magnitudes from 1e-4 up to 1e16, so inside that band the
- * spelling agrees digit for digit; outside it one writes `1e-05` and the other
- * `0.00001`, which is still refused. What a test produced goes through
- * `canonicalDigest`, which takes whole numbers alone.
- */
-function vectorDigest(value: unknown): string {
-  const spell = (item: unknown): string => {
-    if (typeof item === "number" && !Number.isInteger(item) && Number.isFinite(item)) {
-      const magnitude = Math.abs(item);
-      if (magnitude >= 1e-4 && magnitude < 1e16) return String(item);
-    }
-    if (item === null || typeof item !== "object") return canonicalJson(item);
-    if (Array.isArray(item)) return "[" + item.map(spell).join(",") + "]";
-    const keys = Object.keys(item as Record<string, unknown>).sort();
-    return "{" + keys.map((key) => JSON.stringify(key) + ":" + spell((item as Record<string, unknown>)[key])).join(",") + "}";
-  };
-  return createHash("sha256").update(spell(value), "utf8").digest("hex");
-}
-
 /** Record what the SDK under this server produced for one case. */
 export function record(vectorFile: string, name: string, produced: unknown): void {
   const target = process.env.THALOVANT_CONFORMANCE_OUT;
@@ -157,7 +132,7 @@ export function mergeShards(target: string): void {
     for (const name of [...merged.get(vectorFile)!.keys()].sort()) {
       cases[name] = merged.get(vectorFile)!.get(name)!;
     }
-    out[vectorFile] = { digest: vectorDigest(parsed), cases };
+    out[vectorFile] = { digest: canonicalDigest(parsed), cases };
   }
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(`${target}.writing`, JSON.stringify({ schema_version: 1, results: out }, null, 2) + "\n", "utf8");
