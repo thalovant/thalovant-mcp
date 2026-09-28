@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { apiErrorText } from "./api-error-output.js";
+import { DeviceLogins } from "./device-login.js";
 import { inventoryPresentation } from "./inventory-output.js";
 import { runtimeReplyContent } from "./reply-output.js";
 import { throwIfRuntimeCancelled, withRuntimeLease } from "./runtime-lease.js";
@@ -12,11 +13,22 @@ import type { EventId, EventStore, StreamId } from "@modelcontextprotocol/sdk/se
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import {
+  CONNECTION_TYPE_HOME_ASSISTANT,
   DEFAULT_CONTROL_API_URL,
+  HOME_ASSISTANT_SCOPES,
+  ThalovantAdmissionFailedError,
+  ThalovantAdmissionTimeoutError,
+  ThalovantAlreadyLinkedError,
   ThalovantApiError,
+  ThalovantAuthError,
   ThalovantClient,
   ThalovantControlPlane,
+  ThalovantDeviceLoginDeniedError,
+  ThalovantDeviceLoginExpiredError,
+  ThalovantDeviceLoginPendingError,
   ThalovantIdentity,
+  ThalovantPlanError,
+  ThalovantUnsupportedConnectionTypeError,
   buildClientContext,
   buildLocation,
 } from "@thalovant/sdk";
@@ -90,6 +102,12 @@ const SECRET_KEYS = [
 ];
 
 const protocolSchema = z.enum(["wss", "https", "mqtt"]);
+const connectionTypeSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9_]{0,63}$/)
+  .describe(
+    `The kind of connection, sent as spec.connection_type: voice_satellite, web_chat, developer, embedded, or ${CONNECTION_TYPE_HOME_ASSISTANT} for a Home Assistant link (one per hub). The kind decides what the connection may send and receive.`,
+  );
 const limitSchema = z.number().int().min(1).max(MAX_LIMIT).default(25).describe("Page size, 1-100.");
 const publicHubsLimitSchema = z
   .number()
@@ -157,7 +175,16 @@ const runtimeAuthSchema = {
  * they are absent from tools/list entirely rather than merely failing when
  * called. See destructiveToolsEnabled().
  */
-const DESTRUCTIVE_TOOLS = ["thalovant_delete_hub", "thalovant_delete_runtime_group"] as const;
+const DESTRUCTIVE_TOOLS = ["thalovant_delete_hub", "thalovant_delete_runtime_group", "thalovant_delete_client"] as const;
+
+/**
+ * Device sign-ins in progress, and the tokens approved ones minted, per
+ * principal, for the life of this process. See device-login.ts.
+ */
+const deviceLogins = new DeviceLogins();
+
+/** How long thalovant_wait_for_admission waits by default: a hub admits a new connection in about ninety seconds. */
+const ADMISSION_DEFAULT_TIMEOUT_MS = 120_000;
 
 /**
  * Destructive control-plane tools are opt-in.
@@ -323,6 +350,38 @@ function controlPlaneErrorHint(
     default:
       return undefined;
   }
+}
+
+/**
+ * Guidance for a refused connection create or delete, by the SDK's class for
+ * the refusal. Undefined when the class says nothing a hint could add to.
+ */
+function connectionErrorHint(error: unknown, connectionType: string | undefined): string | undefined {
+  if (error instanceof ThalovantUnsupportedConnectionTypeError) {
+    return error.statusCode === undefined
+      ? `The API made an ordinary connection instead of a ${JSON.stringify(connectionType)} one, so the server deleted it again (the message says if that failed). This API does not support the kind yet; retrying will not change that.`
+      : `The API does not know the connection type ${JSON.stringify(connectionType)} yet (HTTP 422). Retrying will not change that; omit connectionType for an ordinary connection.`;
+  }
+  if (error instanceof ThalovantAlreadyLinkedError) {
+    return `A hub takes one Home Assistant connection, and this one already has it${error.clientId ? `: client ${error.clientId}` : ""}. Use that connection, or delete it with thalovant_delete_client (a destructive tool the operator enables) and create the link again.`;
+  }
+  if (error instanceof ThalovantPlanError) {
+    return error.code === "plan_limit"
+      ? "The plan's connections are used up (see resource, used and limit in the fields above). Delete one with thalovant_delete_client, or move the workspace to a larger plan; granting a scope will not help."
+      : "The plan does not allow this connection (HTTP 402). Move the workspace to a paid plan; granting a scope will not help.";
+  }
+  if (error instanceof ThalovantAuthError) {
+    return "The API refused the token itself: it is unknown, expired or revoked (401), the account is locked (423), or it lacks clients:write (403 Insufficient scopes). Sign in again with thalovant_begin_device_login, or configure a token that carries clients:read and clients:write.";
+  }
+  return undefined;
+}
+
+/** Rethrow a refused connection call with its guidance, when it has any. */
+function withConnectionHint(error: unknown, connectionType?: string): never {
+  const hint = connectionErrorHint(error, connectionType);
+  if (!hint) throw error;
+  const said = apiErrorText(error, redactSecrets) ?? (error instanceof Error ? error.message : String(error));
+  throw new Error(`${said}\n\n${hint}`, { cause: error });
 }
 
 /**
@@ -812,6 +871,21 @@ function redactSecrets(value: unknown): unknown {
   return output;
 }
 
+/** The control-plane URL this principal's credentials belong to. */
+async function configuredControlApiUrl(principal = currentPrincipal()): Promise<string> {
+  const credential = await credentialForPrincipal(principal);
+  const canUseShared = allowSharedThalovantCredentials(principal);
+  return credential?.control?.apiUrl ?? (canUseShared ? process.env.THALOVANT_API_URL : undefined) ?? DEFAULT_CONTROL_API_URL;
+}
+
+function originOf(url: string): string | undefined {
+  try {
+    return new URL(url).origin;
+  } catch {
+    return undefined;
+  }
+}
+
 /** Keep server-managed credentials on their configured control-plane origin. */
 async function createControlPlane(options: {
   apiUrl?: string;
@@ -820,13 +894,20 @@ async function createControlPlane(options: {
   const principal = currentPrincipal();
   const credential = await credentialForPrincipal(principal);
   const canUseShared = allowSharedThalovantCredentials(principal);
-  const configuredApiUrl = credential?.control?.apiUrl ?? (canUseShared ? process.env.THALOVANT_API_URL : undefined) ?? DEFAULT_CONTROL_API_URL;
+  const configuredApiUrl = await configuredControlApiUrl(principal);
   const apiUrl = options.apiUrl ?? configuredApiUrl;
-  const accessToken =
-    credential?.control?.accessToken ??
-    (canUseShared ? process.env.THALOVANT_API_TOKEN ?? process.env.THALOVANT_ACCESS_TOKEN : undefined);
   const email = canUseShared ? process.env.THALOVANT_EMAIL : undefined;
   const password = canUseShared ? process.env.THALOVANT_PASSWORD : undefined;
+  const configuredToken =
+    credential?.control?.accessToken ??
+    (canUseShared ? process.env.THALOVANT_API_TOKEN ?? process.env.THALOVANT_ACCESS_TOKEN : undefined);
+  // With nothing configured, the token this principal signed in with through
+  // thalovant_begin_device_login / thalovant_poll_device_login, which exists
+  // only for the configured origin.
+  const signedIn = configuredToken || (email && password)
+    ? undefined
+    : deviceLogins.signedInOn(principal.id, originOf(configuredApiUrl) ?? "");
+  const accessToken = configuredToken ?? signedIn?.api.accessToken;
   if (accessToken || (email && password)) {
     let endpoint: URL;
     let configuredEndpoint: URL;
@@ -867,6 +948,24 @@ function ensureAuthenticated(api: ThalovantControlPlane) {
 }
 
 type ControlPlaneAuthMode = "api-token" | "access-token" | "email-password" | "none";
+
+/**
+ * A control plane for a device sign-in, on the configured API origin only.
+ *
+ * It carries no credential: the sign-in is what mints one. The origin is fixed
+ * because the verification URL the API answers with is shown to a person, and
+ * the token it mints is kept here for later calls; a tool argument must not
+ * send either somewhere else.
+ */
+async function deviceLoginControlPlane(apiUrl: string | undefined): Promise<ThalovantControlPlane> {
+  const configuredApiUrl = await configuredControlApiUrl();
+  const configured = originOf(configuredApiUrl);
+  if (!configured) throw new Error("The configured control-plane API URL is invalid.");
+  if (apiUrl !== undefined && originOf(apiUrl) !== configured) {
+    throw new Error("apiUrl must use the configured Thalovant API origin for a device sign-in.");
+  }
+  return new ThalovantControlPlane(apiUrl ?? configuredApiUrl, { userAgent: `thalovant-mcp/${VERSION}` });
+}
 
 function controlPlaneAuthModeFromEnv(): ControlPlaneAuthMode {
   if (process.env.THALOVANT_API_TOKEN) return "api-token";
@@ -1430,6 +1529,7 @@ export function createServer(): McpServer {
       jsonContent({
         apiUrl: process.env.THALOVANT_API_URL ?? DEFAULT_CONTROL_API_URL,
         controlPlaneAuthMode: controlPlaneAuthModeFromEnv(),
+        deviceLoginSignedIn: Boolean(deviceLogins.signedInAs(currentPrincipal().id)),
         hasApiToken: Boolean(process.env.THALOVANT_API_TOKEN),
         hasAccessToken: Boolean(process.env.THALOVANT_ACCESS_TOKEN),
         hasEmailPassword: Boolean(process.env.THALOVANT_EMAIL && process.env.THALOVANT_PASSWORD),
@@ -1555,7 +1655,7 @@ export function createServer(): McpServer {
     {
       title: "Create Client Identity",
       description:
-        "Create a Thalovant client identity for a hub. The identity is secret; output is redacted unless savePath is used.",
+        "Create a Thalovant client identity (a hub connection) for a hub. The identity is secret; output is redacted unless savePath is used. Pass connectionType (for example home_assistant) for a connection of that kind: the API must answer with the same kind, or the connection it made instead is deleted and the call fails. A new connection is admitted by its hub in about ninety seconds; follow operationId with thalovant_wait_for_admission before connecting.",
       inputSchema: {
         ...controlPlaneSchema,
         hubId: z
@@ -1569,6 +1669,7 @@ export function createServer(): McpServer {
         preferredProtocols: z.array(protocolSchema).min(1).default(["wss", "https"]),
         idempotencyKey: z.string().min(1).optional(),
         spec: jsonRecordSchema.optional(),
+        connectionType: connectionTypeSchema.optional(),
         savePath: z
           .string()
           .min(1)
@@ -1584,7 +1685,7 @@ export function createServer(): McpServer {
         openWorldHint: true,
       },
     },
-    async ({ hubId, name, siteId, ownerId, active, preferredProtocols, idempotencyKey, spec, savePath, ...auth }) => {
+    async ({ hubId, name, siteId, ownerId, active, preferredProtocols, idempotencyKey, spec, connectionType, savePath, ...auth }) => {
       // Validate the destination BEFORE creating a cloud identity, so a path
       // that escapes the identity directory is refused without leaving an
       // orphaned credential behind in the control plane.
@@ -1599,18 +1700,186 @@ export function createServer(): McpServer {
         preferredProtocols,
         idempotencyKey,
         spec,
-      });
+        connectionType,
+      }).catch((error: unknown) => withConnectionHint(error, connectionType));
       const selectedEndpoint = api.requireRuntimeProtocol(result, preferredProtocols[0]);
       const savedIdentityPath = targetIdentityPath ? await writeIdentityFile(targetIdentityPath, result.identity) : undefined;
       return jsonContent({
         result: redactSecrets(result.asObject({ includeSecrets: false })),
+        clientId: result.clientId ?? null,
+        connectionType: result.connectionType ?? null,
+        operationId: result.operation?.id ?? null,
         selectedEndpoint,
         enabledProtocols: result.identity.enabledProtocols(),
         savedIdentityPath,
         secretNotice: savedIdentityPath
           ? "Full identity was written to the requested local path with mode 0600."
           : "Secret identity fields were not returned. Pass savePath to write a protected local identity file.",
+        next: result.operation
+          ? "The hub admits a new connection in about ninety seconds and refuses it until then. Call thalovant_wait_for_admission with this operationId before connecting."
+          : "The API returned no admission operation, so there is nothing to wait for.",
       });
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_wait_for_admission",
+    {
+      title: "Wait For Connection Admission",
+      description:
+        "Wait until a hub admits a connection made with thalovant_create_client_identity: about ninety seconds after the create. Follows the operation the create returned (operationId), reading it every pollIntervalMs. outcome is admitted (ready, or an operation the API no longer tracks), failed (the platform could not admit it; errorCode says why), or timeout: timeoutMs passed first and the connection may still be admitted, so call this tool again rather than creating another connection. Omit operationId when the create returned none. Reads only.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        operationId: z
+          .string()
+          .min(1)
+          .max(500)
+          .optional()
+          .describe("operationId from thalovant_create_client_identity: the operation's id or its links.self path. An absolute URL must be on the API's own origin."),
+        timeoutMs: z.number().int().min(1_000).max(MAX_TIMEOUT_MS).default(ADMISSION_DEFAULT_TIMEOUT_MS),
+        pollIntervalMs: z.number().int().min(500).max(10_000).default(2_000).describe("Milliseconds between two reads of the operation."),
+      },
+      annotations: {
+        readOnlyHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ operationId, timeoutMs, pollIntervalMs, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      const signal = requestContext.getStore()?.signal;
+      throwIfRuntimeCancelled(signal);
+      try {
+        await api.waitForAdmission(operationId ?? null, { timeoutMs: clampTimeout(timeoutMs), pollIntervalMs, signal });
+        return jsonContent({ outcome: "admitted" });
+      } catch (error) {
+        if (error instanceof ThalovantAdmissionTimeoutError) {
+          return jsonContent({
+            outcome: "timeout",
+            next: "The hub has not admitted the connection yet and may still. Call thalovant_wait_for_admission again with the same operationId; do not create another connection.",
+          });
+        }
+        if (error instanceof ThalovantAdmissionFailedError) {
+          return jsonContent({ outcome: "failed", errorCode: error.errorCode ?? null, message: error.message });
+        }
+        throwIfRuntimeCancelled(signal);
+        throw error;
+      }
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_begin_device_login",
+    {
+      title: "Begin Device Sign-In",
+      description:
+        "Start a device sign-in (RFC 8628) when no API token is configured: a person approves it in a browser. Show the person verificationUri and userCode (or verificationUriComplete, which carries the code), then call thalovant_poll_device_login with loginId every `interval` seconds. The device code stays on this server. Once approved, control-plane tools for this principal use the token it minted. A Home Assistant link asks for hubs:read, clients:read and clients:write, which is also all a Free plan can approve.",
+      inputSchema: {
+        apiUrl: controlPlaneSchema.apiUrl,
+        scopes: z
+          .array(z.string().min(1).max(64))
+          .min(1)
+          .max(32)
+          .optional()
+          .describe(`Scopes the token will carry. The API applies its default when omitted. A Home Assistant link asks for ${HOME_ASSISTANT_SCOPES.join(", ")}.`),
+        clientName: z.string().min(1).max(128).optional().describe("The name the approval page and the dashboard's token list show."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ apiUrl, scopes, clientName }) => {
+      const api = await deviceLoginControlPlane(apiUrl);
+      const grant = await api.beginDeviceLogin({ scopes, clientName });
+      const loginId = deviceLogins.start(currentPrincipal().id, api, grant);
+      return jsonContent({
+        loginId,
+        userCode: grant.userCode,
+        verificationUri: grant.verificationUri,
+        verificationUriComplete: grant.verificationUriComplete,
+        interval: grant.interval,
+        expiresIn: grant.expiresIn,
+        next: `Ask the person to open ${grant.verificationUri} and enter ${grant.userCode}, then call thalovant_poll_device_login with this loginId every ${grant.interval} seconds until the outcome is no longer pending. The code expires in ${grant.expiresIn} seconds.`,
+      });
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_poll_device_login",
+    {
+      title: "Poll Device Sign-In",
+      description:
+        "Ask once whether the person approved a device sign-in started with thalovant_begin_device_login. outcome is pending (poll again after `interval` seconds, already lengthened if the API asked to slow down), approved (control-plane tools for this principal now use the token; tokenId, scopes and expiresAt describe it), expired or denied (begin a new sign-in). The token itself is never returned.",
+      inputSchema: {
+        loginId: z.string().min(1).max(64).describe("loginId from thalovant_begin_device_login."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ loginId }) => {
+      const principal = currentPrincipal().id;
+      const login = deviceLogins.find(loginId, principal);
+      if (!login) {
+        throw new Error("No device sign-in in progress has this loginId: it expired, already ended, or was started by another principal. Begin a new one with thalovant_begin_device_login.");
+      }
+      try {
+        const token = await login.api.pollDeviceLogin(login.authorization);
+        deviceLogins.finish(loginId);
+        deviceLogins.approve(principal, login.api);
+        return jsonContent({
+          outcome: "approved",
+          tokenType: token.tokenType,
+          scopes: [...token.scopes],
+          expiresAt: token.expiresAt,
+          tokenId: token.tokenId,
+          next: "Signed in. Control-plane tools for this principal now use this token until thalovant_revoke_device_login or a server restart.",
+        });
+      } catch (error) {
+        if (error instanceof ThalovantDeviceLoginPendingError) {
+          return jsonContent({ outcome: "pending", interval: error.interval });
+        }
+        if (error instanceof ThalovantDeviceLoginExpiredError) {
+          deviceLogins.finish(loginId);
+          return jsonContent({ outcome: "expired", status: error.statusCode ?? null, next: "The code expired before anybody approved it. Begin a new sign-in." });
+        }
+        if (error instanceof ThalovantDeviceLoginDeniedError) {
+          deviceLogins.finish(loginId);
+          return jsonContent({ outcome: "denied", status: error.statusCode ?? null, next: "The person declined the sign-in in the browser." });
+        }
+        throw error;
+      }
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_revoke_device_login",
+    {
+      title: "Revoke Device Sign-In",
+      description:
+        "Sign out: revoke the API token this principal signed in with through thalovant_poll_device_login, and stop using it. A token may always revoke itself. Tokens configured on the server are never touched.",
+      inputSchema: {},
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async () => {
+      const principal = currentPrincipal().id;
+      const signedIn = deviceLogins.signedInAs(principal);
+      if (!signedIn) throw new Error("This principal has not signed in with a device sign-in, so there is no token of its own to revoke.");
+      const tokenId = signedIn.api.tokenId ?? null;
+      await signedIn.api.revokeApiToken();
+      deviceLogins.signOut(principal);
+      return jsonContent({ revoked: true, tokenId });
     },
   );
 
@@ -2842,6 +3111,32 @@ export function createServer(): McpServer {
         ensureAuthenticated(api);
         await callControlPlane("hubWrite", () => api.deleteHub(hubId, { etag }));
         return textContent("Hub deleted.");
+      },
+    );
+
+    registerThalovantTool(server,
+      "thalovant_delete_client",
+      {
+        title: "Delete Client",
+        description:
+          "Permanently delete a client (a hub connection): the device or link using it loses access to the hub. This cannot be undone. etag is the client's current etag, sent as If-Match; when omitted the server reads it first. A client changed underneath (412) is read again and the delete retried once, and a client already gone counts as deleted. Requires the clients:write scope. This tool is disabled unless the operator sets THALOVANT_ENABLE_DESTRUCTIVE_TOOLS.",
+        inputSchema: {
+          ...controlPlaneSchema,
+          clientId: z.string().min(1).max(128).describe("Client UUID, for example the clientId a create returned or the client_id of an already-linked refusal."),
+          etag: z.string().min(1).optional().describe("The client's current etag. Read first when omitted."),
+        },
+        annotations: {
+          readOnlyHint: false,
+          destructiveHint: true,
+          idempotentHint: true,
+          openWorldHint: true,
+        },
+      },
+      async ({ clientId, etag, ...auth }) => {
+        const api = await createControlPlane(auth);
+        ensureAuthenticated(api);
+        await api.deleteClient(clientId, { etag }).catch((error: unknown) => withConnectionHint(error));
+        return jsonContent({ deleted: true, clientId });
       },
     );
 

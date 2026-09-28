@@ -20,7 +20,7 @@
  * Set `THALOVANT_CONFORMANCE_OUT` and run the suite.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const results = new Map<string, Map<string, string>>();
@@ -49,6 +49,31 @@ function canonicalJson(value: unknown): string {
 
 export function canonicalDigest(value: unknown): string {
   return createHash("sha256").update(canonicalJson(value), "utf8").digest("hex");
+}
+
+/**
+ * The digest of a vector file, as the reference computes it.
+ *
+ * A vector file may carry fractional seconds (`poll_interval_seconds: 0.01`),
+ * and the reference digests the file as it parses. Python's `repr` and
+ * JavaScript's `String` both write a double's shortest round-trip digits, in
+ * fixed notation for magnitudes from 1e-4 up to 1e16, so inside that band the
+ * spelling agrees digit for digit; outside it one writes `1e-05` and the other
+ * `0.00001`, which is still refused. What a test produced goes through
+ * `canonicalDigest`, which takes whole numbers alone.
+ */
+function vectorDigest(value: unknown): string {
+  const spell = (item: unknown): string => {
+    if (typeof item === "number" && !Number.isInteger(item) && Number.isFinite(item)) {
+      const magnitude = Math.abs(item);
+      if (magnitude >= 1e-4 && magnitude < 1e16) return String(item);
+    }
+    if (item === null || typeof item !== "object") return canonicalJson(item);
+    if (Array.isArray(item)) return "[" + item.map(spell).join(",") + "]";
+    const keys = Object.keys(item as Record<string, unknown>).sort();
+    return "{" + keys.map((key) => JSON.stringify(key) + ":" + spell((item as Record<string, unknown>)[key])).join(",") + "}";
+  };
+  return createHash("sha256").update(spell(value), "utf8").digest("hex");
 }
 
 /** Record what the SDK under this server produced for one case. */
@@ -82,7 +107,41 @@ function publish(target: string): void {
   const shard = join(parts, `${process.pid}.json`);
   writeFileSync(`${shard}.writing`, JSON.stringify(mine), "utf8");
   renameSync(`${shard}.writing`, shard);
+  // One worker at a time scans the shards and writes the file. Two at once
+  // used to stage the same `.writing` file, so one renamed the other's away
+  // (ENOENT), and a scan that ran before another worker's shard landed could
+  // be renamed into place after that worker's complete one. Under the lock the
+  // last publish scans after every shard is written, so the file it leaves is
+  // the whole run.
+  withLock(`${target}.lock`, () => merge(target, parts));
+}
 
+/** Run `work` holding a lock directory; a lock older than ten seconds is a dead worker's. */
+function withLock(lock: string, work: () => void): void {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      try {
+        if (Date.now() - statSync(lock).mtimeMs > 10_000) rmSync(lock, { recursive: true, force: true });
+      } catch {
+        // Released between the two calls.
+      }
+      if (Date.now() > deadline) throw new Error(`conformance: ${lock} stayed locked`);
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5);
+    }
+  }
+  try {
+    work();
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
+}
+
+function merge(target: string, parts: string): void {
   const merged = new Map<string, Map<string, string>>();
   for (const name of readdirSync(parts).sort()) {
     if (!name.endsWith(".json")) continue;
@@ -106,7 +165,7 @@ function publish(target: string): void {
     for (const name of [...merged.get(vectorFile)!.keys()].sort()) {
       cases[name] = merged.get(vectorFile)!.get(name)!;
     }
-    out[vectorFile] = { digest: canonicalDigest(parsed), cases };
+    out[vectorFile] = { digest: vectorDigest(parsed), cases };
   }
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(`${target}.writing`, JSON.stringify({ schema_version: 1, results: out }, null, 2) + "\n", "utf8");
