@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.1 — 2026-09-28
+
+- **Sign in as a registered app.** `thalovant_begin_device_login` takes an optional `clientId`, passed to the API as `client_id` only when given: `thalovant-home-assistant` makes the approval page show the platform's name for Home Assistant as verified, and approving it again replaces the token it already holds. An id the API does not know is refused with 400 `unknown_client`, and the tool error carries the code and sentence like any other refusal.
+- **An echoed validation input never reaches a tool error.** The `fields:` line of a tool error printed a validation error's `input` whenever it was a bare string or sat under an ordinary key: the secret redaction matches key names only. Each entry of a `detail` or Problem+JSON `errors` list now has its `input` replaced with `"[omitted]"` before redaction, whatever its key or shape.
+- **Where the Noise key lives.** `@thalovant/sdk` 0.9.1 keeps an identity file's Noise key and hub pins in that file's folder, so every program reading the file presents one key, and copies them there once from the shared folder when that key already met the hub. Runtime tools given an `identityFile` follow it.
+- Takes `@thalovant/sdk` ^0.9.1, which carries `clientId`, `describeDeviceLogin()`, the refused-client-key error and the key folder. The lock resolves 0.9.0 until 0.9.1 is on npm; refresh it with `npm install @thalovant/sdk@^0.9.1` then.
+- The parity contract acknowledges the reference's `d33dc2be8b00` and declares its new `link-carriers` capability not applicable: this server's carriers are the Node SDK's, which runs those vectors. The re-vendored `api-error-vectors.json` and `device-login-vectors.json` run through the SDK that resolves here and through the tools over stdio; the `describe` cases through the SDK only, since a model has no approval screen to read. All 78 recorded cases, and each file's digest, equal the reference's.
+
 ## 0.6.0 — 2026-09-28
 
 Link Home Assistant, or any home controller, to a hub from an agent: sign in on the device, create a connection of the `home_assistant` kind, and wait for the hub to admit it. Existing tool schemas are unchanged; every addition is optional.

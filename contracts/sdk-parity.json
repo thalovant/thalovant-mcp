@@ -2,13 +2,13 @@
   "capabilities": {
     "api-errors": {
       "implementation": {
-        "src/api-error-output.ts": "331284b13f0fe67611d003b155cca048294e401afa056fdfef4a2438af548478",
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20"
+        "src/api-error-output.ts": "c1943cd157c937db964e897bf2b447504e97557446f7d7ef5a794519f567483c",
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
-      "reason": "The SDK reads the error and this server says it: @thalovant/sdk 0.8.7's ThalovantApiError carries statusCode, code, detail and problem, and apiErrorText in src/api-error-output.ts puts the code, the whole sentence (when the SDK's one-line message had to shorten it) and every other field of the body, redacted, into the tool result text; callControlPlane in src/index.ts reads the status and code from the error to pick its hint. The shared vectors run twice: through the SDK that resolves here, recorded before they are asserted, and through a real thalovant_get_hub call over stdio against the built server, which must name the code, the sentence and every field and never repeat what the body echoed.",
+      "reason": "The SDK reads the error and this server says it: @thalovant/sdk's ThalovantApiError carries statusCode, code, detail and problem, and apiErrorText in src/api-error-output.ts puts the code, the whole sentence (when the SDK's one-line message had to shorten it) and every other field of the body, redacted, into the tool result text -- each validation entry's echoed input, in a detail or errors list, replaced with \"[omitted]\" first, since redaction by key name cannot see a bare string or a secret under an ordinary key; callControlPlane in src/index.ts reads the status and code from the error to pick its hint. The shared vectors run twice: through the SDK that resolves here, recorded before they are asserted, and through a real thalovant_get_hub call over stdio against the built server, which must name the code, the sentence and every field and never repeat what the body echoed.",
       "status": "required",
       "tests": {
-        "test/api-error-vectors.json": "f0d2d8e6e153811f071dac6e0611f00f3c32ed772b751ccccb31904d7dc936ec",
+        "test/api-error-vectors.json": "66fd70cd853e52cf29b1c2fad0e38f97a1f6c23b3640fca4e4cc02c3c341ca10",
         "test/api-error-vectors.test.ts": "427f5608d00e564504066b18ebced6c415c1c1c79f17121ad51380f31e2648e7",
         "test/conformance-global-setup.ts": "ca4194f8a446991716e5b1cb1df590abda626a139706168b60d9d66ac433280d",
         "test/conformance-record.ts": "d13c487114a25e4ff35a895be1007cfa01aeb8e055a2d5674ac73630391cdde4",
@@ -20,7 +20,7 @@
     },
     "binary": {
       "implementation": {
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20"
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. The frames decoded are hivemind-bus-client's own encoder output, vendored as binary-frames.json, so this is the wire a hub really puts out rather than bytes built here -- encodeHiveBinaryFrame refuses to build one, because re-encoding would drop binary.data.",
       "status": "required",
@@ -41,7 +41,7 @@
     },
     "connection-admission": {
       "implementation": {
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20"
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
       "reason": "thalovant_wait_for_admission (read-only) calls waitForAdmission() of @thalovant/sdk with the MCP request's cancellation signal. It answers admitted; failed, with the operation's errorCode and status null for a failure on the platform, or with the API's status, code and detail when the API refused the wait itself; or timeout as an outcome to wait on again. A 401 or 403 is a tool error carrying the API's text and a sign-in hint, and an API out of reach is one of its own, never a failed admission. Inside the SDK, every poll read is bounded by the deadline, a 429 waits the problem's retry_after_seconds, else Retry-After, else RateLimit-Reset (a timeout at once when that is more than is left), and a links.self on another origin -- scheme, host and port -- is refused before any request. Run against the shared admission vectors through the SDK (recorded) and through the tool over stdio (recorded under the same case names), the loopback API sending each case's headers, with {api_host}/{api_port} filled in and a server pointed at a closed port for an unreachable API.",
       "status": "required",
@@ -50,7 +50,7 @@
         "test/conformance-record.ts": "d13c487114a25e4ff35a895be1007cfa01aeb8e055a2d5674ac73630391cdde4",
         "test/connection-admission-vectors.json": "41eb4a83835bd50390d000fa7396b7067dafa24f3023b34985e6b254cf5fc259",
         "test/device-login.test.ts": "0304a230af6eedecd4d1863198049fb792f235c03c1733a68ace430deaa66edb",
-        "test/home-link-vectors.test.ts": "119a6861acfb95c43888bc2917c80e09576c20bd3f06318be0b48c15cbdec071",
+        "test/home-link-vectors.test.ts": "4648787724645391e2d1997bf75970f0fcbc2da9cecb5c877f4aeeacfa60fea7",
         "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
@@ -60,7 +60,7 @@
     "connection-kinds": {
       "implementation": {
         "src/device-login.ts": "5cd6f92ccc51ea3bb59aa4d4b1d0bb68634675f8c8e9a073e6a72fd3175556c4",
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20"
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
       "reason": "thalovant_create_client_identity takes connectionType and passes it to createClientIdentity() of @thalovant/sdk, which requires the kind back and deletes a client made without it, and reads a 422 as an unsupported kind only when its detail or code, or a validation error's loc or msg, names connection_type; the tool answers clientId, connectionType and operationId, and a refusal keeps the api-errors text with guidance by the SDK's class (unsupported, plan, already linked with its client_id, auth). The opt-in destructive thalovant_delete_client calls deleteClient() (If-Match, read the etag first, one 412 retry, 404 is deleted). Run against the shared connection-kinds vectors through the SDK (recorded) and through both tools over stdio, where the loopback API checks every request and If-Match and a created or deleted outcome is recorded under the same case name.",
       "status": "required",
@@ -69,7 +69,7 @@
         "test/conformance-record.ts": "d13c487114a25e4ff35a895be1007cfa01aeb8e055a2d5674ac73630391cdde4",
         "test/connection-kinds-vectors.json": "2baef508194472279ff2446105a1408e381b2f9e4bfc03e5f96d9c6529ddf604",
         "test/device-login.test.ts": "0304a230af6eedecd4d1863198049fb792f235c03c1733a68ace430deaa66edb",
-        "test/home-link-vectors.test.ts": "119a6861acfb95c43888bc2917c80e09576c20bd3f06318be0b48c15cbdec071",
+        "test/home-link-vectors.test.ts": "4648787724645391e2d1997bf75970f0fcbc2da9cecb5c877f4aeeacfa60fea7",
         "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
@@ -78,7 +78,7 @@
     },
     "control": {
       "implementation": {
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20"
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
       "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
       "status": "required",
@@ -89,7 +89,7 @@
     },
     "conversation": {
       "implementation": {
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20"
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. The carry is what makes a follow-up reach the skill that just answered rather than the fallback, and this server is the thing holding the session id between turns.",
       "status": "required",
@@ -106,16 +106,16 @@
     "device-login": {
       "implementation": {
         "src/device-login.ts": "5cd6f92ccc51ea3bb59aa4d4b1d0bb68634675f8c8e9a073e6a72fd3175556c4",
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20"
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
-      "reason": "Two tools, because a tool call cannot wait for a person: thalovant_begin_device_login calls beginDeviceLogin() of @thalovant/sdk on the configured API origin only (an empty scope list is accepted and left out of the request) and answers the code to show with an opaque loginId, while the device code stays in src/device-login.ts, bound to the principal; thalovant_poll_device_login makes one pollDeviceLogin() and answers pending (interval, lengthened for good by slow_down), approved (the token kept server-side for that principal and lent to every control-plane tool when nothing is configured, never returned), expired or denied; thalovant_revoke_device_login revokes and forgets that token -- a 401 on its own revoke counts as revoked -- and signing out again answers alreadyRevoked without a request. Run against the shared device-login vectors twice, served in order by a loopback API that checks every request: through the SDK that resolves here, recorded before asserting, and through the tools over stdio against the built server, recorded under the same case names so any difference fails the recorder.",
+      "reason": "Two tools, because a tool call cannot wait for a person: thalovant_begin_device_login calls beginDeviceLogin() of @thalovant/sdk on the configured API origin only (an empty scope list is accepted and left out of the request, and clientId -- thalovant-home-assistant for Home Assistant -- is passed through as client_id only when given) and answers the code to show with an opaque loginId, while the device code stays in src/device-login.ts, bound to the principal; thalovant_poll_device_login makes one pollDeviceLogin() and answers pending (interval, lengthened for good by slow_down), approved (the token kept server-side for that principal and lent to every control-plane tool when nothing is configured, never returned), expired or denied; thalovant_revoke_device_login revokes and forgets that token -- a 401 on its own revoke counts as revoked -- and signing out again answers alreadyRevoked without a request. Run against the shared device-login vectors twice, served in order by a loopback API that checks every request: through the SDK that resolves here, recorded before asserting, and through the tools over stdio against the built server, recorded under the same case names so any difference fails the recorder. The describe cases run through the SDK's describeDeviceLogin() only: a model has no approval screen to read, so there is no tool for it.",
       "status": "required",
       "tests": {
         "test/conformance-global-setup.ts": "ca4194f8a446991716e5b1cb1df590abda626a139706168b60d9d66ac433280d",
         "test/conformance-record.ts": "d13c487114a25e4ff35a895be1007cfa01aeb8e055a2d5674ac73630391cdde4",
-        "test/device-login-vectors.json": "8a2257cd80b5d2dfa9553420b51617c697b1ad4e6af60ba83e980e1731fa7854",
+        "test/device-login-vectors.json": "8204aefe89b9dbcea146479d41e5c21ac61a05d809f8fc6a60f52913f45f1321",
         "test/device-login.test.ts": "0304a230af6eedecd4d1863198049fb792f235c03c1733a68ace430deaa66edb",
-        "test/home-link-vectors.test.ts": "119a6861acfb95c43888bc2917c80e09576c20bd3f06318be0b48c15cbdec071",
+        "test/home-link-vectors.test.ts": "4648787724645391e2d1997bf75970f0fcbc2da9cecb5c877f4aeeacfa60fea7",
         "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
@@ -128,18 +128,18 @@
     },
     "identity": {
       "implementation": {
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20"
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
       "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
       "status": "required",
       "tests": {
         "test/http.test.ts": "d278606147046fc5cc32c88ee2c49a6ded655bd6f921fa4f5aaac177c45ba515",
-        "test/runtime-cancellation.test.ts": "a506cd17cffd5b35dd6344c1d3c1a5b8cde3d8f985166df08bd94bac9b113afc"
+        "test/runtime-cancellation.test.ts": "aba20f93ebfe9c03886c899f016eb2b79772714827593d51f7b1d4a26daec013"
       }
     },
     "inventory": {
       "implementation": {
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20",
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74",
         "src/inventory-output.ts": "57ca6a40c84f4d85661d2b70d079bb774b75dedf87ad902b4e4048f059217115"
       },
       "reason": "The inventory tool adds the SDK presentation model while preserving native fields and unknown catalogue locales. Per-tool identity leases do not share disk caches.",
@@ -152,9 +152,13 @@
         "inventory-vectors.json": "test/inventory-vectors.json"
       }
     },
+    "link-carriers": {
+      "reason": "MCP opens a hub connection through @thalovant/sdk for the length of one tool call; the carriers and their handshake rules are the Node SDK's, which runs these vectors.",
+      "status": "not-applicable"
+    },
     "listing": {
       "implementation": {
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20"
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
       "reason": "The question vectors are run against whatever @thalovant/sdk resolves here. The evidence used to name a Noise test, which is how a capability passes on a filename.",
       "status": "required",
@@ -167,7 +171,7 @@
     },
     "mesh": {
       "implementation": {
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20"
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. Only the kind names are checkable here: a hive frame arrives unsolicited and MCP has no channel to deliver one on, so there is no subscription for this server to own.",
       "status": "required",
@@ -183,7 +187,7 @@
     },
     "refusal": {
       "implementation": {
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20"
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
       "reason": "Inherited from @thalovant/sdk and run rather than asserted: this server implements no part of an ask itself -- it hands every turn to the SDK -- so what is on par is the SDK beneath it, and the shared refusal vectors go through the version that actually resolves here. @thalovant/sdk 0.8.2 carries the rule and exports failureError, refusalBelongsToAsk and UNTRACKED_UTTERANCE_GRACE_MS; the range is ^0.8.7, so npm ci resolves a version that has them. Every classification and correlation case is asserted; none is recorded, because the reference records no refusal results and the vectors carry 1.5, which the recorder refuses to canonicalise.",
       "status": "required",
@@ -200,7 +204,7 @@
     },
     "runtime": {
       "implementation": {
-        "src/index.ts": "7a54af3c93f13a69b10193b1c294b91fab3f703d03fb2d1e71f628332b50de20",
+        "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74",
         "src/reply-output.ts": "d2ce7fcfad12f4ee1024a00770162180eb062781d04a44529015940845cf5eba",
         "src/runtime-lease.ts": "fa7183fd9036a8717ff5c543822d004ea005505e3fa15e1211604390c6fd1ab5"
       },
@@ -209,8 +213,8 @@
       "tests": {
         "test/reply-claim-vectors.json": "45f2731589e612d5a849376d94073c57b0fef426a92e1d065c58c48442b1ffdc",
         "test/reply-claims.test.ts": "e8ee5a7865447ae12f2cd607db9d32fbadc3e9202f763fd454123f94095ce2f8",
-        "test/runtime-cancellation.test.ts": "a506cd17cffd5b35dd6344c1d3c1a5b8cde3d8f985166df08bd94bac9b113afc",
-        "test/runtime-noise.test.ts": "ef8e64d30c4b405e3bf16078c20847370117b2628728620006a0c2f7c68fcdba"
+        "test/runtime-cancellation.test.ts": "aba20f93ebfe9c03886c899f016eb2b79772714827593d51f7b1d4a26daec013",
+        "test/runtime-noise.test.ts": "81f1a26a5f7b21721299671e9e3390358329e9ad837cc8fa718e02e4bc5ee8e2"
       },
       "vectors": {
         "reply-claim-vectors.json": "test/reply-claim-vectors.json"
@@ -233,7 +237,8 @@
     "76bc1eb9957da5a6fdf03e89f3905f8d37d3ef2fe7c841ba751718105ca30a45",
     "34a21f2ad875b220a571613e25b6a6e5f3d8de1a776f4949a7ab63ba93e07b16",
     "f79d99e9acd2fe299e3b313102541e47b366751defe5fa0dcfa44053aa7f007d",
-    "2460eb90bd56b1b182be3db365ba29bfef712d4ea2748061652ba0f28dcf6f50"
+    "2460eb90bd56b1b182be3db365ba29bfef712d4ea2748061652ba0f28dcf6f50",
+    "d33dc2be8b0074be4e16d89a4b615f0e6bc32d99fb513cb75e20c09cd0fab4b6"
   ],
   "schema_version": 1
 }

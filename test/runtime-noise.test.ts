@@ -194,7 +194,10 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     expect(lifecycle).toEqual(Array.from({ length: 6 }, () => ["connect", "disconnect"]).flat());
     expect(overlap).toBe(false); expect(errors).toEqual([]);
     expect(clientKey).toBeDefined();
-    const pins = JSON.parse(await readFile(join(directory, "config", "thalovant", "noise_pins.json"), "utf8"));
+    // @thalovant/sdk 0.9.1 keeps the Noise key and pins beside the identity file,
+    // so every program reading it presents one key; the shared folder is not used.
+    await expect(readFile(join(directory, "config", "thalovant", "noise_pins.json"), "utf8")).rejects.toThrow();
+    const pins = JSON.parse(await readFile(join(directory, "noise_pins.json"), "utf8"));
     expect(Object.keys(pins)).toEqual(["mcp-test-hub"]);
   } finally {
     await mcp?.close();

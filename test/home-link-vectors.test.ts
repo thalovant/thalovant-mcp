@@ -179,11 +179,38 @@ function excluded(text: string, excludes: readonly string[]): void {
 
 // -- through the SDK under this server --------------------------------------------
 
+/** A failure, with the api-errors fields when the API answered one. */
+function deviceError(error: ThalovantApiError): Json {
+  return error.statusCode === undefined ? { outcome: "error", status: null } : { outcome: "error", ...apiFields(error) };
+}
+
 async function sdkDevice(call: Json): Promise<Json[]> {
-  const plane = new ThalovantControlPlane(api.url);
+  // Only the approver's read is signed in; a device signing in has no token yet.
+  const plane = new ThalovantControlPlane(api.url, call.op === "describe" ? { accessToken: "synthetic-token" } : {});
+  if (call.op === "describe") {
+    try {
+      const request = await plane.describeDeviceLogin(call.user_code as string);
+      return [{
+        outcome: "described",
+        scopes: [...request.scopes],
+        client_name: request.clientName,
+        client_id: request.clientId,
+        client_verified: request.clientVerified,
+        device_name: request.deviceName,
+      }];
+    } catch (error) {
+      assert.ok(error instanceof ThalovantApiError, String(error));
+      excluded(`${error.message} ${String(error)}`, DEVICE.message_excludes);
+      return [deviceError(error)];
+    }
+  }
   if (call.op === "begin") {
     try {
-      const grant = await plane.beginDeviceLogin({ scopes: call.scopes as string[] | undefined, clientName: call.client_name as string | undefined });
+      const grant = await plane.beginDeviceLogin({
+        scopes: call.scopes as string[] | undefined,
+        clientName: call.client_name as string | undefined,
+        clientId: call.client_id as string | null | undefined,
+      });
       return [{
         outcome: "started",
         user_code: grant.userCode,
@@ -195,7 +222,7 @@ async function sdkDevice(call: Json): Promise<Json[]> {
     } catch (error) {
       assert.ok(error instanceof ThalovantApiError, String(error));
       excluded(`${error.message} ${String(error)}`, DEVICE.message_excludes);
-      return [{ outcome: "error", status: error.statusCode ?? null }];
+      return [deviceError(error)];
     }
   }
   const given = call.authorization as { device_code: string; interval: number };
@@ -218,7 +245,7 @@ async function sdkDevice(call: Json): Promise<Json[]> {
       if (error instanceof ThalovantDeviceLoginPendingError) produced.push({ outcome: "pending", interval: error.interval });
       else if (error instanceof ThalovantDeviceLoginExpiredError) produced.push({ outcome: "expired", status: error.statusCode ?? null });
       else if (error instanceof ThalovantDeviceLoginDeniedError) produced.push({ outcome: "denied", status: error.statusCode ?? null });
-      else produced.push(error.statusCode === undefined ? { outcome: "error", status: null } : { outcome: "error", ...apiFields(error) });
+      else produced.push(deviceError(error));
     }
   }
   if (call.op === "revoke") {
@@ -427,17 +454,27 @@ describe("the device sign-in tools", () => {
     ];
   };
 
-  for (const one of DEVICE.cases) {
+  // Reading a code as its approver sees it has no tool: a model has no
+  // approval screen to read. Those cases run through the SDK above.
+  for (const one of DEVICE.cases.filter((item) => item.call.op !== "describe")) {
     test(one.name, async () => {
-      const call = one.call as { op: string; scopes?: string[]; client_name?: string; times?: number };
+      const call = one.call as { op: string; scopes?: string[]; client_name?: string; client_id?: string | null; times?: number };
       const expect = one.expect as Json[];
       let produced: Json[] = [];
       if (call.op === "begin") {
         api.use(one.exchanges);
-        const answer = await tool(client, "thalovant_begin_device_login", { scopes: call.scopes, clientName: call.client_name });
+        const answer = await tool(client, "thalovant_begin_device_login", {
+          scopes: call.scopes,
+          clientName: call.client_name,
+          clientId: call.client_id ?? undefined,
+        });
         excluded(answer.text, DEVICE.message_excludes);
         if (answer.error) {
-          produced = [{ outcome: "error", status: statusIn(answer.text) }];
+          // A failure the API explained is error text; the vector says what it must carry.
+          assert.equal(expect[0].outcome, "error", answer.text);
+          assertSaid(answer.text, expect[0]);
+          // Checked above, not recorded: a restated vector is no evidence.
+          produced = expect[0].status === null ? [{ outcome: "error", status: statusIn(answer.text) }] : [expect[0]];
         } else {
           const out = answer.json!;
           assert.equal(typeof out.loginId, "string");
@@ -450,7 +487,7 @@ describe("the device sign-in tools", () => {
             expires_in: out.expiresIn,
           }];
         }
-        record("device-login-vectors.json", one.name, produced);
+        if (!answer.error || expect[0].status === null) record("device-login-vectors.json", one.name, produced);
         assert.deepEqual(produced, expect);
       } else {
         api.use(begun(one));
