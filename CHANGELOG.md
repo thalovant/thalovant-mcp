@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.6.0 — 2026-09-27
+
+Link Home Assistant, or any home controller, to a hub from an agent: sign in on the device, create a connection of the `home_assistant` kind, and wait for the hub to admit it. Existing tool schemas are unchanged; every addition is optional.
+
+- **Device sign-in as two tools.** `thalovant_begin_device_login` answers the code and URL to show a person with an opaque `loginId`; `thalovant_poll_device_login` asks once and answers `pending` (with the interval, lengthened for good after a `slow_down`), `approved`, `expired` or `denied`. The device code and the minted token stay on the server, bound to the principal that began the sign-in, and never reach the model. With no credential configured, every control-plane tool for that principal then uses the token. `thalovant_revoke_device_login` signs out. A sign-in reaches only the configured API origin, because its verification URL is shown to a person.
+- **Connections of a kind.** `thalovant_create_client_identity` takes `connectionType`; the API must answer with the same kind, and a connection it made without it is deleted again before the call fails. The result carries `clientId`, `connectionType` and `operationId`. A refusal adds guidance by kind after the API's own text: a kind the API does not know yet, a plan that does not allow it, a hub already linked (naming the connection that holds the link), or a token to sign in again.
+- **Admission.** `thalovant_wait_for_admission` (read-only) follows the create's operation for the ninety seconds a hub takes and answers `admitted`, `failed` with the operation's `errorCode`, or `timeout` as an outcome to wait on again. It honours MCP cancellation and never follows a link to another origin than the API's.
+- **`thalovant_delete_client`**, opt-in with the other destructive tools: `If-Match`, reading the etag first when none is given, one retry on `412`, and a connection already gone counts as deleted.
+- The catalog has 50 default tools (24 in read-only mode, 53 with destructive tools enabled). `thalovant_config_status` reports `deviceLoginSignedIn`.
+- Takes `@thalovant/sdk` ^0.9.0, which carries the device sign-in, the connection kinds and admission. The lock still resolves 0.8.7 until 0.9.0 is on npm; refresh it with `npm install @thalovant/sdk@^0.9.0` then.
+- The parity contract declares `device-login`, `connection-kinds` and `connection-admission` as required and `home-link` as not applicable: a tool call holds a hub connection only for its own length, and nothing could answer a hub's request. The three vector files run through the SDK that resolves here, recorded before asserting, and through the tools over stdio, recorded under the same names; all 32 cases digest as the reference's. The recorder now digests a vector file's fractional seconds as Python spells them, and serializes its write-through so two workers can no longer rename each other's file away.
+- The Dockerfile's version label had stayed at 0.4.0; it now says 0.6.0 like the rest.
+
 ## 0.5.3 — 2026-09-26
 
 - A tool error says what the API said, not only the SDK's one-line message. That line is cut at 160 characters, and a `platform_image_required` refusal names every image each refused key may be instead -- longer than that -- so the list a model needed to retry was the part cut off, and `refused_images`, `allowed_images` and `allowed_repositories` never reached it at all. The error text now goes on with `code:`, `detail:` (the whole sentence, when the first line had to shorten it) and `fields:`, every other member of the body as compact, redacted JSON. A value a validation error echoes back from the request is redacted there and never reaches the first line.

@@ -43,6 +43,17 @@ The server selects control-plane auth in this order:
 
 When a token is set, the server never calls the login endpoint. `thalovant_config_status` reports the active mode as `controlPlaneAuthMode` without revealing token values.
 
+With none of these configured, a person can sign the server in through the browser instead: see [Device Sign-In](#device-sign-in). The token that sign-in mints is used only when nothing above is configured.
+
+### Device Sign-In
+
+A tool call cannot wait for a person, so the device flow (RFC 8628) is two tools:
+
+1. `thalovant_begin_device_login` with optional `scopes` and `clientName` answers `loginId`, `userCode`, `verificationUri`, `verificationUriComplete`, `interval` and `expiresIn`. Show the person the URL and the code.
+2. `thalovant_poll_device_login` with that `loginId` asks once. `outcome` is `pending` (poll again after `interval` seconds, already five seconds longer for good if the API asked to slow down), `approved` (with `tokenId`, `scopes` and `expiresAt`), `expired` or `denied`.
+
+The device code and the token never reach the model: the server keeps both, bound to the principal that began the sign-in, for the life of the process. Once approved, every control-plane tool for that principal uses the token when no credential is configured. `thalovant_revoke_device_login` signs out: it revokes that token (a token may always revoke itself) and forgets it; configured tokens are never touched. A sign-in reaches only the configured API origin (`THALOVANT_API_URL`, or the default), since the verification URL it answers with is shown to a person. A Home Assistant link asks for `hubs:read`, `clients:read` and `clients:write`, which is also all a Free plan can approve.
+
 ### API Tokens (Recommended For AI Agents And CI)
 
 Scoped API tokens are the right credential for AI and automation use: they are minted from the Thalovant dashboard (or through the device flow), carry only the scopes you grant, can be revoked individually, and never involve your account password or MFA. Tokens start with `tvpat_`.
@@ -61,7 +72,7 @@ Minimum scopes for the full control-plane tool surface:
 | `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, `thalovant_list_marketplace_skills`, `thalovant_list_runtime_groups`, `thalovant_get_runtime_group`, `thalovant_get_runtime_group_config`, the guarded merge read in `thalovant_update_runtime_group_config`, and the hub lookup inside `thalovant_create_client_identity` |
 | `hubs:inspect` | `thalovant_get_hub_runtime_capabilities`, `thalovant_list_runtime_group_marketplace`, `thalovant_list_runtime_group_inventory`, `thalovant_list_hub_skills`, `thalovant_list_hub_skill_history` |
 | `hubs:write` | All hub and runtime-group provisioning: `thalovant_create_hub`, `thalovant_update_hub`, `thalovant_release_hub`, `thalovant_create_runtime_group`, `thalovant_update_runtime_group`, `thalovant_update_runtime_group_config`, `thalovant_release_runtime_group`, `thalovant_install_runtime_group_skill`, `thalovant_uninstall_runtime_group_skill`, the per-hub `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, `thalovant_remove_hub_skill`, the hub rating tools, and the opt-in delete tools |
-| `clients:write` | `thalovant_create_client_identity` (`POST /v1/clients`) |
+| `clients:write` | `thalovant_create_client_identity` (`POST /v1/clients`) and the opt-in `thalovant_delete_client` |
 | `memory:read` | `thalovant_list_memory_items`, `thalovant_get_memory_summary`, `thalovant_get_memory_item` |
 | `memory:write` | `thalovant_create_memory_item`, `thalovant_update_memory_item`, `thalovant_delete_memory_item` |
 
@@ -111,6 +122,18 @@ A tool argument cannot redirect those credentials to another origin. Equivalent
 URL spellings and paths on the same origin are allowed; custom origins must be
 configured alongside their credentials. Anonymous public discovery may still
 select a custom API URL.
+
+## Link Home Assistant
+
+A home controller such as Home Assistant links to a hub with a connection of its own kind:
+
+1. Sign in, when no token is configured: [Device Sign-In](#device-sign-in).
+2. `thalovant_create_client_identity` with `connectionType: "home_assistant"`. The API must answer with the same kind; one that made an ordinary connection instead has it deleted again and the call fails. The result carries `clientId`, `connectionType` and `operationId`.
+3. `thalovant_wait_for_admission` with that `operationId`. A hub admits a new connection in about ninety seconds and refuses it until then. `outcome` is `admitted`, `failed` (with the operation's `errorCode`) or `timeout`, which means the connection may still be admitted: call the tool again rather than creating another connection. It reads only, honours cancellation, and never follows a `links.self` to another origin than the API's.
+
+Each refusal of step 2 names what to do next after the API's own text (see [Tool Errors](#tool-errors)): a kind the API does not know yet, a plan that does not allow the connection, a hub that already holds its one Home Assistant link (with the `client_id` holding it), or a token the API refused (sign in again). `thalovant_delete_client` removes a connection (`If-Match`, reading the etag first when none is given, retrying once on `412`, and counting a connection already gone as deleted); it is a destructive tool the operator enables.
+
+Answering the hub's requests afterwards is the integration's own long-lived job, on the data plane; an MCP tool call holds a hub connection only for its own length, so that part of the link is not a tool.
 
 ## Local Stdio
 
@@ -325,6 +348,7 @@ Read-only:
 - `thalovant_list_hubs`
 - `thalovant_get_hub`
 - `thalovant_get_operation`
+- `thalovant_wait_for_admission`
 - `thalovant_identity_status`
 - `thalovant_healthcheck`
 - `thalovant_intent_inventory`
@@ -343,6 +367,12 @@ Skill and runtime-group discovery (read-only):
 - `thalovant_get_runtime_group`
 - `thalovant_get_runtime_group_config`
 - `thalovant_get_hub_runtime_capabilities`
+
+Sign-in (see [Device Sign-In](#device-sign-in)):
+
+- `thalovant_begin_device_login`
+- `thalovant_poll_device_login`
+- `thalovant_revoke_device_login`
 
 Writes or hub events:
 
@@ -382,6 +412,7 @@ Destructive, **not registered unless explicitly enabled** (see [Destructive Tool
 
 - `thalovant_delete_hub`
 - `thalovant_delete_runtime_group`
+- `thalovant_delete_client`
 
 Tool outputs redact credential-shaped fields. `thalovant_create_client_identity` does not return secret identity material; pass `savePath` when you want the full identity written to a local file with mode `0600`. `savePath` is confined to the server's identity directory (`THALOVANT_MCP_IDENTITY_DIR`, default `<config-dir>/thalovant/identities`): pass a plain filename, since absolute paths outside that directory and `..` traversal are rejected, so a model cannot drop a credential file into a git working tree or synced folder. `thalovant_config_status` reports the active `identityDir`.
 
@@ -457,9 +488,9 @@ or use an SDK that preserves large JSON integers.
 
 ## Destructive Tools
 
-`thalovant_delete_hub` and `thalovant_delete_runtime_group` are **disabled by default**. They are not merely blocked when called — they are never registered, so they do not appear in `tools/list` and a model cannot see or attempt them.
+`thalovant_delete_hub`, `thalovant_delete_runtime_group` and `thalovant_delete_client` are **disabled by default**. They are not merely blocked when called — they are never registered, so they do not appear in `tools/list` and a model cannot see or attempt them.
 
-A long-lived control-plane token combined with an always-available delete tool is a categorically different risk from a read or update tool: deleting a hub also deletes its dependent clients and ACLs, and none of it is reversible. So these two are opt-in:
+A long-lived control-plane token combined with an always-available delete tool is a categorically different risk from a read or update tool: deleting a hub also deletes its dependent clients and ACLs, and none of it is reversible. So these are opt-in:
 
 ```bash
 export THALOVANT_ENABLE_DESTRUCTIVE_TOOLS="true"
@@ -477,7 +508,7 @@ export MCP_TOOL_DENYLIST="thalovant_delete_hub,thalovant_delete_runtime_group"
 
 The global deny applies to every principal and cannot be overridden by a principal's `allowedTools`. To restrict only selected principals, leave these tools out of the global denylist and use those principals' `deniedTools` instead.
 
-Deleting a hub still requires a current etag (`412` otherwise), and deleting a runtime group fails with `409` while it is the workspace default or still has hubs attached.
+Deleting a hub still requires a current etag (`412` otherwise), and deleting a runtime group fails with `409` while it is the workspace default or still has hubs attached. Deleting a client cuts off the device or link using it; its etag is read first when none is given.
 
 ## Non-Catalog Skill Sources
 
@@ -491,7 +522,7 @@ With the flag unset, a call with any `sourceType` other than `catalog` fails bef
 
 ## Read-Only Mode
 
-Set `THALOVANT_MCP_READONLY=1` to register only tools annotated `readOnlyHint: true`. Write and destructive tools are then never registered and never appear in `tools/list`, so an operator can run an observe-only agent without hand-writing a denylist. Like the other registration-time gates it is read when a server instance is created; `thalovant_config_status` reports the state as `readOnly`.
+Set `THALOVANT_MCP_READONLY=1` to register only tools annotated `readOnlyHint: true` (the sign-in tools are not among them; `thalovant_wait_for_admission` is). Write and destructive tools are then never registered and never appear in `tools/list`, so an operator can run an observe-only agent without hand-writing a denylist. Like the other registration-time gates it is read when a server instance is created; `thalovant_config_status` reports the state as `readOnly`.
 
 ## HiveMind Runtime Compatibility
 
@@ -499,7 +530,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.5.1 requires `@thalovant/sdk` `^0.7.1` (0.7.1 through versions below 0.8.0). This release enforces
+Version 0.6.0 requires `@thalovant/sdk` `^0.9.0` (0.9.0 through versions below 0.10.0). Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
@@ -577,7 +608,7 @@ one tool for every SDK conversation or event-listener method.
 
 ### Shared-runtime skill management
 
-The catalog has 46 default tools, 23 in read-only mode, and 48 with destructive tools enabled.
+The catalog has 50 default tools, 24 in read-only mode, and 53 with destructive tools enabled.
 
 Hub-addressed skill methods select the runtime group attached to the hub UUID.
 Every hub sharing that group sees the same skill changes and history. The API
