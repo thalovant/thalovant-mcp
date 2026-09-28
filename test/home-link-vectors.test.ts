@@ -32,6 +32,7 @@ import {
   ThalovantAdmissionTimeoutError,
   ThalovantAlreadyLinkedError,
   ThalovantApiError,
+  ThalovantApiUnreachableError,
   ThalovantAuthError,
   ThalovantConnectionError,
   ThalovantControlPlane,
@@ -50,7 +51,7 @@ type Json = Record<string, unknown>;
 
 interface Exchange {
   request: { method: string; path: string; json?: unknown; json_subset?: unknown; if_match?: string; authorization?: string };
-  response: { status: number; content_type: string; body: string };
+  response: { status: number; content_type: string; body: string; headers?: Record<string, string> };
   repeat?: boolean;
 }
 
@@ -127,10 +128,11 @@ class ScriptedApi {
     if ("if_match" in expected && ifMatch !== expected.if_match) this.mismatches.push(`If-Match ${String(ifMatch)} != ${expected.if_match}`);
     if ("authorization" in expected && request.headers.authorization !== expected.authorization) this.mismatches.push("wrong Authorization header");
     const answer = Buffer.from(exchange.response.body, "utf8");
-    response.writeHead(
-      exchange.response.status,
-      answer.length ? { "Content-Type": exchange.response.content_type, "Content-Length": String(answer.length) } : {},
-    );
+    // The case's own headers too: a 429 carries Retry-After or RateLimit-Reset.
+    response.writeHead(exchange.response.status, {
+      ...(exchange.response.headers ?? {}),
+      ...(answer.length ? { "Content-Type": exchange.response.content_type, "Content-Length": String(answer.length) } : {}),
+    });
     response.end(answer);
   }
 }
@@ -152,7 +154,12 @@ function contains(value: unknown, subset: unknown): boolean {
   return same(value, subset);
 }
 
-const api = new ScriptedApi();
+/**
+ * The API the tools' servers are pointed at, for the whole file. The SDK path
+ * swaps in a server of its own for each case, so a request an earlier case
+ * gave up on at its deadline can never take a later case's answer.
+ */
+let api = new ScriptedApi();
 
 beforeAll(async () => {
   await api.start();
@@ -273,12 +280,39 @@ function admissionShape(expect: Json, produced: Json, waitedMs: number): Json {
   return produced;
 }
 
+/** A loopback port nothing listens on: bound, then released. */
+async function closedPort(): Promise<number> {
+  const probe = createServer();
+  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
+  const { port } = probe.address() as AddressInfo;
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
+  return port;
+}
+
+/** The case's operation with {api_host} and {api_port} filled in. */
+function placed(value: unknown): unknown {
+  const port = new URL(api.url).port;
+  if (typeof value === "string") return value.replaceAll("{api_host}", "127.0.0.1").replaceAll("{api_port}", port);
+  if (Array.isArray(value)) return value.map((item) => placed(item));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, placed(item)]));
+  return value;
+}
+
+/** A failed admission as the reference records it: the API's status, code and detail when it refused the wait. */
+function failedShape(errorCode: unknown, status: unknown, code: unknown, detail: unknown, polls: number): Json {
+  const produced: Json = { outcome: "failed", error_code: errorCode ?? null, status: status ?? null };
+  if (status !== null && status !== undefined) Object.assign(produced, { code: code ?? null, detail: detail ?? null });
+  produced.polls = polls;
+  return produced;
+}
+
 async function sdkAdmission(call: Json, expect: Json): Promise<Json> {
-  const plane = new ThalovantControlPlane(api.url, { accessToken: TOKEN });
+  const url = call.api === "unreachable" ? `http://127.0.0.1:${await closedPort()}` : api.url;
+  const plane = new ThalovantControlPlane(url, { accessToken: TOKEN });
   const started = performance.now();
   let produced: Json;
   try {
-    await plane.waitForAdmission(call.operation as Json | null, {
+    await plane.waitForAdmission(placed(call.operation) as Json | null, {
       timeoutMs: call.timeout_ms as number,
       pollIntervalMs: call.poll_interval_ms as number,
     });
@@ -286,9 +320,14 @@ async function sdkAdmission(call: Json, expect: Json): Promise<Json> {
   } catch (error) {
     if (error instanceof ThalovantAdmissionTimeoutError) {
       assert.ok(error instanceof ThalovantConnectionError && error instanceof ThalovantTimeoutError);
+      assert.ok(error.message.endsWith("it may still admit it later."), error.message);
       produced = { outcome: "timeout", polls: api.sent.length };
     } else if (error instanceof ThalovantAdmissionFailedError) {
-      produced = { outcome: "failed", error_code: error.errorCode ?? null, polls: api.sent.length };
+      produced = failedShape(error.errorCode, error.statusCode, error.code, error.detail, api.sent.length);
+    } else if (error instanceof ThalovantApiUnreachableError) {
+      produced = { outcome: "unreachable", polls: api.sent.length };
+    } else if (error instanceof ThalovantAuthError) {
+      produced = { outcome: "auth", status: error.statusCode ?? null, polls: api.sent.length };
     } else {
       assert.ok(error instanceof ThalovantApiError, String(error));
       produced = { outcome: "error", polls: api.sent.length };
@@ -305,12 +344,22 @@ describe("the SDK under this server runs the vectors", () => {
   ] as const) {
     for (const one of spec.cases) {
       test(`${file}: ${one.name}`, async () => {
-        api.use(one.exchanges);
-        const produced = await (run as (call: Json, expect: Json) => Promise<unknown>)(one.call, one.expect as Json);
+        const shared = api;
+        const own = new ScriptedApi();
+        await own.start();
+        own.use(one.exchanges);
+        api = own;
+        let produced: unknown;
+        try {
+          produced = await (run as (call: Json, expect: Json) => Promise<unknown>)(one.call, one.expect as Json);
+        } finally {
+          api = shared;
+          await own.stop();
+        }
         // Recorded before the assert: what the SDK produced, not the vector restated.
         record(file, one.name, produced);
-        assert.deepEqual(api.mismatches, []);
-        if (file === "device-login-vectors.json") assert.equal(api.index, one.exchanges.length, "not every exchange was used");
+        assert.deepEqual(own.mismatches, []);
+        if (file === "device-login-vectors.json") assert.equal(own.index, one.exchanges.length, "not every exchange was used");
         assert.deepEqual(produced, one.expect);
       }, 15_000);
     }
@@ -507,23 +556,42 @@ describe("the admission tool", () => {
 
   for (const one of ADMISSION.cases) {
     test(one.name, async () => {
-      const call = one.call as { operation: { links: { self: string } } | null; timeout_ms: number };
+      const call = one.call as { operation: { links: { self: string } } | null; timeout_ms: number; api?: string };
       api.use(one.exchanges);
+      // An API out of reach needs a server pointed at a port nothing listens on.
+      const using = call.api === "unreachable"
+        ? await stdioServer({ THALOVANT_API_URL: `http://127.0.0.1:${await closedPort()}`, THALOVANT_API_TOKEN: TOKEN })
+        : client;
       const started = performance.now();
-      // The tool's own floors: a second of waiting and half a second between reads.
-      const answer = await tool(client, "thalovant_wait_for_admission", {
-        ...(call.operation ? { operationId: call.operation.links.self } : {}),
-        timeoutMs: Math.max(1_000, call.timeout_ms),
-        pollIntervalMs: 500,
-      });
-      const out = answer.json;
-      const produced = admissionShape(one.expect as Json, answer.error ? { outcome: "error", polls: api.sent.length }
-        : out!.outcome === "failed" ? { outcome: "failed", error_code: out!.errorCode, polls: api.sent.length }
-        : { outcome: out!.outcome, polls: api.sent.length }, performance.now() - started);
-      record("connection-admission-vectors.json", one.name, produced);
-      assert.deepEqual(api.mismatches, []);
-      assert.deepEqual(produced, one.expect);
-      if (answer.error) assert.match(answer.text, /outside the Thalovant API/);
+      try {
+        const operation = placed(call.operation) as { links: { self: string } } | null;
+        // The tool's own floors: a second of waiting and half a second between reads.
+        const answer = await tool(using, "thalovant_wait_for_admission", {
+          ...(operation ? { operationId: operation.links.self } : {}),
+          timeoutMs: Math.max(1_000, call.timeout_ms),
+          pollIntervalMs: 500,
+        });
+        const out = answer.json;
+        let produced: Json;
+        if (!answer.error) {
+          produced = out!.outcome === "failed"
+            ? failedShape(out!.errorCode, out!.status, out!.code, out!.detail, api.sent.length)
+            : { outcome: out!.outcome, polls: api.sent.length };
+        } else if (/Sign in again/.test(answer.text)) {
+          produced = { outcome: "auth", status: statusIn(answer.text), polls: api.sent.length };
+        } else if (/could not be reached/.test(answer.text)) {
+          produced = { outcome: "unreachable", polls: api.sent.length };
+        } else {
+          assert.match(answer.text, /outside the Thalovant API/);
+          produced = { outcome: "error", polls: api.sent.length };
+        }
+        admissionShape(one.expect as Json, produced, performance.now() - started);
+        record("connection-admission-vectors.json", one.name, produced);
+        assert.deepEqual(api.mismatches, []);
+        assert.deepEqual(produced, one.expect);
+      } finally {
+        if (using !== client) await using.close();
+      }
     }, 15_000);
   }
 });

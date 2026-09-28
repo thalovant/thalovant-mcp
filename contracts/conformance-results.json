@@ -29,17 +29,25 @@
       }
     },
     "connection-admission-vectors.json": {
-      "digest": "6dceea87d7e334023d27a267aee9eb28a02239107daad09e79621564a742f069",
+      "digest": "a190ebe48fd28d0dc0db0927418ee8d4d2e1a0845580d91c81ed52c75568eec4",
       "cases": {
         "a 429 asking for longer than is left is a timeout at once": "b18c45b67b05aa5575266285018e95cfe34fe6e0d610649ca92eafc003afc313",
         "a 429 waits the time the API names, then polls again": "075e46531162438388caa086b320657ecbb1439fc8519fe5cf7ef330a98f690f",
         "a 503 is ridden out": "8a30909a895e3b5eefff4a9c3d1ac85e593f6b18f3f02528f6e27c36f262b0f0",
-        "a failed operation": "0d7a9de7df304db6dffec65856488e440c00ad13a7e873ddad835ba37b31deee",
+        "a failed operation": "2ed6e468a4843c8c3bcd3e5d1d4b317cca6321031b77665b4d0388bc847dd2c3",
+        "a link on the API's own origin is followed": "8abff75a963c1322438d3d407fe09e574d13fa57f932198309669f46234c4e69",
         "a link to another origin is never fetched": "3f5d92d01b014155dae5857b5a80892fe32a362403a3b8aef8cb45fb6c1389bd",
+        "a revoked token while waiting is the authentication error, not a failed admission": "03aa6f41e5d1a5e938f924f81a4db47eef5c5fd55f1b4cb3f719d128af1c4553",
+        "a token without the scope while waiting is the authentication error too": "8eaef0441b8757bfd1cc42fbfbd13b38291d5e2bc7b4bdd0eb2aa3a7c1ce6617",
+        "an API out of reach is reported as it is": "8c3e3de8593165d8354c5d560174e92bccda782e9eaa6d056f4e7993c878083d",
         "an operation no longer tracked": "8abff75a963c1322438d3d407fe09e574d13fa57f932198309669f46234c4e69",
-        "an operation the platform gave up on": "604777ab71be068c000fbd0959bf57566a9e3bd49cf5da41c9504f905e80e2e5",
+        "an operation the platform gave up on": "09c7be918fdd894e593aad788166c01b3193c0cb2d5d79a29a1bc41832ef7935",
         "no operation, nothing to wait for": "d8f7834cc9f23d3487b850ddbed2d6b8102995239588de228d9536cee2960064",
         "still committed when the wait runs out": "e52d4dc3b0148a561e5b42b491cf9afc5dab4ab88ad9539cbdc75c1b025646e1",
+        "the API refusing the wait itself keeps what it said": "500d8a2e3ef53e516e2fd5cced0c567e577c824dc71f6bd8464384a2f0de69fd",
+        "the API's rate limiter answers in plain text, and RateLimit-Reset is the wait": "075e46531162438388caa086b320657ecbb1439fc8519fe5cf7ef330a98f690f",
+        "the same host on another port is another origin": "3f5d92d01b014155dae5857b5a80892fe32a362403a3b8aef8cb45fb6c1389bd",
+        "the same host over another scheme is another origin": "3f5d92d01b014155dae5857b5a80892fe32a362403a3b8aef8cb45fb6c1389bd",
         "through every stage to ready": "342ebb4f6d3f360bd92475922463421e82f72cda2eab2165de61db1230ab6734"
       }
     },
@@ -75,13 +83,14 @@
       }
     },
     "device-login-vectors.json": {
-      "digest": "b96376558bf90858d131652d2cd96e2f7fdba3892b5a38395801d860f6b5af6b",
+      "digest": "489348f8493d492e3673d45f6f5e3f102b8a0c9dd94297e8d00b0d226bc685a9",
       "cases": {
         "a grant without the complete URL still starts": "bcf54e9daee0cf76f71900b36e7f26cfe3c2aba7125920f6ba76c109eb51b787",
         "a person who said no": "88ee570f52a525076ee2eaaf7aac720f700a2163d50c070940993a946f4ccf19",
         "a token already revoked cannot authenticate its own revoke, and that is revoked too": "d75c96a38d84f0667274a1f099f8be2179523066395e05871db595e2e31bf4c7",
         "a token response without a token is an error": "4571bbb6de34dc3170244e3278fa65424544e1d970eab12dab66f1484d847a5f",
         "a verification URL carrying credentials is refused": "4571bbb6de34dc3170244e3278fa65424544e1d970eab12dab66f1484d847a5f",
+        "an empty scope list is left out, so the API's default applies": "b40957b3416e5a0e4c9f8e504003c1a0e39a611cc96baeca5859a587ff6805b7",
         "an expired code": "66f91fdc337e18cd7be77e652b5375dceca6f68e8d8637c2e6b6ff1dbc97caa5",
         "any other failure keeps what the API said": "122a29b6bdd870a048b44a0f844d69bab2a9b18c086f1b310a87dd9859d8bc4e",
         "approved, with the token's scopes and id": "c4962c2ce8e60038cdde334e436ef83898c21b80ce2bf8906fd88011d373c7db",

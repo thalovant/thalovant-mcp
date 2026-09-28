@@ -20,6 +20,7 @@ import {
   ThalovantAdmissionTimeoutError,
   ThalovantAlreadyLinkedError,
   ThalovantApiError,
+  ThalovantApiUnreachableError,
   ThalovantAuthError,
   ThalovantClient,
   ThalovantControlPlane,
@@ -372,6 +373,9 @@ function connectionErrorHint(error: unknown, connectionType: string | undefined)
   }
   if (error instanceof ThalovantAuthError) {
     return "The API refused the token itself: it is unknown, expired or revoked (401), the account is locked (423), or it lacks clients:write (403 Insufficient scopes). Sign in again with thalovant_begin_device_login, or configure a token that carries clients:read and clients:write.";
+  }
+  if (error instanceof ThalovantApiUnreachableError) {
+    return "The Thalovant API could not be reached, which says nothing about the connection: it may be admitted, or created, all the same. Try again once the API answers; do not create another connection before checking.";
   }
   return undefined;
 }
@@ -1727,7 +1731,7 @@ export function createServer(): McpServer {
     {
       title: "Wait For Connection Admission",
       description:
-        "Wait until a hub admits a connection made with thalovant_create_client_identity: about ninety seconds after the create. Follows the operation the create returned (operationId), reading it every pollIntervalMs. outcome is admitted (ready, or an operation the API no longer tracks), failed (the platform could not admit it; errorCode says why), or timeout: timeoutMs passed first and the connection may still be admitted, so call this tool again rather than creating another connection. Omit operationId when the create returned none. Reads only.",
+        "Wait until a hub admits a connection made with thalovant_create_client_identity: about ninety seconds after the create. Follows the operation the create returned (operationId), reading it every pollIntervalMs; a 429 is waited out for the time the API names. outcome is admitted (ready, or an operation the API no longer tracks), failed -- the platform could not admit it (errorCode says why, status is null) or the API refused the wait itself (status, code and detail say what it answered) -- or timeout: timeoutMs passed first and the connection may still be admitted, so call this tool again rather than creating another connection. A token the API refuses (401, 403) or an API out of reach is a tool error of its own, not a failed admission. Omit operationId when the create returned none. Reads only.",
       inputSchema: {
         ...controlPlaneSchema,
         operationId: z
@@ -1760,10 +1764,18 @@ export function createServer(): McpServer {
           });
         }
         if (error instanceof ThalovantAdmissionFailedError) {
-          return jsonContent({ outcome: "failed", errorCode: error.errorCode ?? null, message: error.message });
+          // The API's own words when it refused the wait; null for a failure on the platform.
+          return jsonContent(redactSecrets({
+            outcome: "failed",
+            errorCode: error.errorCode ?? null,
+            status: error.statusCode ?? null,
+            code: error.code ?? null,
+            detail: error.detail ?? null,
+            message: error.message,
+          }));
         }
         throwIfRuntimeCancelled(signal);
-        throw error;
+        withConnectionHint(error);
       }
     },
   );
@@ -1778,10 +1790,9 @@ export function createServer(): McpServer {
         apiUrl: controlPlaneSchema.apiUrl,
         scopes: z
           .array(z.string().min(1).max(64))
-          .min(1)
           .max(32)
           .optional()
-          .describe(`Scopes the token will carry. The API applies its default when omitted. A Home Assistant link asks for ${HOME_ASSISTANT_SCOPES.join(", ")}.`),
+          .describe(`Scopes the token will carry. The API applies its default when omitted or empty (an empty list is left out of the request). A Home Assistant link asks for ${HOME_ASSISTANT_SCOPES.join(", ")}.`),
         clientName: z.string().min(1).max(128).optional().describe("The name the approval page and the dashboard's token list show."),
       },
       annotations: {
