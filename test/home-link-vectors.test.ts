@@ -23,7 +23,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import { createServer as createNetServer, type AddressInfo, type Server as NetServer } from "node:net";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import {
@@ -280,14 +280,23 @@ function admissionShape(expect: Json, produced: Json, waitedMs: number): Json {
   return produced;
 }
 
-/** A loopback port nothing listens on: bound, then released. */
-async function closedPort(): Promise<number> {
-  const probe = createServer();
-  await new Promise<void>((resolve) => probe.listen(0, "127.0.0.1", resolve));
-  const { port } = probe.address() as AddressInfo;
-  await new Promise<void>((resolve) => probe.close(() => resolve()));
-  return port;
+/**
+ * A loopback port where the API is out of reach: a listener that resets every
+ * connection at once. A port nothing listens on would do on Linux, but
+ * Windows takes about 2 s to refuse a connect, the whole budget of the case.
+ * Closed after the file.
+ */
+const resetters: NetServer[] = [];
+async function unreachablePort(): Promise<number> {
+  const listener = createNetServer((socket) => socket.resetAndDestroy());
+  await new Promise<void>((resolve) => listener.listen(0, "127.0.0.1", resolve));
+  resetters.push(listener);
+  return (listener.address() as AddressInfo).port;
 }
+
+afterAll(async () => {
+  await Promise.all(resetters.splice(0).map((listener) => new Promise<void>((resolve) => listener.close(() => resolve()))));
+});
 
 /** The case's operation with {api_host} and {api_port} filled in. */
 function placed(value: unknown): unknown {
@@ -307,7 +316,7 @@ function failedShape(errorCode: unknown, status: unknown, code: unknown, detail:
 }
 
 async function sdkAdmission(call: Json, expect: Json): Promise<Json> {
-  const url = call.api === "unreachable" ? `http://127.0.0.1:${await closedPort()}` : api.url;
+  const url = call.api === "unreachable" ? `http://127.0.0.1:${await unreachablePort()}` : api.url;
   const plane = new ThalovantControlPlane(url, { accessToken: TOKEN });
   const started = performance.now();
   let produced: Json;
@@ -560,7 +569,7 @@ describe("the admission tool", () => {
       api.use(one.exchanges);
       // An API out of reach needs a server pointed at a port nothing listens on.
       const using = call.api === "unreachable"
-        ? await stdioServer({ THALOVANT_API_URL: `http://127.0.0.1:${await closedPort()}`, THALOVANT_API_TOKEN: TOKEN })
+        ? await stdioServer({ THALOVANT_API_URL: `http://127.0.0.1:${await unreachablePort()}`, THALOVANT_API_TOKEN: TOKEN })
         : client;
       const started = performance.now();
       try {

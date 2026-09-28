@@ -50,7 +50,7 @@
         "test/conformance-record.ts": "d13c487114a25e4ff35a895be1007cfa01aeb8e055a2d5674ac73630391cdde4",
         "test/connection-admission-vectors.json": "41eb4a83835bd50390d000fa7396b7067dafa24f3023b34985e6b254cf5fc259",
         "test/device-login.test.ts": "0304a230af6eedecd4d1863198049fb792f235c03c1733a68ace430deaa66edb",
-        "test/home-link-vectors.test.ts": "83967cd1cb56684dfd70ecba45ba188fa950affa298429ef05a7b69e565cbc8c",
+        "test/home-link-vectors.test.ts": "119a6861acfb95c43888bc2917c80e09576c20bd3f06318be0b48c15cbdec071",
         "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
@@ -69,7 +69,7 @@
         "test/conformance-record.ts": "d13c487114a25e4ff35a895be1007cfa01aeb8e055a2d5674ac73630391cdde4",
         "test/connection-kinds-vectors.json": "2baef508194472279ff2446105a1408e381b2f9e4bfc03e5f96d9c6529ddf604",
         "test/device-login.test.ts": "0304a230af6eedecd4d1863198049fb792f235c03c1733a68ace430deaa66edb",
-        "test/home-link-vectors.test.ts": "83967cd1cb56684dfd70ecba45ba188fa950affa298429ef05a7b69e565cbc8c",
+        "test/home-link-vectors.test.ts": "119a6861acfb95c43888bc2917c80e09576c20bd3f06318be0b48c15cbdec071",
         "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
@@ -115,7 +115,7 @@
         "test/conformance-record.ts": "d13c487114a25e4ff35a895be1007cfa01aeb8e055a2d5674ac73630391cdde4",
         "test/device-login-vectors.json": "8a2257cd80b5d2dfa9553420b51617c697b1ad4e6af60ba83e980e1731fa7854",
         "test/device-login.test.ts": "0304a230af6eedecd4d1863198049fb792f235c03c1733a68ace430deaa66edb",
-        "test/home-link-vectors.test.ts": "83967cd1cb56684dfd70ecba45ba188fa950affa298429ef05a7b69e565cbc8c",
+        "test/home-link-vectors.test.ts": "119a6861acfb95c43888bc2917c80e09576c20bd3f06318be0b48c15cbdec071",
         "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
