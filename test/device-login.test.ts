@@ -122,12 +122,28 @@ describe("device sign-ins held by the server", () => {
     expect(logins.signedInAs("alice")).toBeUndefined();
   });
 
-  it("hold a bounded number of sign-ins nobody finished", () => {
+  it("hold a few sign-ins per principal, and one principal cannot drop another's", () => {
     const logins = new DeviceLogins();
     const api = new ThalovantControlPlane("https://api.example.invalid");
-    const first = logins.start("alice", api, grant());
-    for (let started = 0; started < 32; started += 1) logins.start("alice", api, grant());
-    expect(logins.find(first, "alice")).toBeUndefined();
+    const alices = logins.start("alice", api, grant());
+    const first = logins.start("bob", api, grant());
+    const later = [1, 2, 3].map(() => logins.start("bob", api, grant()));
+    expect(logins.find(first, "bob")).toBeDefined();
+    logins.start("bob", api, grant());
+    // Bob's fifth drops Bob's first, and only it.
+    expect(logins.find(first, "bob")).toBeUndefined();
+    for (const id of later) expect(logins.find(id, "bob")).toBeDefined();
+    for (let started = 0; started < 100; started += 1) logins.start("bob", api, grant());
+    expect(logins.find(alices, "alice")).toBeDefined();
+  });
+
+  it("refuse a new sign-in once the server holds as many as it will", () => {
+    const logins = new DeviceLogins();
+    const api = new ThalovantControlPlane("https://api.example.invalid");
+    for (let principal = 0; principal < 64; principal += 1) {
+      for (let started = 0; started < 4; started += 1) logins.start(`p${principal}`, api, grant());
+    }
+    expect(() => logins.start("latecomer", api, grant())).toThrow(/Too many device sign-ins/);
   });
 });
 

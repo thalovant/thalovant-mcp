@@ -10,7 +10,9 @@
       "tests": {
         "test/api-error-vectors.json": "f0d2d8e6e153811f071dac6e0611f00f3c32ed772b751ccccb31904d7dc936ec",
         "test/api-error-vectors.test.ts": "427f5608d00e564504066b18ebced6c415c1c1c79f17121ad51380f31e2648e7",
-        "test/conformance-record.ts": "07b2a334e6e0da0ffd746b62077331af6e4ba06fb0ae9faee03c2f0c2c377683"
+        "test/conformance-global-setup.ts": "ca4194f8a446991716e5b1cb1df590abda626a139706168b60d9d66ac433280d",
+        "test/conformance-record.ts": "1c80f7f12eee50b23c5fced772c46ddf9019350858d63ddf5c325b5bd795a22c",
+        "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
         "api-error-vectors.json": "test/api-error-vectors.json"
@@ -23,8 +25,10 @@
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. The frames decoded are hivemind-bus-client's own encoder output, vendored as binary-frames.json, so this is the wire a hub really puts out rather than bytes built here -- encodeHiveBinaryFrame refuses to build one, because re-encoding would drop binary.data.",
       "status": "required",
       "tests": {
-        "test/conformance-record.ts": "07b2a334e6e0da0ffd746b62077331af6e4ba06fb0ae9faee03c2f0c2c377683",
-        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8"
+        "test/conformance-global-setup.ts": "ca4194f8a446991716e5b1cb1df590abda626a139706168b60d9d66ac433280d",
+        "test/conformance-record.ts": "1c80f7f12eee50b23c5fced772c46ddf9019350858d63ddf5c325b5bd795a22c",
+        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8",
+        "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
         "binary-frames.json": "test/binary-frames.json",
@@ -42,10 +46,12 @@
       "reason": "thalovant_wait_for_admission (read-only) calls waitForAdmission() of @thalovant/sdk with the MCP request's cancellation signal and answers admitted, failed with the operation's errorCode, or timeout as an outcome to wait on again; a links.self on another origin is refused before any request. Run against the shared admission vectors through the SDK (recorded) and through the tool over stdio (recorded under the same case names). The vectors carry fractional seconds, which test/conformance-record.ts digests as Python spells them (fixed notation, 1e-4 to 1e16).",
       "status": "required",
       "tests": {
-        "test/conformance-record.ts": "07b2a334e6e0da0ffd746b62077331af6e4ba06fb0ae9faee03c2f0c2c377683",
+        "test/conformance-global-setup.ts": "ca4194f8a446991716e5b1cb1df590abda626a139706168b60d9d66ac433280d",
+        "test/conformance-record.ts": "1c80f7f12eee50b23c5fced772c46ddf9019350858d63ddf5c325b5bd795a22c",
         "test/connection-admission-vectors.json": "d9f7ae3443a66b54e325b9f516f6bf3c6adc414506086d017c3e63496bf790d6",
-        "test/device-login.test.ts": "2db11d67f10ef04a721fc8d72decaf0f6276994d57a2d7c7801191ae0c3a57bb",
-        "test/home-link-vectors.test.ts": "a3e75b8a69307c47d3343a68f2d7f25e0a2d66220c129c0cd6fe4b62d9b4b47a"
+        "test/device-login.test.ts": "51fccb1423f733e766de64fcaf30d3bb2571965c8c330943ab29ba8c8fb1118f",
+        "test/home-link-vectors.test.ts": "a3e75b8a69307c47d3343a68f2d7f25e0a2d66220c129c0cd6fe4b62d9b4b47a",
+        "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
         "connection-admission-vectors.json": "test/connection-admission-vectors.json"
@@ -53,16 +59,18 @@
     },
     "connection-kinds": {
       "implementation": {
-        "src/device-login.ts": "66bf4059ecd3d4e35265b7b7061b92fa84643239bbe94a7b5a2d06fb49024733",
+        "src/device-login.ts": "c4bee28473d20de793980804dd3b08ba03e739801bf2c5217f92415607608416",
         "src/index.ts": "985519f174774e639f303064e139cb5adae0766577e9836bb0f7ec55b159ec4a"
       },
       "reason": "thalovant_create_client_identity takes connectionType and passes it to createClientIdentity() of @thalovant/sdk, which requires the kind back and deletes a client made without it; the tool answers clientId, connectionType and operationId, and a refusal keeps the api-errors text with guidance by the SDK's class (unsupported, plan, already linked with its client_id, auth). The opt-in destructive thalovant_delete_client calls deleteClient() (If-Match, read the etag first, one 412 retry, 404 is deleted). Run against the shared connection-kinds vectors through the SDK (recorded) and through both tools over stdio, where the loopback API checks every request and If-Match and a created or deleted outcome is recorded under the same case name.",
       "status": "required",
       "tests": {
-        "test/conformance-record.ts": "07b2a334e6e0da0ffd746b62077331af6e4ba06fb0ae9faee03c2f0c2c377683",
+        "test/conformance-global-setup.ts": "ca4194f8a446991716e5b1cb1df590abda626a139706168b60d9d66ac433280d",
+        "test/conformance-record.ts": "1c80f7f12eee50b23c5fced772c46ddf9019350858d63ddf5c325b5bd795a22c",
         "test/connection-kinds-vectors.json": "3f4ea0ba37afa339fff4928d54d9797ddd4f9e252230e4bf46247082bad7e2bd",
-        "test/device-login.test.ts": "2db11d67f10ef04a721fc8d72decaf0f6276994d57a2d7c7801191ae0c3a57bb",
-        "test/home-link-vectors.test.ts": "a3e75b8a69307c47d3343a68f2d7f25e0a2d66220c129c0cd6fe4b62d9b4b47a"
+        "test/device-login.test.ts": "51fccb1423f733e766de64fcaf30d3bb2571965c8c330943ab29ba8c8fb1118f",
+        "test/home-link-vectors.test.ts": "a3e75b8a69307c47d3343a68f2d7f25e0a2d66220c129c0cd6fe4b62d9b4b47a",
+        "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
         "connection-kinds-vectors.json": "test/connection-kinds-vectors.json"
@@ -86,8 +94,10 @@
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. The carry is what makes a follow-up reach the skill that just answered rather than the fallback, and this server is the thing holding the session id between turns.",
       "status": "required",
       "tests": {
-        "test/conformance-record.ts": "07b2a334e6e0da0ffd746b62077331af6e4ba06fb0ae9faee03c2f0c2c377683",
-        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8"
+        "test/conformance-global-setup.ts": "ca4194f8a446991716e5b1cb1df590abda626a139706168b60d9d66ac433280d",
+        "test/conformance-record.ts": "1c80f7f12eee50b23c5fced772c46ddf9019350858d63ddf5c325b5bd795a22c",
+        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8",
+        "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
         "conversation-vectors.json": "test/conversation-vectors.json"
@@ -95,16 +105,18 @@
     },
     "device-login": {
       "implementation": {
-        "src/device-login.ts": "66bf4059ecd3d4e35265b7b7061b92fa84643239bbe94a7b5a2d06fb49024733",
+        "src/device-login.ts": "c4bee28473d20de793980804dd3b08ba03e739801bf2c5217f92415607608416",
         "src/index.ts": "985519f174774e639f303064e139cb5adae0766577e9836bb0f7ec55b159ec4a"
       },
       "reason": "Two tools, because a tool call cannot wait for a person: thalovant_begin_device_login calls beginDeviceLogin() of @thalovant/sdk on the configured API origin only and answers the code to show with an opaque loginId, while the device code stays in src/device-login.ts, bound to the principal; thalovant_poll_device_login makes one pollDeviceLogin() and answers pending (interval, lengthened for good by slow_down), approved (the token kept server-side for that principal and lent to every control-plane tool when nothing is configured, never returned), expired or denied; thalovant_revoke_device_login revokes and forgets that token. Run against the shared device-login vectors twice, served in order by a loopback API that checks every request: through the SDK that resolves here, recorded before asserting, and through the tools over stdio against the built server, recorded under the same case names so any difference fails the recorder.",
       "status": "required",
       "tests": {
-        "test/conformance-record.ts": "07b2a334e6e0da0ffd746b62077331af6e4ba06fb0ae9faee03c2f0c2c377683",
+        "test/conformance-global-setup.ts": "ca4194f8a446991716e5b1cb1df590abda626a139706168b60d9d66ac433280d",
+        "test/conformance-record.ts": "1c80f7f12eee50b23c5fced772c46ddf9019350858d63ddf5c325b5bd795a22c",
         "test/device-login-vectors.json": "7f48cee561292aebb1ebd42ded7d6265ceb0a51f96787253b03744b7be99ca84",
-        "test/device-login.test.ts": "2db11d67f10ef04a721fc8d72decaf0f6276994d57a2d7c7801191ae0c3a57bb",
-        "test/home-link-vectors.test.ts": "a3e75b8a69307c47d3343a68f2d7f25e0a2d66220c129c0cd6fe4b62d9b4b47a"
+        "test/device-login.test.ts": "51fccb1423f733e766de64fcaf30d3bb2571965c8c330943ab29ba8c8fb1118f",
+        "test/home-link-vectors.test.ts": "a3e75b8a69307c47d3343a68f2d7f25e0a2d66220c129c0cd6fe4b62d9b4b47a",
+        "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
         "device-login-vectors.json": "test/device-login-vectors.json"
@@ -160,8 +172,10 @@
       "reason": "Inherited from @thalovant/sdk, and now run rather than asserted: the shared vectors go through whatever version actually resolves here, which is the thing a dependency range never showed. This server implements none of the three itself -- it passes sessionId through to ask and exposes no tool of its own for the hive kinds or binary frames -- so what is on par is the SDK beneath it, and that is what these cases check. Only the kind names are checkable here: a hive frame arrives unsolicited and MCP has no channel to deliver one on, so there is no subscription for this server to own.",
       "status": "required",
       "tests": {
-        "test/conformance-record.ts": "07b2a334e6e0da0ffd746b62077331af6e4ba06fb0ae9faee03c2f0c2c377683",
-        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8"
+        "test/conformance-global-setup.ts": "ca4194f8a446991716e5b1cb1df590abda626a139706168b60d9d66ac433280d",
+        "test/conformance-record.ts": "1c80f7f12eee50b23c5fced772c46ddf9019350858d63ddf5c325b5bd795a22c",
+        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8",
+        "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
         "mesh-vectors.json": "test/mesh-vectors.json"
@@ -174,9 +188,11 @@
       "reason": "Inherited from @thalovant/sdk and run rather than asserted: this server implements no part of an ask itself -- it hands every turn to the SDK -- so what is on par is the SDK beneath it, and the shared refusal vectors go through the version that actually resolves here. @thalovant/sdk 0.8.2 carries the rule and exports failureError, refusalBelongsToAsk and UNTRACKED_UTTERANCE_GRACE_MS; the range is ^0.8.7, so npm ci resolves a version that has them. Every classification and correlation case is asserted; none is recorded, because the reference records no refusal results and the vectors carry 1.5, which the recorder refuses to canonicalise.",
       "status": "required",
       "tests": {
-        "test/conformance-record.ts": "07b2a334e6e0da0ffd746b62077331af6e4ba06fb0ae9faee03c2f0c2c377683",
+        "test/conformance-global-setup.ts": "ca4194f8a446991716e5b1cb1df590abda626a139706168b60d9d66ac433280d",
+        "test/conformance-record.ts": "1c80f7f12eee50b23c5fced772c46ddf9019350858d63ddf5c325b5bd795a22c",
         "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8",
-        "test/refusal-vectors.json": "6b0f4128f1cc9fd8a54944410ce93c6515bac6cde9257284e313a4fea825bfcb"
+        "test/refusal-vectors.json": "6b0f4128f1cc9fd8a54944410ce93c6515bac6cde9257284e313a4fea825bfcb",
+        "vitest.config.ts": "1e5f05d93b3bbebbad8bd7a3fbfd3fde2d897e5d7a490ddcca8cf44d34755f8e"
       },
       "vectors": {
         "refusal-vectors.json": "test/refusal-vectors.json"

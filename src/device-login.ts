@@ -26,8 +26,14 @@ export interface SignedIn {
   readonly origin: string;
 }
 
-/** Sign-ins pending at once, across principals; the oldest is dropped first. */
-const MAX_PENDING_LOGINS = 32;
+/** Sign-ins one principal may have pending at once; its own oldest is dropped first. */
+const MAX_PENDING_PER_PRINCIPAL = 4;
+/**
+ * Sign-ins pending at once across every principal. Past it a new sign-in is
+ * refused rather than evicting somebody else's: dropping another principal's
+ * sign-in would let one caller keep everyone else from ever signing in.
+ */
+const MAX_PENDING_LOGINS = 256;
 
 export class DeviceLogins {
   private readonly pending = new Map<string, PendingLogin>();
@@ -35,9 +41,21 @@ export class DeviceLogins {
 
   constructor(private readonly now: () => number = () => Date.now()) {}
 
-  /** Keep a started sign-in for `principal`; returns the id its polls name it by. */
+  /**
+   * Keep a started sign-in for `principal`; returns the id its polls name it by.
+   *
+   * A principal holds at most a few at once, and starting another drops only
+   * its own oldest. Throws when the server as a whole holds as many as it will.
+   */
   start(principal: string, api: ThalovantControlPlane, authorization: DeviceAuthorization): string {
     this.prune();
+    const own = [...this.pending].filter(([, login]) => login.principal === principal);
+    for (const [loginId] of own.slice(0, Math.max(0, own.length - MAX_PENDING_PER_PRINCIPAL + 1))) {
+      this.pending.delete(loginId);
+    }
+    if (this.pending.size >= MAX_PENDING_LOGINS) {
+      throw new Error("Too many device sign-ins are in progress on this server. Try again once some have finished or expired.");
+    }
     const loginId = randomUUID();
     this.pending.set(loginId, {
       principal,
@@ -45,11 +63,6 @@ export class DeviceLogins {
       authorization,
       expiresAt: this.now() + authorization.expiresIn * 1000,
     });
-    while (this.pending.size > MAX_PENDING_LOGINS) {
-      const oldest = this.pending.keys().next();
-      if (oldest.done) break;
-      this.pending.delete(oldest.value);
-    }
     return loginId;
   }
 
