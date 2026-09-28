@@ -17,11 +17,14 @@
  * a whole number inside 2^53 is spelled the same way by every language, so
  * anything else is refused rather than recorded as a value nobody produced.
  *
- * Set `THALOVANT_CONFORMANCE_OUT` and run the suite.
+ * Set `THALOVANT_CONFORMANCE_OUT` and run the suite: each worker writes what
+ * it recorded to a shard of its own, and `test/conformance-global-setup.ts`
+ * merges the shards into the file once, after every worker has finished.
  */
 import { createHash } from "node:crypto";
-import { mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { threadId } from "node:worker_threads";
 
 const results = new Map<string, Map<string, string>>();
 
@@ -63,37 +66,60 @@ export function record(vectorFile: string, name: string, produced: unknown): voi
     throw new Error(`${vectorFile}/${name}: recorded twice with different outputs`);
   }
   cases.set(name, digest);
-  publish(target);
+  writeShard(target);
 }
 
 /**
- * Written through on every record rather than at exit.
+ * This worker's shard, written through on every record rather than at exit.
  *
  * Vitest runs test files in workers, and a worker is not guaranteed to run a
- * process exit handler. Ten records is a trivial cost, and each one leaves the
- * file complete; the shard directory carries whatever other workers have
- * recorded so far.
+ * process exit handler. The shard is this worker's alone -- named by process
+ * and thread, and staged under that name too -- so no two workers ever write
+ * the same file, and nothing here reads another worker's.
  */
-function publish(target: string): void {
+function writeShard(target: string): void {
   const parts = `${target}.parts`;
   mkdirSync(parts, { recursive: true });
   const mine: Record<string, Record<string, string>> = {};
   for (const [vectorFile, cases] of results) mine[vectorFile] = Object.fromEntries(cases);
-  const shard = join(parts, `${process.pid}.json`);
+  const shard = join(parts, `${process.pid}-${threadId}.json`);
   writeFileSync(`${shard}.writing`, JSON.stringify(mine), "utf8");
   renameSync(`${shard}.writing`, shard);
+}
 
+/**
+ * Merge every worker's shard into `target`, once, and remove the shards.
+ *
+ * Run by the global setup's teardown, after all workers have finished, so the
+ * scan sees every shard there will be. Merging inside the workers raced: two
+ * of them staged the same file and renamed each other's away, and a merge that
+ * scanned before another worker's shard landed could be renamed into place
+ * after a complete one. A case two workers recorded differently is refused.
+ * Written even when nothing was recorded: leaving the old file alone would let
+ * a run that executed no case present an earlier run's output as its own.
+ */
+export function mergeShards(target: string): void {
+  const parts = `${target}.parts`;
   const merged = new Map<string, Map<string, string>>();
-  for (const name of readdirSync(parts).sort()) {
+  let names: string[] = [];
+  try {
+    names = readdirSync(parts).sort();
+  } catch {
+    names = [];
+  }
+  for (const name of names) {
     if (!name.endsWith(".json")) continue;
-    const shardBody = JSON.parse(readFileSync(join(parts, name), "utf8")) as Record<
-      string,
-      Record<string, string>
-    >;
+    const shardBody = JSON.parse(readFileSync(join(parts, name), "utf8")) as Record<string, Record<string, string>>;
     for (const [vectorFile, cases] of Object.entries(shardBody)) {
       let into = merged.get(vectorFile);
       if (!into) merged.set(vectorFile, (into = new Map()));
-      for (const [caseName, digest] of Object.entries(cases)) into.set(caseName, digest);
+      for (const [caseName, digest] of Object.entries(cases)) {
+        const previous = into.get(caseName);
+        if (previous !== undefined && previous !== digest) {
+          throw new Error(`${vectorFile}/${caseName}: recorded twice with different outputs`);
+        }
+        into.set(caseName, digest);
+      }
     }
   }
 
@@ -111,4 +137,5 @@ function publish(target: string): void {
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(`${target}.writing`, JSON.stringify({ schema_version: 1, results: out }, null, 2) + "\n", "utf8");
   renameSync(`${target}.writing`, target);
+  rmSync(parts, { recursive: true, force: true });
 }
