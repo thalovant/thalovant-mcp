@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.0 — 2026-09-27
+## 0.6.0 — 2026-09-28
 
 Link Home Assistant, or any home controller, to a hub from an agent: sign in on the device, create a connection of the `home_assistant` kind, and wait for the hub to admit it. Existing tool schemas are unchanged; every addition is optional.
 
@@ -9,7 +9,7 @@ Link Home Assistant, or any home controller, to a hub from an agent: sign in on 
 - **Admission.** `thalovant_wait_for_admission` (read-only) follows the create's operation for the ninety seconds a hub takes and answers `admitted`; `failed`, with the operation's `errorCode` for a failure on the platform or the API's `status`, `code` and `detail` when it refused the wait itself; or `timeout` as an outcome to wait on again. A 429 is ridden out for the time the API names (its body, else `Retry-After`, else `RateLimit-Reset`), and one asking for longer than is left is a timeout at once. A token the API refuses and an API out of reach are tool errors of their own, each with a hint. It honours MCP cancellation and never follows a link to another origin than the API's.
 - **`thalovant_delete_client`**, opt-in with the other destructive tools: `If-Match`, reading the etag first when none is given, one retry on `412`, and a connection already gone counts as deleted.
 - The catalog has 50 default tools (24 in read-only mode, 53 with destructive tools enabled). `thalovant_config_status` reports `deviceLoginSignedIn`.
-- Takes `@thalovant/sdk` ^0.9.0, which carries the device sign-in, the connection kinds and admission. The lock still resolves 0.8.7 until 0.9.0 is on npm; refresh it with `npm install @thalovant/sdk@^0.9.0` then.
+- Takes `@thalovant/sdk` ^0.9.0, which carries the device sign-in, the connection kinds and admission; the lock resolves 0.9.0.
 - The parity contract declares `device-login`, `connection-kinds` and `connection-admission` as required and `home-link` as not applicable: a tool call holds a hub connection only for its own length, and nothing could answer a hub's request. The three vector files run through the SDK that resolves here, recorded before asserting, and through the tools over stdio, recorded under the same names; all 46 cases digest as the reference's (reference `2460eb90bd56`). Each worker of the recorder now writes only a shard of its own, and a Vitest global setup (`vitest.config.ts`) merges the shards once after every worker has finished: merging inside the workers let two of them stage the same file and rename each other's away, and a merge that scanned early could land after a complete one.
 - The Dockerfile's version label had stayed at 0.4.0; it now says 0.6.0 like the rest.
 
