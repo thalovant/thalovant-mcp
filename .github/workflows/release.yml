@@ -189,6 +189,13 @@ jobs:
           tags: |
             type=raw,value=${{ steps.package.outputs.version }}
             type=raw,value=latest
+          # metadata-action takes the revision from github.sha, which on a
+          # dispatch is the branch the workflow ran from, not the tag that was
+          # built. published-image.mjs compares this label with the tag's
+          # commit, so a wrong one would fail every later resume.
+          labels: |
+            org.opencontainers.image.revision=${{ steps.tag.outputs.commit }}
+            org.opencontainers.image.version=${{ steps.package.outputs.version }}
 
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         if: steps.published.outputs.image == 'false'
