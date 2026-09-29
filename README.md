@@ -49,7 +49,7 @@ With none of these configured, a person can sign the server in through the brows
 
 A tool call cannot wait for a person, so the device flow (RFC 8628) is two tools:
 
-1. `thalovant_begin_device_login` with optional `scopes` (an empty list, like none, asks for the API's default) and `clientName` answers `loginId`, `userCode`, `verificationUri`, `verificationUriComplete`, `interval` and `expiresIn`. Show the person the URL and the code.
+1. `thalovant_begin_device_login` with optional `scopes` (an empty list, like none, asks for the API's default), `clientName` and `clientId` answers `loginId`, `userCode`, `verificationUri`, `verificationUriComplete`, `interval` and `expiresIn`. Show the person the URL and the code. `clientId` signs in as a registered app, `thalovant-home-assistant` for Home Assistant: the approval page shows the platform's name for it as verified, and approving it again replaces the token it already holds. An id the API does not know is refused (400 `unknown_client`).
 2. `thalovant_poll_device_login` with that `loginId` asks once. `outcome` is `pending` (poll again after `interval` seconds, already five seconds longer for good if the API asked to slow down), `approved` (with `tokenId`, `scopes` and `expiresAt`), `expired` or `denied`.
 
 The device code and the token never reach the model: the server keeps both, bound to the principal that began the sign-in, for the life of the process. Once approved, every control-plane tool for that principal uses the token when no credential is configured. `thalovant_revoke_device_login` signs out: it revokes that token (a token may always revoke itself, and one already revoked counts as revoked) and forgets it; signing out again answers `alreadyRevoked` without a request, and configured tokens are never touched. A sign-in reaches only the configured API origin (`THALOVANT_API_URL`, or the default), since the verification URL it answers with is shown to a person. A Home Assistant link asks for `hubs:read`, `clients:read` and `clients:write`, which is also all a Free plan can approve.
@@ -453,8 +453,9 @@ fields: {"allowed_images":{"bus":[...],"core":[...]},"allowed_repositories":{"co
 - `fields` is every other member of the error body as compact JSON (the
   Problem+JSON `type`, `title`, `status` and `instance` are left out), with the
   same secret redaction as every other tool output. A value a validation error
-  echoes back from the request is redacted there and never reaches the first
-  line. A plan refusal carries `resource`, `limit`, `used` and `plan` here.
+  echoes back from the request -- each entry's `input` in a `detail` or
+  `errors` list, whatever its key or shape -- is replaced with `"[omitted]"`
+  there and never reaches the first line. A plan refusal carries `resource`, `limit`, `used` and `plan` here.
 
 A hint may follow for statuses that need one. A `platform_image_required` or
 `plan_limit` 403 gets its own hint rather than the general scope hint.
@@ -530,7 +531,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.6.0 requires `@thalovant/sdk` `^0.9.0` (0.9.0 through versions below 0.10.0). Since 0.5.1 the server enforces
+Version 0.6.1 requires `@thalovant/sdk` `^0.9.1` (0.9.1 through versions below 0.10.0). Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`

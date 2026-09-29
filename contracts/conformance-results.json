@@ -2,7 +2,7 @@
   "schema_version": 1,
   "results": {
     "api-error-vectors.json": {
-      "digest": "0a7d093430093467db8c54cd746687b694c916fea798404633bd756e19aaa809",
+      "digest": "dc1a39c1b8a5be6d6213fcf099568126127868f77f8eddb20184422ea701071a",
       "cases": {
         "FastAPI's own envelope: a structured detail the API did not lift still gives its code and sentence": "e37b5e6c4bdb1197e4467ca91430f143999ff673cbda5f672853af1780aad2af",
         "FastAPI's validation list is not a sentence, and the message never repeats what was sent": "f84c10a63ddfba59a5d49aa3603091ebd6890c033edb939951ca40d2860af247",
@@ -16,6 +16,8 @@
         "a refused custom image keeps its code, its whole sentence and every list": "c8c0ee8ef09d41244e3df343825f4a2a40b60723a46806df5955ba9eff08ac73",
         "a sentence is kept exactly as sent: its line break, its spacing and its accents": "b2a14988c63acf24d5c7d9919e4a61eaf4764b20ac8510c71235c2b7f3663371",
         "a validation failure keeps its errors, and the message never repeats what was sent": "7ca7788739fb0a722fdbd480b4b59cdf6025108ef7cd4a373af8fcfe8e6aad09",
+        "an echoed input is never repeated, whatever its key or shape": "74d8c5b6f0a1c24432263f27e4c3190135e7994ba605a56bee0e1dfd4ba004e0",
+        "an echoed input under an ordinary key is never repeated either": "cacdbd9ae81ec555698dcd7829acd826fe18b5a5740baa03def427410416b97f",
         "an empty body has no problem": "0228b34361be5e56ea04e11ced54ea93919129b95d8ad85a9be0ba09f6a67f88"
       }
     },
@@ -83,20 +85,27 @@
       }
     },
     "device-login-vectors.json": {
-      "digest": "489348f8493d492e3673d45f6f5e3f102b8a0c9dd94297e8d00b0d226bc685a9",
+      "digest": "1c3adddc930ed31ee6f47996e915fd14e6eef12fda9d862fe69b832eae17c60a",
       "cases": {
+        "a code nobody can approve any more": "37a26dedda13f864c0af21d080ed70bb9c1184c6aa91c7c03538f7a1a3ad64c5",
+        "a device that named no app is not verified": "3764de87a2ccfd3b5d656dae3af9075a52c824cb92db23519424b3b07b45d223",
         "a grant without the complete URL still starts": "bcf54e9daee0cf76f71900b36e7f26cfe3c2aba7125920f6ba76c109eb51b787",
         "a person who said no": "88ee570f52a525076ee2eaaf7aac720f700a2163d50c070940993a946f4ccf19",
+        "a registered app names itself with client_id": "b40957b3416e5a0e4c9f8e504003c1a0e39a611cc96baeca5859a587ff6805b7",
         "a token already revoked cannot authenticate its own revoke, and that is revoked too": "d75c96a38d84f0667274a1f099f8be2179523066395e05871db595e2e31bf4c7",
+        "a token answer that is not a JSON object is an error with no status": "4571bbb6de34dc3170244e3278fa65424544e1d970eab12dab66f1484d847a5f",
         "a token response without a token is an error": "4571bbb6de34dc3170244e3278fa65424544e1d970eab12dab66f1484d847a5f",
         "a verification URL carrying credentials is refused": "4571bbb6de34dc3170244e3278fa65424544e1d970eab12dab66f1484d847a5f",
+        "an app the API does not know is refused": "a7539cd0f727be5dfebf39262ed2742f214f327bbeee265851fe79b3dad4a821",
         "an empty scope list is left out, so the API's default applies": "b40957b3416e5a0e4c9f8e504003c1a0e39a611cc96baeca5859a587ff6805b7",
         "an expired code": "66f91fdc337e18cd7be77e652b5375dceca6f68e8d8637c2e6b6ff1dbc97caa5",
         "any other failure keeps what the API said": "122a29b6bdd870a048b44a0f844d69bab2a9b18c086f1b310a87dd9859d8bc4e",
         "approved, with the token's scopes and id": "c4962c2ce8e60038cdde334e436ef83898c21b80ce2bf8906fd88011d373c7db",
         "begin asks for the scopes and names the client": "b40957b3416e5a0e4c9f8e504003c1a0e39a611cc96baeca5859a587ff6805b7",
+        "no client_id is left out of the request": "b40957b3416e5a0e4c9f8e504003c1a0e39a611cc96baeca5859a587ff6805b7",
         "pending while nobody has approved": "c7edcd3b878b536127bf74f3c074f3ed1ffbbd62e81b82c07ea3dccb79e8d589",
         "slow_down adds five seconds, and they stay added": "ac965a8b0a252683c9431a65111f17bebec267abd6aa59d7e0e651def2bc2c55",
+        "the approver reads a registered app as verified": "f21b06b9d8f9204374ad6c55bb79f3ec4ea5f1ffeaf099fb5712f84c6336fd6f",
         "the token signed in with revokes itself": "d75c96a38d84f0667274a1f099f8be2179523066395e05871db595e2e31bf4c7"
       }
     }

@@ -15,6 +15,7 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import {
   CONNECTION_TYPE_HOME_ASSISTANT,
   DEFAULT_CONTROL_API_URL,
+  HOME_ASSISTANT_CLIENT_ID,
   HOME_ASSISTANT_SCOPES,
   ThalovantAdmissionFailedError,
   ThalovantAdmissionTimeoutError,
@@ -1785,7 +1786,7 @@ export function createServer(): McpServer {
     {
       title: "Begin Device Sign-In",
       description:
-        "Start a device sign-in (RFC 8628) when no API token is configured: a person approves it in a browser. Show the person verificationUri and userCode (or verificationUriComplete, which carries the code), then call thalovant_poll_device_login with loginId every `interval` seconds. The device code stays on this server. Once approved, control-plane tools for this principal use the token it minted. A Home Assistant link asks for hubs:read, clients:read and clients:write, which is also all a Free plan can approve.",
+        "Start a device sign-in (RFC 8628) when no API token is configured: a person approves it in a browser. Show the person verificationUri and userCode (or verificationUriComplete, which carries the code), then call thalovant_poll_device_login with loginId every `interval` seconds. The device code stays on this server. Once approved, control-plane tools for this principal use the token it minted. A Home Assistant link asks for hubs:read, clients:read and clients:write, which is also all a Free plan can approve, and signs in as the registered app thalovant-home-assistant (clientId).",
       inputSchema: {
         apiUrl: controlPlaneSchema.apiUrl,
         scopes: z
@@ -1793,7 +1794,13 @@ export function createServer(): McpServer {
           .max(32)
           .optional()
           .describe(`Scopes the token will carry. The API applies its default when omitted or empty (an empty list is left out of the request). A Home Assistant link asks for ${HOME_ASSISTANT_SCOPES.join(", ")}.`),
-        clientName: z.string().min(1).max(128).optional().describe("The name the approval page and the dashboard's token list show."),
+        clientName: z.string().min(1).max(128).optional().describe("The name the approval page and the dashboard's token list show. With clientId, the device's own label beside the app's verified name."),
+        clientId: z
+          .string()
+          .min(1)
+          .max(128)
+          .optional()
+          .describe(`Sign in as a registered app: ${HOME_ASSISTANT_CLIENT_ID} for Home Assistant. The approval page then shows the platform's name for the app as verified, and approving it again replaces the token it already holds. The app may ask only for its own scopes, and an id the API does not know is refused (400 unknown_client). Left out when omitted.`),
       },
       annotations: {
         readOnlyHint: false,
@@ -1802,9 +1809,9 @@ export function createServer(): McpServer {
         openWorldHint: true,
       },
     },
-    async ({ apiUrl, scopes, clientName }) => {
+    async ({ apiUrl, scopes, clientName, clientId }) => {
       const api = await deviceLoginControlPlane(apiUrl);
-      const grant = await api.beginDeviceLogin({ scopes, clientName });
+      const grant = await api.beginDeviceLogin({ scopes, clientName, clientId });
       const loginId = deviceLogins.start(currentPrincipal().id, api, grant);
       return jsonContent({
         loginId,

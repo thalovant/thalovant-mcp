@@ -7,6 +7,23 @@ import { ThalovantApiError } from "@thalovant/sdk";
  */
 const ENVELOPE = new Set(["type", "title", "status", "instance"]);
 
+/**
+ * The lists a validation error arrives in: FastAPI's `detail` and a
+ * Problem+JSON `errors`. Each entry's `input` is what the request sent,
+ * echoed back -- a generated secret, a name, a whole spec -- under whatever key
+ * and in whatever shape the field had, so key-name redaction cannot catch it.
+ */
+const VALIDATION_LISTS = new Set(["detail", "errors"]);
+const OMITTED = "[omitted]";
+
+/** The entries of a validation list, each with its echoed `input` replaced. */
+function withoutEchoedInput(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  return value.map((entry) => (entry && typeof entry === "object" && !Array.isArray(entry) && "input" in entry
+    ? { ...(entry as Record<string, unknown>), input: OMITTED }
+    : entry));
+}
+
 /** A detail or a field list longer than this is cut, and says so. */
 const MAX_SECTION_CHARS = 4_000;
 
@@ -24,8 +41,10 @@ function bounded(text: string): string {
  * image each refused key may be instead, and that list was the part cut off.
  * So the code, the whole sentence (when the message line had to shorten it)
  * and every other field of the body follow, as one compact JSON object.
- * `redact` is the server's own secret redaction, applied to the fields: a
- * validation error echoes back what it was sent.
+ * `redact` is the server's own secret redaction, applied to the fields. A
+ * validation error echoes back what it was sent as each entry's `input`, which
+ * is replaced with "[omitted]" first: redaction by key name cannot see a bare
+ * string, or a secret under an ordinary key.
  *
  * Returns undefined for anything that is not a `ThalovantApiError`.
  */
@@ -44,7 +63,7 @@ export function apiErrorText(error: unknown, redact: (value: unknown) => unknown
       if (ENVELOPE.has(key)) continue;
       // Already on a line above when they were read as strings.
       if ((key === "code" || key === "detail") && typeof value === "string") continue;
-      fields[key] = value;
+      fields[key] = VALIDATION_LISTS.has(key) ? withoutEchoedInput(value) : value;
     }
     if (Object.keys(fields).length) lines.push(`fields: ${bounded(JSON.stringify(redact(fields)))}`);
   }

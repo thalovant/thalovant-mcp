@@ -187,7 +187,10 @@ it.each([
       expect.soft(admissionAttempts, "failed cleanup must not admit a new client").toBe(1);
       expect.soft(lifecycle).toEqual(["connect"]);
       expect.soft(errors).toEqual([]);
-      const pins = JSON.parse(await readFile(join(directory, "config", "thalovant", "noise_pins.json"), "utf8"));
+      // @thalovant/sdk 0.9.1 keeps the Noise key and pins beside the identity file,
+      // so every program reading it presents one key; the shared folder is not used.
+      await expect(readFile(join(directory, "config", "thalovant", "noise_pins.json"), "utf8")).rejects.toThrow();
+      const pins = JSON.parse(await readFile(join(directory, "noise_pins.json"), "utf8"));
       expect(Object.keys(pins)).toEqual(["mcp-test-hub"]);
       return;
     }
@@ -246,7 +249,10 @@ it.each([
     expect(errors).toEqual([]);
     expect(lifecycle.filter(value => value === "connect")).toHaveLength(19);
     expect(lifecycle.filter(value => value === "disconnect")).toHaveLength(19);
-    const pins = JSON.parse(await readFile(join(directory, "config", "thalovant", "noise_pins.json"), "utf8"));
+    // @thalovant/sdk 0.9.1 keeps the Noise key and pins beside the identity file,
+    // so every program reading it presents one key; the shared folder is not used.
+    await expect(readFile(join(directory, "config", "thalovant", "noise_pins.json"), "utf8")).rejects.toThrow();
+    const pins = JSON.parse(await readFile(join(directory, "noise_pins.json"), "utf8"));
     expect(Object.keys(pins)).toEqual(["mcp-test-hub"]);
   } finally {
     for (const release of releaseHeldResponses) release();
