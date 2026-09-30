@@ -6,7 +6,8 @@ import { runtimeReplyContent } from "../src/reply-output.js";
 const data = JSON.parse(readFileSync(new URL("./reply-claim-vectors.json", import.meta.url), "utf8"));
 for (const row of data.cases) test(`MCP reply claim: ${row.name}`, () => {
     const reply: ThalovantReply = { text:"reply", displayText:"reply", utterances:[], handled:row.handled, ok:row.handled && !row.failed,
-        events:row.contexts.map((context:EventContext) => new ThalovantEvent("speak", {}, context)),
+        events:row.contexts.map((context:EventContext, i:number) => new ThalovantEvent(
+            row.names?.[i] ?? "speak", row.metas?.[i] ? { meta: row.metas[i] } : {}, context)),
         failureEvent:row.failed ? new ThalovantEvent("failure") : undefined, displayItems:() => [] };
     const summary = runtimeReplyContent(reply).summary;
     assert.deepEqual(summary.pipelineIds, row.expected.pipeline_ids);
