@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.2 — 2026-10-02
+
+- Takes `@thalovant/sdk` ^0.9.3, which the lock resolves. Its `reply.claimed` now recognizes a skill's own confident fallback-tier answer; the earlier range silently swallowed a genuinely successful Home Assistant reply (a `claimed` answer from the home skill's fallback tier read as "nothing answered"). No code change in this package: the logic is the SDK's `replyClaimMetadata`, which `src/reply-output.ts` delegates to.
+- The parity contract acknowledges the reference's final round-two digest, and the vendored `reply-claim-vectors.json` carries the round's cases with each event's name and meta, so the assertion-on-a-non-speak-event-is-ignored case is actually exercised rather than built as a bare `speak`.
+- `package.json`, `server.json`, the OCI label and this file move to 0.6.2 together, so the release inventory's `compatible_node_sdk` can follow `package.json` to `@thalovant/sdk ^0.9.3`: the platform contracts gate compares the two byte for byte, and the dependency moved on 2026-09-30 without a release to record it.
+
 ## 0.6.1 — 2026-09-28
 
 - **Sign in as a registered app.** `thalovant_begin_device_login` takes an optional `clientId`, passed to the API as `client_id` only when given: `thalovant-home-assistant` makes the approval page show the platform's name for Home Assistant as verified, and approving it again replaces the token it already holds. An id the API does not know is refused with 400 `unknown_client`, and the tool error carries the code and sentence like any other refusal.
