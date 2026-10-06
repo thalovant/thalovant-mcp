@@ -130,7 +130,7 @@
       "implementation": {
         "src/index.ts": "afd622eb68678214e6c610e23fc6883615c52d5ac871e334567baaa3eeef4e74"
       },
-      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
+      "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures. 0.9.5 reference (3f37b7453397): Python now reads a wss:// or ws:// default_master as the WSS endpoint when none is named. This server does not choose endpoints itself; it calls @thalovant/sdk, which has read the master that way since 0.2.x, and the lockfile now resolves the published 0.9.6. No code change.",
       "status": "required",
       "tests": {
         "test/http.test.ts": "d278606147046fc5cc32c88ee2c49a6ded655bd6f921fa4f5aaac177c45ba515",
@@ -240,7 +240,8 @@
     "2460eb90bd56b1b182be3db365ba29bfef712d4ea2748061652ba0f28dcf6f50",
     "d33dc2be8b0074be4e16d89a4b615f0e6bc32d99fb513cb75e20c09cd0fab4b6",
     "3b0acf7c8b2f03bec95d9e9bba4f82e88c79ad3d98590988852e6c06deb48af0",
-    "841f3bbeec23f04c5decae75c9cfd6ea6a397992c7e4d7cd4195dc9dd919cd1a"
+    "841f3bbeec23f04c5decae75c9cfd6ea6a397992c7e4d7cd4195dc9dd919cd1a",
+    "3f37b7453397f577a1db5cf2db7f709ffa4b09194869e07970d0881239b7a218"
   ],
   "schema_version": 1
 }
