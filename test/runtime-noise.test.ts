@@ -82,6 +82,15 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
                 reply({ status: "message sent" }); return;
               }
               if (message?.msg_type === "bus") {
+                if (message.payload.type === "ovos.intent.list" && String(message.payload.data.lang).toLowerCase() === "en-ca") {
+                  // The Pop Culture hub on 2026-10-11: keyword rows only under
+                  // a regional tag, every sentence under the usual form.
+                  active.reply({ type: "ovos.intent.list.response", data: { ok: true, intents: [{
+                    skill_id: "test.scout", intent_name: "ScoutTopicIntent", lang: "en-CA",
+                    method: "keyword", enabled: true,
+                  }] }, context: message.payload.context });
+                  reply({ status: "message sent" }); return;
+                }
                 if (message.payload.type === "ovos.intent.list") {
                   active.reply({ type: "ovos.intent.list.response", data: { ok: true, intents: [{
                     skill_id: "test.weather", intent_name: "weather", lang: message.payload.data.lang,
@@ -183,6 +192,16 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     expect(inventory.examples[0].languages["en-us"]).toEqual(["What is the weather?"]);
     expect(inventory.examples[0].languages["fr-fr"]).toEqual(["Coupe le son."]);
     expect(inventory.examples[0].languages["es-es"]).toEqual(["Qué hora es?"]);
+    // @thalovant/sdk asks the usual form when a listing has keyword rows only
+    // (thalovant-python-sdk#103): en-CA lists no sentences, en-us does.
+    const regionalResult = await mcp.callTool({ name: "thalovant_intent_inventory", arguments: {
+      identityFile: identity, protocol: "https", languages: ["en-CA"], timeoutMs: 5000, sentence: true,
+    } });
+    expect(regionalResult.isError).not.toBe(true);
+    const regional = content(regionalResult);
+    expect(regional.source).toBe("intent-manifest");
+    expect(regional.skills.map((skill: { skill_id: string }) => skill.skill_id)).toEqual(["test.weather"]);
+    expect(regional.skills[0].intents[0].phrases["en-us"]).toEqual(["[please] what is the weather"]);
     const queryResult = await mcp.callTool({ name: "thalovant_query", arguments: {
       identityFile: identity, protocol: "https", text: "routed query", lang: "fr-fr", timeoutMs: 5000,
       queryId: "query-fixture", requestId: "request-fixture", sessionId: "session-fixture", replySettleMs: 0,
@@ -190,8 +209,8 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     expect(queryResult.isError).not.toBe(true);
     expect(content(queryResult)).toMatchObject({ text: "routed reply", requestId: "request-fixture", sessionId: "session-fixture" });
     expect(requests).toEqual(["one", "two", "fail", "recovered", "routed query"]);
-    expect(patterns).toEqual(["XXpsk2", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0"]);
-    expect(lifecycle).toEqual(Array.from({ length: 6 }, () => ["connect", "disconnect"]).flat());
+    expect(patterns).toEqual(["XXpsk2", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0"]);
+    expect(lifecycle).toEqual(Array.from({ length: 7 }, () => ["connect", "disconnect"]).flat());
     expect(overlap).toBe(false); expect(errors).toEqual([]);
     expect(clientKey).toBeDefined();
     // @thalovant/sdk 0.9.1 keeps the Noise key and pins beside the identity file,
