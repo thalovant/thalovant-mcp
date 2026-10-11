@@ -1961,7 +1961,7 @@ export function createServer(): McpServer {
     "thalovant_intent_inventory",
     {
       title: "Runtime Intent Inventory",
-      description: "Discover a hub's registered intents, language examples and fallback skills using its runtime identity. Unknown fallback support remains distinct from a known empty list; answerability is a conservative hint.",
+      description: "Discover a hub's registered intents, language examples and fallback skills using its runtime identity. listed_in names, per requested language, the hub language the sentences were listed in: a hub lists nothing under a language it did not load, so a language with no sentences is listed in its usual form or the closest language the hub loaded. When listed_in differs from the language asked, tell the user which language the sentences are in. Fallback skills come from ovos.skills.list in skill id order; the hub does not say in which order they are tried, so priority is null. Unknown fallback support remains distinct from a known empty list; answerability is a conservative hint.",
       inputSchema: {
         ...runtimeAuthSchema,
         languages: z.array(z.string().trim().min(1).max(100)).min(1).max(20).default(["en-us"]),
@@ -1982,8 +1982,12 @@ export function createServer(): McpServer {
       return jsonContent(redactSecrets({
         ...inventory.asObject(),
         presentation: inventoryPresentation(inventory),
+        // Keyed by the language asked, rendered from the tag that answered:
+        // a Spanish phone on an English hub gets the English sentences, and
+        // listed_in says so.
         examples: inventory.intents.map(intent => ({ id: intent.id,
-          languages: Object.fromEntries(inventory.languages.map(lang => [lang, intent.examples(lang, exampleLimit, { speakable, sentence, slots })])),
+          languages: Object.fromEntries(inventory.languages.map((lang, index) => [lang,
+            intent.examples(inventory.listedIn[index] ?? lang, exampleLimit, { speakable, sentence, slots })])),
         })),
         may_answer: Object.fromEntries(inventory.languages.map(lang => [lang, inventory.mayAnswer(lang)])),
       }));
