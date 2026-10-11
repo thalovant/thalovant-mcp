@@ -31,6 +31,7 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     const lifecycle: string[] = [];
     const patterns: string[] = [];
     const requests: string[] = [];
+    const wholeListings: Array<Record<string, unknown>> = [];
     const requestWaiters = new Map<string, () => void>();
     const observeRequest = (text: string) => new Promise<void>(resolve => requestWaiters.set(text, resolve));
     const errors: string[] = [];
@@ -91,6 +92,21 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
                   }] }, context: message.payload.context });
                   reply({ status: "message sent" }); return;
                 }
+                if (message.payload.type === "ovos.intent.list" && String(message.payload.data.lang).toLowerCase() === "ja-jp") {
+                  // A language the hub never loaded: nothing under its tag.
+                  active.reply({ type: "ovos.intent.list.response", data: { ok: true, intents: [] }, context: message.payload.context });
+                  reply({ status: "message sent" }); return;
+                }
+                if (message.payload.type === "ovos.intent.list" && !("lang" in message.payload.data)) {
+                  // The whole manifest, French listed first, answered in the
+                  // session the hub opened in its own language.
+                  wholeListings.push({ ...message.payload.data });
+                  active.reply({ type: "ovos.intent.list.response", data: { ok: true, intents: [
+                    { skill_id: "test.weather", intent_name: "weather", lang: "fr-FR", method: "template", enabled: true, definition: { samples: ["quel temps fait-il"] } },
+                    { skill_id: "test.weather", intent_name: "weather", lang: "en-US", method: "template", enabled: true, definition: { samples: ["what is the weather"] } },
+                  ] }, context: { ...message.payload.context, session: { session_id: "default", lang: "en-US" } } });
+                  reply({ status: "message sent" }); return;
+                }
                 if (message.payload.type === "ovos.intent.list") {
                   active.reply({ type: "ovos.intent.list.response", data: { ok: true, intents: [{
                     skill_id: "test.weather", intent_name: "weather", lang: message.payload.data.lang,
@@ -98,9 +114,13 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
                   }] }, context: message.payload.context });
                   reply({ status: "message sent" }); return;
                 }
-                if (message.payload.type === "ovos.skills.fallback.list") {
-                  active.reply({ type: "ovos.skills.fallback.list.response", data: { fallbacks: [
-                    { skill_id: "test.llm", priority: 100 },
+                // ovos-core reverted ovos.skills.fallback.list (#988); the SDK
+                // must not ask it, and the catch-all below would fail if it did.
+                if (message.payload.type === "ovos.skills.list") {
+                  active.reply({ type: "ovos.skills.list.response", data: { ok: true, skills: [
+                    { skill_id: "test.llm", session_id: "default", capabilities: ["fallback", "converse"], intents: 0 },
+                    { skill_id: "test.weather", session_id: "default", capabilities: [], intents: 1 },
+                    { skill_id: "someone.else", session_id: "another-session", capabilities: ["fallback"], intents: 0 },
                   ] }, context: message.payload.context });
                   reply({ status: "message sent" }); return;
                 }
@@ -186,7 +206,9 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     expect(inventory.presentation.skills[0].locales).toEqual([]);
     expect(inventory.presentation.skills[0].intents[0].phrases).toEqual(inventory.skills[0].intents[0].phrases);
     expect(inventory.presentation.notes).toContain("Runtime discovery source: intent-manifest.");
-    expect(inventory.fallbacks).toEqual([{ skill_id: "test.llm", priority: 100 }]);
+    expect(inventory.fallbacks).toEqual([{ skill_id: "test.llm", priority: null }]);
+    expect(inventory.listed_in).toEqual(["en-us", "fr-fr", "es-es"]);
+    expect(inventory.presentation.notes).toContain("Fallback skills are in skill id order; the hub does not say in which order it tries them.");
     expect(inventory.may_answer).toEqual({ "en-us": true, "fr-fr": true, "es-es": true });
     expect(inventory.skills[0].intents[0].phrases["en-us"]).toEqual(["[please] what is the weather"]);
     expect(inventory.examples[0].languages["en-us"]).toEqual(["What is the weather?"]);
@@ -202,6 +224,19 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     expect(regional.source).toBe("intent-manifest");
     expect(regional.skills.map((skill: { skill_id: string }) => skill.skill_id)).toEqual(["test.weather"]);
     expect(regional.skills[0].intents[0].phrases["en-us"]).toEqual(["[please] what is the weather"]);
+    expect(regional.listed_in).toEqual(["en-us"]);
+    // @thalovant/sdk lists a language the hub never loaded in the hub's own
+    // (thalovant-python-sdk#105): ja-JP has nothing, the hub answers in en-US.
+    const foreignResult = await mcp.callTool({ name: "thalovant_intent_inventory", arguments: {
+      identityFile: identity, protocol: "https", languages: ["ja-JP"], timeoutMs: 5000, sentence: true,
+    } });
+    expect(foreignResult.isError).not.toBe(true);
+    const foreign = content(foreignResult);
+    expect(foreign.languages).toEqual(["ja-JP"]);
+    expect(foreign.listed_in).toEqual(["en-US"]);
+    expect(foreign.examples[0].languages["ja-JP"]).toEqual(["What is the weather?"]);
+    expect(foreign.presentation.notes).toContain("Sentences for ja-JP are listed in en-US: the hub has none under ja-JP.");
+    expect(wholeListings).toEqual([{ include_definitions: true }]);
     const queryResult = await mcp.callTool({ name: "thalovant_query", arguments: {
       identityFile: identity, protocol: "https", text: "routed query", lang: "fr-fr", timeoutMs: 5000,
       queryId: "query-fixture", requestId: "request-fixture", sessionId: "session-fixture", replySettleMs: 0,
@@ -209,8 +244,8 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     expect(queryResult.isError).not.toBe(true);
     expect(content(queryResult)).toMatchObject({ text: "routed reply", requestId: "request-fixture", sessionId: "session-fixture" });
     expect(requests).toEqual(["one", "two", "fail", "recovered", "routed query"]);
-    expect(patterns).toEqual(["XXpsk2", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0"]);
-    expect(lifecycle).toEqual(Array.from({ length: 7 }, () => ["connect", "disconnect"]).flat());
+    expect(patterns).toEqual(["XXpsk2", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0", "KKpsk0"]);
+    expect(lifecycle).toEqual(Array.from({ length: 8 }, () => ["connect", "disconnect"]).flat());
     expect(overlap).toBe(false); expect(errors).toEqual([]);
     expect(clientKey).toBeDefined();
     // @thalovant/sdk 0.9.1 keeps the Noise key and pins beside the identity file,

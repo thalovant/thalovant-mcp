@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.3 — 2026-10-11
+
+- **Sentences in the language the hub answers in.** `thalovant_intent_inventory` takes `@thalovant/sdk` 0.9.9, which lists a language the hub never loaded in one of the hub's own languages: the same language in another region first, then the hub's own language, then the one with the most sentences. A hub loads its `lang` and `secondary_langs` and lists nothing under any other tag, so on 2026-10-11 a ja-JP, es-ES or de-DE request came back empty on every public hub, even though the hub answers those people. The output's `listed_in` names the language each requested language was listed in. `examples` are now rendered from that language (they used to be rendered from the requested tag and came back empty). `presentation.notes` says when the sentences are in another language, so an agent can tell the user.
+- **Fallback skills that exist.** The SDK reads fallbacks from `ovos.skills.list` and no longer asks `ovos.skills.fallback.list`, which ovos-core reverted the day it landed. Skills with no intents, such as Daily Desk's memory skill, now appear. `priority` is `null`: the hub does not say in which order it tries fallbacks, and the list is in skill id order. The tool description and README say so. A connection needs `ovos.skills.list` on its allow-list; until then fallbacks stay unknown, as before.
+- Takes `@thalovant/sdk` ^0.9.9, and the lock resolves the published 0.9.9. The parity contract acknowledges reference digest `5b973a65ab58` (see thalovant/thalovant-python-sdk#105).
+- `package.json`, `server.json`, the OCI label, the README and this file move to 0.6.3 together.
+
 ## 0.6.2 — 2026-10-02
 
 - Takes `@thalovant/sdk` ^0.9.3, which the lock resolves. Its `reply.claimed` now recognizes a skill's own confident fallback-tier answer; the earlier range silently swallowed a genuinely successful Home Assistant reply (a `claimed` answer from the home skill's fallback tier read as "nothing answered"). No code change in this package: the logic is the SDK's `replyClaimMetadata`, which `src/reply-output.ts` delegates to.

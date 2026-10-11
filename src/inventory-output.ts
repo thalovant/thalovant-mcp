@@ -8,6 +8,12 @@ export function inventoryPresentation(runtime: HubIntentInventory, generatedAt =
     `Runtime discovery source: ${runtime.source}.`,
     ...runtime.denied.map(query => `Query refused or unanswered: ${query}.`),
     ...(!runtime.fallbacksKnown ? ["Fallback skill support is unknown."] : []),
+    ...(runtime.fallbacks.length > 0 ? ["Fallback skills are in skill id order; the hub does not say in which order it tries them."] : []),
+    ...runtime.languages.flatMap((lang, index) => {
+      const listed = runtime.listedIn[index];
+      return listed && listed.toLowerCase().replaceAll("_", "-") !== lang.toLowerCase().replaceAll("_", "-")
+        ? [`Sentences for ${lang} are listed in ${listed}: the hub has none under ${lang}.`] : [];
+    }),
   ];
   const inventory = new Inventory("", "", "hub", generatedAt,
     runtime.skills.map(skill => new Skill(skill.skillId, friendlyTitle(skill.skillId), [],

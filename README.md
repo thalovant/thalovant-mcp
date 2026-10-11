@@ -418,10 +418,17 @@ Tool outputs redact credential-shaped fields. `thalovant_create_client_identity`
 
 `thalovant_intent_inventory` uses the runtime identity and accepts `languages`,
 `describe`, `fallback`, `speakable`, `sentence`, `slots`, `exampleLimit`, and a per-query/batch `timeoutMs`. It returns registered
-intents and examples, fallback skills, `fallbacks_known`, and `may_answer` by
-requested language. A missing or denied optional fallback-skill query remains
-unknown, rather than being reported as a known empty list. The optional probe
-adds at most 1500ms. A silent listing can use engine manifests; disable this with
+intents and examples, fallback skills, `fallbacks_known`, `listed_in`, and
+`may_answer` by requested language. `listed_in` names the hub language each
+requested language was listed in. A hub lists nothing under a language it did
+not load, so a language with no sentences is listed in its usual form (`en-CA`
+in `en-US`) or in the closest language the hub loaded, and `examples` are
+rendered in that language. When `listed_in` differs from what was asked, the
+sentences are in another language, and `presentation.notes` says so. Fallback
+skills come from `ovos.skills.list`, in skill id order, with `priority: null`:
+the hub does not say in which order it tries them. A missing or denied
+fallback-skill query remains unknown, rather than being reported as a known
+empty list. The optional probe adds at most 1500ms. A silent listing can use engine manifests; disable this with
 `fallback: false`. Both new tools are available in read-only mode and respect
 per-principal policy. `thalovant_get_operation` reads an operation ID returned by
 provisioning without replaying the write.
@@ -531,7 +538,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.6.2 requires `@thalovant/sdk` `^0.9.3` (0.9.3 through versions below 0.10.0). Since 0.5.1 the server enforces
+Version 0.6.3 requires `@thalovant/sdk` `^0.9.9` (0.9.9 through versions below 0.10.0). Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
