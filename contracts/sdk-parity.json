@@ -164,7 +164,8 @@
       "reason": "The question vectors are run against whatever @thalovant/sdk resolves here. The evidence used to name a Noise test, which is how a capability passes on a filename.",
       "status": "required",
       "tests": {
-        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8"
+        "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8",
+        "test/runtime-noise.test.ts": "977d57895d5b354b0b1c3cc182b965fa2fa3fea7f4476e0e18b607211a61ea43"
       },
       "vectors": {
         "question-vectors.json": "test/question-vectors.json"
@@ -215,7 +216,7 @@
         "test/reply-claim-vectors.json": "303bc10666baafbc85e67d7a9dcd6e0fbb16a99e539aed6d829fb0f4744c96b8",
         "test/reply-claims.test.ts": "abf665fc0443e415610ab68d1d0e1210ac804456259e5eeb65d589cce6609ba0",
         "test/runtime-cancellation.test.ts": "aba20f93ebfe9c03886c899f016eb2b79772714827593d51f7b1d4a26daec013",
-        "test/runtime-noise.test.ts": "81f1a26a5f7b21721299671e9e3390358329e9ad837cc8fa718e02e4bc5ee8e2"
+        "test/runtime-noise.test.ts": "977d57895d5b354b0b1c3cc182b965fa2fa3fea7f4476e0e18b607211a61ea43"
       },
       "vectors": {
         "reply-claim-vectors.json": "test/reply-claim-vectors.json"
@@ -242,7 +243,8 @@
     "d33dc2be8b0074be4e16d89a4b615f0e6bc32d99fb513cb75e20c09cd0fab4b6",
     "3b0acf7c8b2f03bec95d9e9bba4f82e88c79ad3d98590988852e6c06deb48af0",
     "841f3bbeec23f04c5decae75c9cfd6ea6a397992c7e4d7cd4195dc9dd919cd1a",
-    "3f37b7453397f577a1db5cf2db7f709ffa4b09194869e07970d0881239b7a218"
+    "3f37b7453397f577a1db5cf2db7f709ffa4b09194869e07970d0881239b7a218",
+    "600b10e7e159f6ca9c1d59d7f2a4103c2e1c66a0894b587e0224e4d9c0e66bd1"
   ],
   "schema_version": 1
 }
