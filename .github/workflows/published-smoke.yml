@@ -66,7 +66,11 @@ jobs:
         env:
           PACKAGE_VERSION: ${{ steps.target.outputs.version }}
         run: |
-          curl -fsSL "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.thalovant/thalovant-mcp" \
-            | node -e 'const fs=require("fs"); const data=JSON.parse(fs.readFileSync(0,"utf8")); const version=process.env.PACKAGE_VERSION; const entry=data.servers?.find(({server,_meta})=>server?.name==="io.github.thalovant/thalovant-mcp"&&server?.version===version&&_meta?.["io.modelcontextprotocol.registry/official"]?.isLatest===true); if(!entry) process.exit(1); const types=new Set(entry.server.packages?.map((item)=>item.registryType)); if(!types.has("npm")||!types.has("oci")) process.exit(1);'
+          # Ask for the version itself. The search endpoint answers one page
+          # of versions, oldest first, and stopped reaching the newest once
+          # the server had more versions than fit on it (0.6.3 was the first
+          # release it missed).
+          curl -fsSL "https://registry.modelcontextprotocol.io/v0.1/servers/io.github.thalovant%2Fthalovant-mcp/versions/${PACKAGE_VERSION}" \
+            | node -e 'const fs=require("fs"); const entry=JSON.parse(fs.readFileSync(0,"utf8")); const version=process.env.PACKAGE_VERSION; if(entry.server?.name!=="io.github.thalovant/thalovant-mcp"||entry.server?.version!==version||entry._meta?.["io.modelcontextprotocol.registry/official"]?.isLatest!==true) process.exit(1); const types=new Set(entry.server.packages?.map((item)=>item.registryType)); if(!types.has("npm")||!types.has("oci")) process.exit(1);'
       - if: always()
         run: docker rm -f thalovant-mcp-smoke >/dev/null 2>&1 || true
