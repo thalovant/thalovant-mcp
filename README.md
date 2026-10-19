@@ -24,6 +24,8 @@ Thalovant publishes SDKs for Python, Node.js, Go, and Rust. This server uses Nod
 
 ## Install
 
+Run the published package with `npx -y @thalovant/mcp-server`, or build it from a checkout:
+
 ```bash
 npm install
 npm run build
@@ -308,8 +310,8 @@ Recommended: authenticate with a scoped API token so the MCP config never contai
 {
   "mcpServers": {
     "thalovant": {
-      "command": "node",
-      "args": ["/home/goldyfruit/Development/Thalovant/mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@thalovant/mcp-server"],
       "env": {
         "THALOVANT_API_TOKEN": "tvpat_...",
         "THALOVANT_PROFILE": "prod"
@@ -327,8 +329,8 @@ Use the same stdio command in your MCP client config:
 {
   "mcpServers": {
     "thalovant": {
-      "command": "node",
-      "args": ["/home/goldyfruit/Development/Thalovant/mcp/dist/index.js"],
+      "command": "npx",
+      "args": ["-y", "@thalovant/mcp-server"],
       "env": {
         "THALOVANT_API_TOKEN": "tvpat_...",
         "THALOVANT_PROFILE": "prod"
@@ -538,7 +540,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.6.3 requires `@thalovant/sdk` `^0.9.9` (0.9.9 through versions below 0.10.0). Since 0.5.1 the server enforces
+Version 0.6.4 requires `@thalovant/sdk` `^0.9.9` (0.9.9 through versions below 0.10.0). Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
