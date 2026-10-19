@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.4 — 2026-10-19
+
+- **Descriptions that say what a runtime tool changes.** `thalovant_send_action`, `thalovant_send_code` and `thalovant_wait_for_event` had one-line descriptions that didn't say whether the tool changes anything. A scanner that reads only names and descriptions rated all three as high-risk tools that execute, `thalovant_wait_for_event` included, though it was already annotated `readOnlyHint: true`. `thalovant_send_action` now says the hub routes its payload like a spoken request, so a skill may act on it. `thalovant_send_code` says the hub receives its value as an exact utterance, and both say they return without waiting for a reply and that `THALOVANT_MCP_READONLY` leaves them out. `thalovant_wait_for_event` says it only listens and sends the hub nothing, and that `sessionId`, `requestId` and `context` filter which events count. `payload`, `title`, `value`, `kind`, `label` and `eventName` now have their own descriptions. Schemas, annotations and behaviour are unchanged.
+- The Claude Desktop and Codex examples start the published package with `npx -y @thalovant/mcp-server`. They used to point at a path on one developer's machine.
+- `package.json`, `server.json`, the OCI label, the README and this file move to 0.6.4 together.
+
 ## 0.6.3 — 2026-10-11
 
 - **Sentences in the language the hub answers in.** `thalovant_intent_inventory` takes `@thalovant/sdk` 0.9.9, which lists a language the hub never loaded in one of the hub's own languages: the same language in another region first, then the hub's own language, then the one with the most sentences. A hub loads its `lang` and `secondary_langs` and lists nothing under any other tag, so on 2026-10-11 a ja-JP, es-ES or de-DE request came back empty on every public hub, even though the hub answers those people. The output's `listed_in` names the language each requested language was listed in. `examples` are now rendered from that language (they used to be rendered from the requested tag and came back empty). `presentation.notes` says when the sentences are in another language, so an agent can tell the user.

@@ -2079,11 +2079,12 @@ export function createServer(): McpServer {
     "thalovant_send_action",
     {
       title: "Send Action",
-      description: "Send a structured action payload to a Thalovant hub.",
+      description:
+        "Send one action to a Thalovant hub using a saved identity, the way a button or a shortcut would. The hub routes payload like a spoken request, so the skill that takes it can change things: switch a light, start a timer, play music. Returns once the action is sent, without waiting for the reply; use thalovant_ask to read the answer. THALOVANT_MCP_READONLY leaves this tool out.",
       inputSchema: {
         ...runtimeAuthSchema,
-        payload: z.string().min(1).max(20_000),
-        title: z.string().min(1).max(512).optional(),
+        payload: z.string().min(1).max(20_000).describe("The request the hub routes, in words, such as \"turn on the kitchen light\"."),
+        title: z.string().min(1).max(512).optional().describe("A label carried with the action in its context (input.title)."),
         lang: z.string().min(1).optional(),
         sessionId: z.string().min(1).optional(),
         requestId: z.string().min(1).optional(),
@@ -2116,12 +2117,13 @@ export function createServer(): McpServer {
     "thalovant_send_code",
     {
       title: "Send Code",
-      description: "Send an exact typed, scanned, barcode, QR, or serial value to a Thalovant hub.",
+      description:
+        "Send one exact value to a Thalovant hub using a saved identity: something typed, scanned, a barcode, a QR code or a serial number. The hub receives it as an utterance whose input is marked exact, and a skill that recognizes the value may act on it. Returns once the value is sent, without waiting for a reply. THALOVANT_MCP_READONLY leaves this tool out.",
       inputSchema: {
         ...runtimeAuthSchema,
-        value: z.string().min(1).max(20_000),
-        kind: z.string().min(1).max(64).optional(),
-        label: z.string().min(1).max(128).optional(),
+        value: z.string().min(1).max(20_000).describe("The value exactly as read; only leading and trailing spaces are trimmed."),
+        kind: z.string().min(1).max(64).optional().describe("What the value is, such as barcode, qr or serial. Defaults to code."),
+        label: z.string().min(1).max(128).optional().describe("A label carried with the value in its context (input.label)."),
         lang: z.string().min(1).optional(),
         sessionId: z.string().min(1).optional(),
         requestId: z.string().min(1).optional(),
@@ -2183,10 +2185,11 @@ export function createServer(): McpServer {
     "thalovant_wait_for_event",
     {
       title: "Wait For Event",
-      description: "Wait for one named hub event using a saved identity.",
+      description:
+        "Wait for one named hub event using a saved identity and return it: the first eventName the hub sends once the connection is made, or a timeout error after timeoutMs. sessionId, requestId and context narrow it to events carrying the same values. Listens only: it opens the connection and sends the hub no message, so it changes nothing.",
       inputSchema: {
         ...runtimeAuthSchema,
-        eventName: z.string().min(1).max(256),
+        eventName: z.string().min(1).max(256).describe("The bus message type to wait for, such as speak or recognizer_loop:utterance."),
         timeoutMs: z.number().int().min(1_000).max(MAX_TIMEOUT_MS).default(DEFAULT_TIMEOUT_MS),
         sessionId: z.string().min(1).optional(),
         requestId: z.string().min(1).optional(),
