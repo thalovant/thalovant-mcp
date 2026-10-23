@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.5 - 2026-10-23
+
+- Lock the runtime transitive dependency `ip-address` to 10.7.4, fixing the IPv6 zone-identifier parsing denial of service (CVE-2026-111997). The MCP and Thalovant SDK versions, tool schemas, and protocol behavior are unchanged.
+- Update development dependencies Vite to 8.3.3 and Vitest with its matching packages to 4.1.12, fixing CVE-2026-112942, CVE-2026-112949, and CVE-2026-112950. Neither Vite nor Vitest is included in the production OCI runtime.
+- Align `package.json`, `server.json`, the OCI label, and the README at 0.6.5. Existing release security checks and published-artifact smoke checks remain unchanged.
+
 ## 0.6.4 — 2026-10-19
 
 - **Descriptions that say what a runtime tool changes.** `thalovant_send_action`, `thalovant_send_code` and `thalovant_wait_for_event` had one-line descriptions that didn't say whether the tool changes anything. A scanner that reads only names and descriptions rated all three as high-risk tools that execute, `thalovant_wait_for_event` included, though it was already annotated `readOnlyHint: true`. `thalovant_send_action` now says the hub routes its payload like a spoken request, so a skill may act on it. `thalovant_send_code` says the hub receives its value as an exact utterance, and both say they return without waiting for a reply and that `THALOVANT_MCP_READONLY` leaves them out. `thalovant_wait_for_event` says it only listens and sends the hub nothing, and that `sessionId`, `requestId` and `context` filter which events count. `payload`, `title`, `value`, `kind`, `label` and `eventName` now have their own descriptions. Schemas, annotations and behaviour are unchanged.
