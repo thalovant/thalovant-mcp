@@ -1,4 +1,13 @@
+Last Edit: Codex (exact runtime model identifier unavailable) - 2026-10-25 - Motive: Document the scoped dependency security patch.
+
 # Changelog
+
+## 0.6.6 - Unreleased
+
+- Update body-parser to 2.4.0 (CVE-2026-111181), Zod to 4.6.7 (patched bounds checks from 4.6.6), and the existing fast-uri override to 3.1.9. No audit suppression is added.
+- Migrate five records to Zod 4's explicit string-key signature. Bounded arrays reject oversized input before parsing elements. UUIDs now enforce standard version/variant bits (plus nil/max UUIDs); memory-list offsets reject unsafe integers.
+- Preserve the 50 default tools, Thalovant SDK version, permissions and transport behavior. Zod 4's generated input schemas inline repeated records, add string property names and omit the previous `additionalProperties: false` on stripping objects; unknown input keys remain stripped at runtime.
+- Align package, registry and OCI metadata at 0.6.6. Publication, published-artifact smoke checks and deployment remain separate release steps.
 
 ## 0.6.5 - 2026-10-23
 

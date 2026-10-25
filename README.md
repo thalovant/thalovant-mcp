@@ -1,3 +1,5 @@
+Last Edit: Codex (exact runtime model identifier unavailable) - 2026-10-25 - Motive: Record security dependency compatibility and the next patch version.
+
 # Thalovant MCP Server
 
 [![M8ven Live Monitored](https://m8ven.ai/badge/mcp/thalovant-thalovant-mcp-1cyhb4)](https://m8ven.ai/mcp/thalovant-thalovant-mcp-1cyhb4)
@@ -540,12 +542,14 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.6.5 requires `@thalovant/sdk` `^0.9.9` (0.9.9 through versions below 0.10.0). Since 0.5.1 the server enforces
+Version 0.6.6 requires `@thalovant/sdk` `^0.9.9` (0.9.9 through versions below 0.10.0). Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
 reports readiness only after authentication; a reachable hub or broker alone
 does not establish a runtime session.
+
+The Zod 4 security migration preserves the 50 default tools and string-keyed record values. Its JSON Schema output inlines repeated records, identifies string property names, and omits `additionalProperties: false` on stripping objects; unknown input keys are still stripped before handlers receive them. UUID validation now enforces standard version/variant bits (plus nil/max UUIDs), and memory-list offsets must be safe integers. See the [security audit](https://github.com/thalovant/thalovant-mcp/blob/main/AUDIT.md) for evidence and release gates.
 
 Keep the SDK configuration directory persistent and private between server
 restarts (`~/.config/thalovant`, or the configured XDG/Windows equivalent). It

@@ -1,6 +1,6 @@
 {
   "name": "@thalovant/mcp-server",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "description": "Stdio and Streamable HTTP MCP server for Thalovant control-plane and hub runtime APIs.",
   "license": "MIT",
   "type": "module",
@@ -66,10 +66,10 @@
     "@modelcontextprotocol/sdk": "^1.30.0",
     "@thalovant/sdk": "^0.9.9",
     "jose": "^6.2.8",
-    "zod": "^3.25.76"
+    "zod": "^4.6.6"
   },
   "overrides": {
-    "fast-uri": "3.1.8"
+    "fast-uri": "3.1.9"
   },
   "devDependencies": {
     "@types/node": "^22.18.12",

@@ -119,7 +119,7 @@ const publicHubsLimitSchema = z
   .default(25)
   .describe("Page size, 1-48. The public hubs endpoint caps page size at 48.");
 const optionalCursorSchema = z.string().min(1).optional();
-const jsonRecordSchema = z.record(z.unknown());
+const jsonRecordSchema = z.record(z.string(), z.unknown());
 
 const controlPlaneSchema = {
   loginScope: z
@@ -261,8 +261,8 @@ const hubEtagSchema = z
 
 const runtimeGroupResourceLimitsSchema = z
   .object({
-    requests: z.record(z.string()).optional(),
-    limits: z.record(z.string()).optional(),
+    requests: z.record(z.string(), z.string()).optional(),
+    limits: z.record(z.string(), z.string()).optional(),
   })
   .optional();
 
@@ -283,7 +283,7 @@ const releaseOptionsSchema = {
   channel: z.string().min(1).optional().describe("Release channel. Falls back to the workspace release policy when omitted."),
   mode: z.string().min(1).optional().describe('Release mode. Passing images without mode switches to "custom".'),
   version: z.string().min(1).optional().describe("Pinned release version."),
-  images: z.record(z.string().min(1)).optional().describe("Explicit image overrides. Switches to custom mode unless mode is also set. Non-admins may pass only images the platform releases for each key: a catalog pin of the stable or alpha channel, the resource's current, recommended or release-policy image, or the platform's default image; runtime core also accepts any tag or digest of ghcr.io/thalovant/ovos-core and hub listener any tag or digest of ghcr.io/thalovant/hivemind-listener, while bus and preview_bridge take only the listed images. Anything else fails with 403 platform_image_required, whose error lists allowed_images and allowed_repositories per refused key."),
+  images: z.record(z.string(), z.string().min(1)).optional().describe("Explicit image overrides. Switches to custom mode unless mode is also set. Non-admins may pass only images the platform releases for each key: a catalog pin of the stable or alpha channel, the resource's current, recommended or release-policy image, or the platform's default image; runtime core also accepts any tag or digest of ghcr.io/thalovant/ovos-core and hub listener any tag or digest of ghcr.io/thalovant/hivemind-listener, while bus and preview_bridge take only the listed images. Anything else fails with 403 platform_image_required, whose error lists allowed_images and allowed_repositories per refused key."),
   reason: z.string().min(1).optional().describe("Audit reason recorded with the release."),
 };
 
@@ -1967,7 +1967,7 @@ export function createServer(): McpServer {
         languages: z.array(z.string().trim().min(1).max(100)).min(1).max(20).default(["en-us"]),
         speakable: z.boolean().default(false).describe("Render intent patterns with locale slot examples; preserve complete-phrase priority."),
         sentence: z.boolean().default(false).describe("Capitalize and punctuate examples using the selected locale. Implies speakable rendering."),
-        slots: z.record(z.string().max(500)).optional().describe("Example values for named intent slots."),
+        slots: z.record(z.string(), z.string().max(500)).optional().describe("Example values for named intent slots."),
         exampleLimit: z.number().int().min(1).max(20).default(2),
         describe: z.boolean().default(true),
         fallback: z.boolean().default(true).describe("Try engine manifests if the intent listing is refused or unanswered."),
