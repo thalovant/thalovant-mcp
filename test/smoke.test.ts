@@ -58,6 +58,29 @@ describe("stdio MCP server", () => {
         const properties = tools.tools.find((tool) => tool.name === name)?.inputSchema.properties;
         for (const field of fields) expect(properties, `${name}.${field}`).toHaveProperty(field);
       }
+      const inventorySchema = tools.tools.find((tool) => tool.name === "thalovant_intent_inventory")?.inputSchema;
+      expect(inventorySchema?.properties?.slots).toMatchObject({
+        type: "object",
+        additionalProperties: { type: "string", maxLength: 500 },
+      });
+      const askSchema = tools.tools.find((tool) => tool.name === "thalovant_ask")?.inputSchema;
+      expect(askSchema?.properties?.pipeline).toMatchObject({ type: "array", maxItems: 32 });
+      const invalid = await client.callTool({
+        name: "thalovant_intent_inventory",
+        arguments: { slots: { example: 42 } },
+      });
+      expect(invalid.isError).toBe(true);
+      expect(JSON.stringify(invalid.content)).toContain("slots");
+      const memorySchema = tools.tools.find((tool) => tool.name === "thalovant_list_memory_items")?.inputSchema;
+      expect(memorySchema?.properties?.offset).toMatchObject({
+        type: "integer", minimum: 0, maximum: Number.MAX_SAFE_INTEGER,
+      });
+      const unsafeOffset = await client.callTool({
+        name: "thalovant_list_memory_items",
+        arguments: { offset: Number.MAX_SAFE_INTEGER + 1 },
+      });
+      expect(unsafeOffset.isError).toBe(true);
+      expect(JSON.stringify(unsafeOffset.content)).toContain("offset");
 
       const result = await client.callTool({
         name: "thalovant_config_status",
