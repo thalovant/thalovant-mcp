@@ -1,5 +1,16 @@
 #!/usr/bin/env node
 import { apiErrorText } from "./api-error-output.js";
+import {
+  bridgeErrorHint,
+  bridgeView,
+  chatsOutput,
+  connectorsOutput,
+  CONSOLE_CHAT_APPS,
+  CONSOLE_REPLACE_TOKEN,
+  networksOutput,
+  secretLookingSettings,
+  secretSettingsRefusal,
+} from "./chat-apps-output.js";
 import { DeviceLogins } from "./device-login.js";
 import { inventoryPresentation } from "./inventory-output.js";
 import { runtimeReplyContent } from "./reply-output.js";
@@ -177,7 +188,12 @@ const runtimeAuthSchema = {
  * they are absent from tools/list entirely rather than merely failing when
  * called. See destructiveToolsEnabled().
  */
-const DESTRUCTIVE_TOOLS = ["thalovant_delete_hub", "thalovant_delete_runtime_group", "thalovant_delete_client"] as const;
+const DESTRUCTIVE_TOOLS = [
+  "thalovant_delete_hub",
+  "thalovant_delete_runtime_group",
+  "thalovant_delete_client",
+  "thalovant_delete_bridge",
+] as const;
 
 /**
  * Device sign-ins in progress, and the tokens approved ones minted, per
@@ -258,6 +274,28 @@ const hubEtagSchema = z
   .describe(
     "Required. The hub's current etag, sent as If-Match for optimistic locking. Read it from the `etag` field in the hub resource BODY returned by thalovant_get_hub — the API does not send an ETag response header, so you must fetch the hub first. A missing or stale value fails with HTTP 412 and changes nothing: re-fetch the hub, take the new etag, and retry.",
   );
+
+const bridgeIdSchema = z.string().uuid().describe("Bridge UUID: the id from thalovant_list_bridges.");
+
+const bridgeEtagSchema = z
+  .string()
+  .min(1)
+  .max(200)
+  .optional()
+  .describe(
+    "Optional. The bridge's etag, read from the `etag` field of thalovant_get_bridge (the API sends no ETag header), sent as If-Match: a bridge changed since fails with HTTP 412 and nothing changes. Leave it out to change the bridge as it is now.",
+  );
+
+/** A chat, channel or room id as the API accepts one; each chat app's targets.pattern narrows it. */
+const bridgeChatIdSchema = z.string().regex(/^[^\s,]{1,255}$/, "A chat id is 1-255 characters with no spaces or commas.");
+
+const bridgeAllowedChatSchema = z.object({
+  id: bridgeChatIdSchema.describe("The chat, channel or room id: a row's id from thalovant_list_bridge_chats, or typed to match the chat app's targets.pattern."),
+  title: z.string().max(200).optional().describe("The chat's name, for display only."),
+  kind: z.string().max(32).optional().describe("The row's kind, for display only."),
+  guild_id: z.string().regex(/^[0-9]{1,20}$/).optional().describe("Discord: the server the channel belongs to."),
+  guild_name: z.string().max(100).optional().describe("Discord: the server's name."),
+});
 
 const runtimeGroupResourceLimitsSchema = z
   .object({
@@ -384,6 +422,14 @@ function connectionErrorHint(error: unknown, connectionType: string | undefined)
 /** Rethrow a refused connection call with its guidance, when it has any. */
 function withConnectionHint(error: unknown, connectionType?: string): never {
   const hint = connectionErrorHint(error, connectionType);
+  if (!hint) throw error;
+  const said = apiErrorText(error, redactSecrets) ?? (error instanceof Error ? error.message : String(error));
+  throw new Error(`${said}\n\n${hint}`, { cause: error });
+}
+
+/** Rethrow a refused chat app call with its guidance (see chat-apps-output.ts), when it has any. */
+function withBridgeHint(error: unknown): never {
+  const hint = bridgeErrorHint(error);
   if (!hint) throw error;
   const said = apiErrorText(error, redactSecrets) ?? (error instanceof Error ? error.message : String(error));
   throw new Error(`${said}\n\n${hint}`, { cause: error });
@@ -860,6 +906,12 @@ function clampTimeout(timeoutMs: number | undefined): number {
   return Math.min(Math.max(timeoutMs, 1_000), MAX_TIMEOUT_MS);
 }
 
+/** Whether a member name looks like it holds a credential (see SECRET_KEYS). */
+function isSecretKeyName(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return SECRET_KEYS.some((secretKey) => normalized.includes(secretKey.toLowerCase()));
+}
+
 function redactSecrets(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map((item) => redactSecrets(item));
@@ -869,9 +921,7 @@ function redactSecrets(value: unknown): unknown {
   }
   const output: Record<string, unknown> = {};
   for (const [key, nestedValue] of Object.entries(value as Record<string, unknown>)) {
-    const normalized = key.toLowerCase();
-    const isSecret = SECRET_KEYS.some((secretKey) => normalized.includes(secretKey.toLowerCase()));
-    output[key] = isSecret ? "[redacted]" : redactSecrets(nestedValue);
+    output[key] = isSecretKeyName(key) ? "[redacted]" : redactSecrets(nestedValue);
   }
   return output;
 }
@@ -3119,7 +3169,209 @@ export function createServer(): McpServer {
     },
   );
 
+  // Chat apps (/v1/bridges): a hub answering in Telegram, Discord and the
+  // other chat networks. Creating a bridge and replacing its token or secrets
+  // take a credential, which no tool of this server accepts, so those stay in
+  // the console; see chat-apps-output.ts for what each output shows.
+  registerThalovantTool(server,
+    "thalovant_list_chat_app_connectors",
+    {
+      title: "List Chat App Connectors",
+      description:
+        `List the chat apps a hub can answer in (GET /v1/bridges/connectors): Telegram and Discord, and Matrix, Mattermost or Twitch when they are listed. Each has status (offered, or beta), offered (whether a bridge can be created for it now), its description and setup steps in the language asked (English where there is no French), the secrets the console asks for (key, label, required: names only, never a value), the settings form, what a chat id looks like (targets: label, pattern, max, lowercase, strip_prefix), require_mention_fixed, the session scopes, and its helpers: with discover, thalovant_list_bridge_chats lists the chats (otherwise ids are typed); with test_message, thalovant_send_bridge_test_message works. Creating a bridge, and pasting or replacing its token or secrets, happen only in ${CONSOLE_CHAT_APPS}: no tool takes a token or secret. Requires the hubs:read scope. Reads only.`,
+      inputSchema: {
+        ...controlPlaneSchema,
+        language: z.enum(["en", "fr"]).default("en").describe("Language for descriptions, setup steps and labels: en or fr. French falls back to English where a text has no French."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ language, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      const connectors = await api.listChatAppConnectors().catch(withBridgeHint);
+      return jsonContent(connectorsOutput(connectors, language, redactSecrets));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_get_bridge_networks",
+    {
+      title: "Get Chat App Allowance",
+      description:
+        "Show which chat networks are offered and the plan's chat-app allowance (GET /v1/bridges/networks): networks (network, name, status offered or beta, offered) and allowance (plan, paid_plan, limit, used: bridges set up or running, remaining, can_create: whether a new bridge would pass the plan checks, saying nothing about a token). Free plans get 0. With hubId the allowance is the hub owner's, since bridges count against the owner; otherwise the caller's. summary says it in words. Read it before suggesting a new chat app or resuming one the plan paused. Requires the hubs:read scope. Reads only.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().uuid().optional().describe("Hub UUID: report the allowance of this hub's owner."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ hubId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      const networks = await api.getBridgeNetworks({ hubId }).catch(withBridgeHint);
+      return jsonContent(networksOutput(networks, redactSecrets));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_list_bridges",
+    {
+      title: "List Chat App Bridges",
+      description:
+        "List chat app bridges (GET /v1/bridges): one hub's with hubId, otherwise every bridge the token may see (its own, and those of workspaces where it is a member above basic); ownerId narrows that to one owner. Each bridge has its network and connector, state (setup or active), the chats it answers in (allowed), require_mention, session_scope, paused, hold (why the platform paused it: plan_limit or account_suspended; null for the owner's own pause), the bot, its invite links, secrets_set (which secrets are stored, by name), its etag, and status: reason (Setup, Starting, Connected, Paused, Unavailable, TokenMissing, TokenRejected), phase, ready, applied (whether the latest change has reached the bridge) and summary, the status in plain words. The platform's own diagnostic message is never included. Requires the hubs:read scope. Reads only.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().uuid().optional().describe("Hub UUID: list only this hub's bridges."),
+        ownerId: z.string().uuid().optional().describe("Owner UUID: narrow the visible bridges to this owner's."),
+        limit: z.number().int().min(1).max(500).optional().describe("At most this many bridges, 1-500. The API answers up to 200 when omitted."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ hubId, ownerId, limit, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      const bridges = await api.listBridges({ hubId, ownerId, limit }).catch(withBridgeHint);
+      return jsonContent({ data: bridges.map((bridge) => bridgeView(bridge, redactSecrets)) });
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_get_bridge",
+    {
+      title: "Get Chat App Bridge",
+      description:
+        "Fetch one chat app bridge (GET /v1/bridges/{id}) with the same fields as thalovant_list_bridges: status.reason, phase, ready, applied and summary (the status in plain words), hold, the chats it answers in, and the etag the write tools accept. The platform's own diagnostic message is never included. Requires the hubs:read scope. Reads only.",
+      inputSchema: { ...controlPlaneSchema, bridgeId: bridgeIdSchema },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ bridgeId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(bridgeView(await api.getBridge(bridgeId).catch(withBridgeHint), redactSecrets));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_list_bridge_chats",
+    {
+      title: "List Bridge Chats",
+      description:
+        "List the chats, channels or rooms a bridge's bot can see (GET /v1/bridges/{id}/chats), to choose from for allowed in thalovant_update_bridge. Each row has id, title, kind, the Discord server (guild_id, guild_name), allowed (it already answers there), and selectable (false for an encrypted room it cannot read). manual_entry true means this chat app cannot list its chats: type the ids instead, matching targets.pattern from thalovant_list_chat_app_connectors. Telegram lists only chats that wrote to the bot in the last 24 hours, and only while the bridge is paused (409 bridge_running otherwise): pause it with thalovant_pause_bridge, send /start@<bot username> in the new group, list, choose with thalovant_update_bridge, then resume. Listing is rate-limited per bridge. Requires the hubs:read scope. Changes nothing on Thalovant.",
+      inputSchema: { ...controlPlaneSchema, bridgeId: bridgeIdSchema },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ bridgeId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(chatsOutput(await api.listBridgeChats(bridgeId).catch(withBridgeHint), redactSecrets));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_pause_bridge",
+    {
+      title: "Pause Chat App Bridge",
+      description:
+        "Pause a chat app bridge (PATCH /v1/bridges/{id} with paused: true): it stops answering in every chat until resumed, and keeps its chats, settings and token. Always allowed, whatever the plan. Returns the bridge; status.reason turns Paused once the bridge has stopped. Requires the hubs:write scope, and the hub's owner or a workspace manager.",
+      inputSchema: { ...controlPlaneSchema, bridgeId: bridgeIdSchema, etag: bridgeEtagSchema },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ bridgeId, etag, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(bridgeView(await api.updateBridge(bridgeId, { paused: true }, { etag }).catch(withBridgeHint), redactSecrets));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_resume_bridge",
+    {
+      title: "Resume Chat App Bridge",
+      description:
+        "Resume a paused chat app bridge (PATCH /v1/bridges/{id} with paused: false). Needs a paid plan with room for one more running bridge: 402 on a plan without chat apps, 403 plan_limit when its running bridges are already at the limit (thalovant_get_bridge_networks shows the allowance). A bridge paused because the account was deactivated (hold account_suspended) resumes when the account is reactivated. A bridge with no chats yet (status Setup) starts only once thalovant_update_bridge sets allowed. Returns the bridge; status.reason turns Connected once it runs. Requires the hubs:write scope, and the hub's owner or a workspace manager.",
+      inputSchema: { ...controlPlaneSchema, bridgeId: bridgeIdSchema, etag: bridgeEtagSchema },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ bridgeId, etag, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(bridgeView(await api.updateBridge(bridgeId, { paused: false }, { etag }).catch(withBridgeHint), redactSecrets));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_update_bridge",
+    {
+      title: "Update Chat App Bridge",
+      description:
+        `Change where and how a chat app bridge answers (PATCH /v1/bridges/{id}); send only what changes, at least one of allowed, requireMention, sessionScope and settings. allowed REPLACES the whole list of chats, channels or rooms the bridge answers in (1-50, never empty: pause it instead): keep the current ones from thalovant_get_bridge, add rows from thalovant_list_bridge_chats, or type ids matching the chat app's targets.pattern. Setting allowed the first time starts a bridge in setup. requireMention false makes it answer every message in its groups, which spends the daily allowance faster; a Discord bridge always needs a mention (422 bridge_mention_required). sessionScope person gives each person a conversation of their own, chat one per chat. settings are the chat app's non-secret settings (its settings form in thalovant_list_chat_app_connectors), merged into the stored ones and checked again; an address must be https on port 443 with a public host. A token or secret is never a setting: a setting name that looks like one is refused here before any request, and tokens and secrets are replaced in ${CONSOLE_REPLACE_TOKEN}. To pause or resume, use thalovant_pause_bridge or thalovant_resume_bridge. Needs a paid plan. Requires the hubs:write scope, and the hub's owner or a workspace manager.`,
+      inputSchema: {
+        ...controlPlaneSchema,
+        bridgeId: bridgeIdSchema,
+        allowed: z.array(bridgeAllowedChatSchema).min(1).max(50).optional().describe("Every chat the bridge should answer in, 1-50; replaces the stored list."),
+        requireMention: z.boolean().optional().describe("Answer only messages that mention the bot or reply to it. Discord bridges are always true."),
+        sessionScope: z.enum(["person", "chat"]).optional().describe("person: each person has a conversation of their own; chat: one conversation per chat."),
+        settings: jsonRecordSchema
+          .refine((value) => Object.keys(value).length <= 32, "At most 32 settings.")
+          .optional()
+          .describe("Non-secret settings to change, at most 32, by the setting keys of the chat app's settings form; merged into the stored ones."),
+        etag: bridgeEtagSchema,
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ bridgeId, allowed, requireMention, sessionScope, settings, etag, ...auth }) => {
+      if (allowed === undefined && requireMention === undefined && sessionScope === undefined && settings === undefined) {
+        throw new Error("Nothing to change: pass at least one of allowed, requireMention, sessionScope and settings. To pause or resume, use thalovant_pause_bridge or thalovant_resume_bridge.");
+      }
+      const secretLooking = secretLookingSettings(settings, isSecretKeyName);
+      if (secretLooking.length) throw new Error(secretSettingsRefusal(secretLooking));
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      const bridge = await api
+        .updateBridge(bridgeId, { allowed, requireMention, sessionScope, settings }, { etag })
+        .catch(withBridgeHint);
+      return jsonContent(bridgeView(bridge, redactSecrets));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_send_bridge_test_message",
+    {
+      title: "Send Bridge Test Message",
+      description:
+        "Post a short \"Connected to <hub>.\" message, in the hub's language, in one of a chat app bridge's allowed chats (POST /v1/bridges/{id}/test). Everyone in that chat sees it. chatId must be in the bridge's allowed list (422 bridge_chat_not_allowed otherwise). Only chat apps with the test_message helper have one (Telegram and Discord; 409 bridge_helper_unavailable otherwise: mention the bot in the chat instead). A few test messages an hour per bridge; past that, 429 says how long to wait. Needs a paid plan. Requires the hubs:write scope, and the hub's owner or a workspace manager.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        bridgeId: bridgeIdSchema,
+        chatId: bridgeChatIdSchema.describe("An id from the bridge's allowed list."),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ bridgeId, chatId, ...auth }) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(redactSecrets(await api.sendBridgeTestMessage(bridgeId, chatId).catch(withBridgeHint)));
+    },
+  );
+
   if (destructiveToolsEnabled()) {
+    registerThalovantTool(server,
+      "thalovant_delete_bridge",
+      {
+        title: "Delete Chat App Bridge",
+        description:
+          `Permanently delete a chat app bridge (DELETE /v1/bridges/{id}): it stops answering for the hub, and its stored token and secrets are removed from Thalovant. This cannot be undone: connecting the bot again means pasting its token in ${CONSOLE_CHAT_APPS}, which no tool can do. The bot itself stays in the person's Telegram account or Discord Developer Portal. To stop it answering for now, pause it with thalovant_pause_bridge instead. Always allowed, whatever the plan. Requires the hubs:write scope. This tool is disabled unless the operator sets THALOVANT_ENABLE_DESTRUCTIVE_TOOLS.`,
+        inputSchema: { ...controlPlaneSchema, bridgeId: bridgeIdSchema },
+        annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
+      },
+      async ({ bridgeId, ...auth }) => {
+        const api = await createControlPlane(auth);
+        ensureAuthenticated(api);
+        await api.deleteBridge(bridgeId).catch(withBridgeHint);
+        return jsonContent({ deleted: true, bridgeId });
+      },
+    );
+
     registerThalovantTool(server,
       "thalovant_delete_hub",
       {

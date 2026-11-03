@@ -337,6 +337,75 @@ describe("streamable HTTP MCP server", () => {
       await rm(dir, { recursive: true, force: true });
     }
   }, 20_000);
+
+  it("serves the chat app tools over Streamable HTTP with the principal's own credential", async () => {
+    const bridgeId = "6f1c8a1e-3b2d-4c5e-8f9a-0b1c2d3e4f50";
+    const seen: Array<{ method?: string; path: string; authorization?: string; body: string }> = [];
+    const api = await startTestHttpServer(async (req, res) => {
+      const body = await readRequestText(req);
+      seen.push({ method: req.method, path: new URL(req.url ?? "/", "http://127.0.0.1").pathname, authorization: req.headers.authorization, body });
+      sendJsonResponse(res, 200, {
+        id: bridgeId, hub_id: "hub-1", owner_id: "owner-1", network: "telegram",
+        connector: { id: "telegram", name: "Telegram", version: "1.4.0" }, settings: {}, secrets_set: ["token"],
+        state: "active", resource_name: "bridge-x", bot: { user_id: "1", username: "KitchenHubBot", avatar_url: "https://api.example/avatar" },
+        invite_links: null, allowed: [{ id: "-1001" }], require_mention: true, session_scope: "person",
+        paused: req.method === "PATCH", hold: null, etag: "etag-1", token_updated_at: "2026-11-01T10:00:00Z",
+        created_at: "2026-11-01T10:00:00Z", updated_at: "2026-11-01T10:00:00Z",
+        status: req.method === "PATCH"
+          ? { phase: "Paused", ready: false, reason: "Paused", applied: false, source: "operator", message: "platform-only sentence" }
+          : { phase: "Ready", ready: true, reason: "Connected", applied: true, source: "operator", message: "platform-only sentence" },
+      });
+    });
+    const dir = await mkdtemp(join(tmpdir(), "thalovant-mcp-bridges-"));
+    const principalId = sha256("bridge-fixture-token").slice(0, 32);
+    await writeFile(join(dir, `${sha256(principalId)}.json`), JSON.stringify({
+      control: { apiUrl: api.url, accessToken: "synthetic-bridge-principal-token" },
+    }), { mode: 0o600 });
+    const port = await freePort();
+    const child = spawnHttpServer(port, {
+      MCP_HTTP_AUTH_TOKENS: "bridge-fixture-token,other-fixture-token",
+      THALOVANT_PRINCIPAL_CREDENTIALS_DIR: dir,
+    });
+    const connect = async (token: string) => {
+      const client = new Client({ name: "thalovant-bridge-http-test", version: "0.0.0" }, { capabilities: {} });
+      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+        requestInit: { headers: { Authorization: `Bearer ${token}` } },
+      }));
+      return client;
+    };
+    let owner: Client | undefined;
+    let other: Client | undefined;
+    try {
+      await waitForHealth(port);
+      owner = await connect("bridge-fixture-token");
+      const text = (result: Awaited<ReturnType<Client["callTool"]>>) => (result.content as Array<{ text?: string }>)[0]?.text ?? "";
+
+      const read = await owner.callTool({ name: "thalovant_get_bridge", arguments: { bridgeId } });
+      expect(read.isError ?? false, text(read)).toBe(false);
+      expect(JSON.parse(text(read)).status.summary).toMatch(/^Connected: the bridge is running/);
+      const paused = await owner.callTool({ name: "thalovant_pause_bridge", arguments: { bridgeId, etag: "etag-1" } });
+      expect(paused.isError ?? false, text(paused)).toBe(false);
+      expect(JSON.parse(text(paused)).status.summary).toMatch(/^Paused by its owner/);
+      expect(`${text(read)}${text(paused)}`).not.toContain("platform-only sentence");
+      expect(seen.map(({ method, path, authorization, body }) => [method, path, authorization, body])).toEqual([
+        ["GET", `/v1/bridges/${bridgeId}`, "Bearer synthetic-bridge-principal-token", ""],
+        ["PATCH", `/v1/bridges/${bridgeId}`, "Bearer synthetic-bridge-principal-token", JSON.stringify({ paused: true })],
+      ]);
+
+      // Another principal has no credential of its own and may not borrow one.
+      other = await connect("other-fixture-token");
+      const denied = await other.callTool({ name: "thalovant_get_bridge", arguments: { bridgeId } });
+      expect(denied.isError).toBe(true);
+      expect(text(denied)).toContain("THALOVANT_API_TOKEN");
+      expect(seen).toHaveLength(2);
+    } finally {
+      await owner?.close();
+      await other?.close();
+      await stopChild(child);
+      await api.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
 });
 
 async function freePort(): Promise<number> {
