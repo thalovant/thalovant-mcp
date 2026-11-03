@@ -477,6 +477,20 @@ describe("chat app writes", () => {
     expect(bridge.status.summary).toMatch(/A change is still on its way to the bridge\.$/);
   }, 15_000);
 
+  it("takes the bridge's own allowed entries back as they came, nulls included, and sends no nulls", async () => {
+    const fake = await startFakeControlPlane((request) => request.method === "GET"
+      ? { body: wireBridge({ allowed: [{ id: "-1001", title: "Family", kind: "supergroup" }, { id: "-1002" }] }) }
+      : patchResponder()(request));
+    const client = await connectToApi(fake);
+
+    const current = await callJson(client, "thalovant_get_bridge", { bridgeId: BRIDGE_ID });
+    expect(current.allowed[1]).toEqual({ id: "-1002", title: null, kind: null, guild_id: null, guild_name: null });
+    await callJson(client, "thalovant_update_bridge", { bridgeId: BRIDGE_ID, allowed: [...current.allowed, { id: "-1003", title: "Work" }] });
+    expect(only(fake, "PATCH", BRIDGE_PATH).body).toEqual({
+      allowed: [{ id: "-1001", title: "Family", kind: "supergroup" }, { id: "-1002" }, { id: "-1003", title: "Work" }],
+    });
+  }, 15_000);
+
   it("refuses an empty change, an empty chat list and a setting that looks like a secret, before any request", async () => {
     const fake = await startFakeControlPlane(patchResponder());
     const client = await connectToApi(fake);

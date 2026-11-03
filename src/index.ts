@@ -289,12 +289,14 @@ const bridgeEtagSchema = z
 /** A chat, channel or room id as the API accepts one; each chat app's targets.pattern narrows it. */
 const bridgeChatIdSchema = z.string().regex(/^[^\s,]{1,255}$/, "A chat id is 1-255 characters with no spaces or commas.");
 
+// The display members are nullable because a bridge's own allowed entries,
+// which a model is told to keep, carry null where the API has nothing.
 const bridgeAllowedChatSchema = z.object({
   id: bridgeChatIdSchema.describe("The chat, channel or room id: a row's id from thalovant_list_bridge_chats, or typed to match the chat app's targets.pattern."),
-  title: z.string().max(200).optional().describe("The chat's name, for display only."),
-  kind: z.string().max(32).optional().describe("The row's kind, for display only."),
-  guild_id: z.string().regex(/^[0-9]{1,20}$/).optional().describe("Discord: the server the channel belongs to."),
-  guild_name: z.string().max(100).optional().describe("Discord: the server's name."),
+  title: z.string().max(200).nullable().optional().describe("The chat's name, for display only."),
+  kind: z.string().max(32).nullable().optional().describe("The row's kind, for display only."),
+  guild_id: z.string().regex(/^[0-9]{1,20}$/).nullable().optional().describe("Discord: the server the channel belongs to."),
+  guild_name: z.string().max(100).nullable().optional().describe("Discord: the server's name."),
 });
 
 const runtimeGroupResourceLimitsSchema = z

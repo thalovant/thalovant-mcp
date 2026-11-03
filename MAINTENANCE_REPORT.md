@@ -23,7 +23,7 @@ Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Log the 0.7.0 chat apps tools,
 **Verification** (against `@thalovant/sdk` 0.10.0, packed locally):
 
 - typecheck and build pass;
-- 378 tests pass in 20 files;
+- 379 tests pass in 20 files;
 - smoke 2/2 and HTTP 9/9 pass;
 - conformance results are identical to the committed ones;
 - the parity checker verifies the record.
