@@ -899,9 +899,9 @@ describe("hub skill tools", () => {
     const fake = await startFakeControlPlane(jsonResponder(hubSkillResponder(["ready"])));
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
 
-    await client.callTool({ name: "thalovant_remove_hub_skill", arguments: { hubId: "hub-1", skill: "skill/weather v2" } });
+    await callToolSuccessfully(client, { name: "thalovant_remove_hub_skill", arguments: { hubId: "hub-1", skill: "skill/weather v2" } });
     findRequest(fake, "DELETE", "/v1/hubs/hub-1/skills/skill%2Fweather%20v2");
-    await client.callTool({ name: "thalovant_update_hub_skill", arguments: { hubId: "hub-1", skill: "skill/weather v2", version: "2.0.0" } });
+    await callToolSuccessfully(client, { name: "thalovant_update_hub_skill", arguments: { hubId: "hub-1", skill: "skill/weather v2", version: "2.0.0" } });
     findRequest(fake, "PATCH", "/v1/hubs/hub-1/skills/skill%2Fweather%20v2");
   }, 15_000);
 
@@ -1048,6 +1048,7 @@ describe("control-plane error guidance", () => {
       name: "thalovant_create_hub",
       arguments: { name: "kitchen", spec: { version: "1" }, idempotencyKey: "key-1" },
     });
+    expect(result.isError).toBe(true);
     const text = resultText(result);
     expect(text).toMatch(/Idempotency key re-used with different payload/i);
     expect(text).toContain("idempotencyKey");
