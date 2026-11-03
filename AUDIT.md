@@ -6,7 +6,7 @@ Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Audit the 0.7.0 chat apps tool
 
 ### Test evidence
 
-Run against `@thalovant/sdk` 0.10.0, packed from its chat apps branch and installed without saving; the published 0.10.0 is not on npm yet.
+Run from a clean `npm ci` against the published `@thalovant/sdk` 0.10.0, resolved from the npm registry by the lock.
 
 | Step | Result |
 | --- | --- |
@@ -15,6 +15,7 @@ Run against `@thalovant/sdk` 0.10.0, packed from its chat apps branch and instal
 | `npm test`, 2 workers | 381 tests passed in 20 files; `main` had 310 in 18 |
 | `npm run test:smoke` | 2 passed |
 | `npm run test:http` | 9 passed |
+| `npm audit --omit=dev` | 0 vulnerabilities |
 | Conformance (`THALOVANT_CONFORMANCE_OUT`) | structurally identical to `contracts/conformance-results.json` |
 
 The new tests are in three files:
@@ -35,7 +36,7 @@ The new tests are in three files:
 6. **Parity evidence churn.** `src/index.ts` (3,757 lines) is implementation evidence for 13 capabilities besides `chat-apps`, so this change refreshed all 13 hashes without changing their behaviour. The conformance results above are unchanged.
 7. **Delete is not idempotent.** `thalovant_delete_bridge` answers the API's 404 on a second call, with the not-visible hint; it is annotated `idempotentHint: false`. It is registered only with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`: test "deletes a bridge only when destructive tools are enabled" (line 554).
 8. **Listing chats needs a write scope (corrected).** The API serves `GET /v1/bridges/{id}/chats` only to `hubs:write`, the hub's owner or a manager, and a paid owner, because it asks the chat network. The first draft documented it as `hubs:read`. It changes nothing (Telegram is read without acknowledging updates), so `thalovant_list_bridge_chats` keeps `readOnlyHint: true`. `WRITE_SCOPE_READ_TOOLS` in [src/index.ts](src/index.ts) leaves it out of `THALOVANT_MCP_READONLY` mode, whose token would be refused. Tests: "keeps only the chat app reads a hubs:read token can call in read-only mode" and "says which scope each chat app tool needs" in [test/chat-apps.test.ts](test/chat-apps.test.ts).
-9. **Release blocker.** `package.json` still asks for `@thalovant/sdk` ^0.9.9, whose published versions have no chat app methods. Hosted CI typechecks against those and fails until 0.10.0 is published and the dependency and lock move to ^0.10.0.
+9. **Release blocker (resolved).** The first drafts asked for `@thalovant/sdk` ^0.9.9, whose published versions have no chat app methods, so hosted CI failed its typecheck. `package.json` and the lock now ask for ^0.10.0, resolved from npm.
 
 ## 0.6.6 dependency security audit
 

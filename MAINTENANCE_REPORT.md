@@ -21,15 +21,15 @@ Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Log the 0.7.0 chat apps tools,
 - Outputs are built from the members the API documents, so the platform-only `status.message` and `status.operator_reason` never reach a model.
 - `thalovant_list_bridge_chats` changes nothing, but the API serves it only to `hubs:write` and a paid plan, because it asks the chat network. It is documented that way and left out of read-only mode.
 
-**Verification** (against `@thalovant/sdk` 0.10.0, packed locally):
+**Verification** (clean `npm ci` against the published `@thalovant/sdk` 0.10.0):
 
-- typecheck and build pass;
+- `npm ci`, typecheck and build pass;
 - 381 tests pass in 20 files;
 - smoke 2/2 and HTTP 9/9 pass;
 - conformance results are identical to the committed ones;
 - the parity checker verifies the record.
 
-Details are in [AUDIT.md](AUDIT.md). Hosted CI fails until `@thalovant/sdk` 0.10.0 is published and the dependency moves to ^0.10.0.
+Details are in [AUDIT.md](AUDIT.md). `package.json` and the lock take `@thalovant/sdk` ^0.10.0 from the npm registry.
 
 ### Transparency Report
 
