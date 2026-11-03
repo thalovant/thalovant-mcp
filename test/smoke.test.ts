@@ -48,11 +48,21 @@ describe("stdio MCP server", () => {
       expect(toolNames).toContain("thalovant_intent_inventory");
       expect(toolNames).toContain("thalovant_get_operation");
       expect(toolNames).toContain("thalovant_create_client_identity");
+      for (const name of [
+        "thalovant_list_chat_app_connectors", "thalovant_get_bridge_networks", "thalovant_list_bridges", "thalovant_get_bridge",
+        "thalovant_list_bridge_chats", "thalovant_pause_bridge", "thalovant_resume_bridge", "thalovant_update_bridge",
+        "thalovant_send_bridge_test_message",
+      ]) expect(toolNames).toContain(name);
+      expect(toolNames).not.toContain("thalovant_delete_bridge");
       const requiredInputs = {
         thalovant_ask: ["sttLang", "pipeline", "location", "includeAudio"],
         thalovant_query: ["includeAudio"],
         thalovant_intent_inventory: ["speakable", "sentence", "slots", "exampleLimit"],
         thalovant_update_runtime_group_config: ["merge"],
+        thalovant_list_chat_app_connectors: ["language"],
+        thalovant_list_bridges: ["hubId", "ownerId", "limit"],
+        thalovant_update_bridge: ["bridgeId", "allowed", "requireMention", "sessionScope", "settings", "etag"],
+        thalovant_send_bridge_test_message: ["bridgeId", "chatId"],
       };
       for (const [name, fields] of Object.entries(requiredInputs)) {
         const properties = tools.tools.find((tool) => tool.name === name)?.inputSchema.properties;

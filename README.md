@@ -1,4 +1,4 @@
-Last Edit: Codex (exact runtime model identifier unavailable) - 2026-10-25 - Motive: Record security dependency compatibility and the next patch version.
+Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Chat apps tools (connectors, bridges, pause/resume, chats, test message, allowance) for 0.7.0.
 
 # Thalovant MCP Server
 
@@ -16,6 +16,7 @@ It uses the official Thalovant Node.js SDK and the production MCP TypeScript SDK
 - Static bearer tokens for simple/private deployments.
 - JWT/JWKS and OAuth token introspection for production remote deployments.
 - Per-principal Thalovant credentials and tool policy.
+- Chat app tools: connectors, bridges and their status in words, pause and resume, chats, test messages and the plan's allowance. Bot tokens stay in the console.
 - Host/origin validation, CORS, rate limiting, body limits, secure headers, and session binding.
 - Optional resumability event storage and JSONL audit logs.
 - Docker, Compose, Kubernetes, CI, npm package metadata, and MCP registry `server.json`.
@@ -73,9 +74,9 @@ Minimum scopes for the full control-plane tool surface:
 
 | Scope | Used by |
 |-------|---------|
-| `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, `thalovant_list_marketplace_skills`, `thalovant_list_runtime_groups`, `thalovant_get_runtime_group`, `thalovant_get_runtime_group_config`, the guarded merge read in `thalovant_update_runtime_group_config`, and the hub lookup inside `thalovant_create_client_identity` |
+| `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, `thalovant_list_marketplace_skills`, `thalovant_list_runtime_groups`, `thalovant_get_runtime_group`, `thalovant_get_runtime_group_config`, the guarded merge read in `thalovant_update_runtime_group_config`, the hub lookup inside `thalovant_create_client_identity`, and the chat app reads (`thalovant_list_chat_app_connectors`, `thalovant_get_bridge_networks`, `thalovant_list_bridges`, `thalovant_get_bridge`) |
 | `hubs:inspect` | `thalovant_get_hub_runtime_capabilities`, `thalovant_list_runtime_group_marketplace`, `thalovant_list_runtime_group_inventory`, `thalovant_list_hub_skills`, `thalovant_list_hub_skill_history` |
-| `hubs:write` | All hub and runtime-group provisioning: `thalovant_create_hub`, `thalovant_update_hub`, `thalovant_release_hub`, `thalovant_create_runtime_group`, `thalovant_update_runtime_group`, `thalovant_update_runtime_group_config`, `thalovant_release_runtime_group`, `thalovant_install_runtime_group_skill`, `thalovant_uninstall_runtime_group_skill`, the per-hub `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, `thalovant_remove_hub_skill`, the hub rating tools, and the opt-in delete tools |
+| `hubs:write` | All hub and runtime-group provisioning: `thalovant_create_hub`, `thalovant_update_hub`, `thalovant_release_hub`, `thalovant_create_runtime_group`, `thalovant_update_runtime_group`, `thalovant_update_runtime_group_config`, `thalovant_release_runtime_group`, `thalovant_install_runtime_group_skill`, `thalovant_uninstall_runtime_group_skill`, the per-hub `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, `thalovant_remove_hub_skill`, the hub rating tools, the chat app writes (`thalovant_pause_bridge`, `thalovant_resume_bridge`, `thalovant_update_bridge`, `thalovant_send_bridge_test_message`), `thalovant_list_bridge_chats` (it changes nothing but asks the chat network, so the API serves it only to `hubs:write` and a paid plan), and the opt-in delete tools |
 | `clients:write` | `thalovant_create_client_identity` (`POST /v1/clients`) and the opt-in `thalovant_delete_client` |
 | `memory:read` | `thalovant_list_memory_items`, `thalovant_get_memory_summary`, `thalovant_get_memory_item` |
 | `memory:write` | `thalovant_create_memory_item`, `thalovant_update_memory_item`, `thalovant_delete_memory_item` |
@@ -138,6 +139,37 @@ A home controller such as Home Assistant links to a hub with a connection of its
 Each refusal of step 2 names what to do next after the API's own text (see [Tool Errors](#tool-errors)): a kind the API does not know yet, a plan that does not allow the connection, a hub that already holds its one Home Assistant link (with the `client_id` holding it), or a token the API refused (sign in again). `thalovant_delete_client` removes a connection (`If-Match`, reading the etag first when none is given, retrying once on `412`, and counting a connection already gone as deleted); it is a destructive tool the operator enables.
 
 Answering the hub's requests afterwards is the integration's own long-lived job, on the data plane; an MCP tool call holds a hub connection only for its own length, so that part of the link is not a tool.
+
+## Chat Apps
+
+A hub can answer in a chat network through a **chat app**: Telegram and Discord are offered, and Matrix, Mattermost and Twitch appear as beta when the API lists them. Each connection of a hub to a chat network is a *bridge* (`/v1/bridges`). The person makes the bot in the chat network, then connects it to a hub in the Thalovant console.
+
+**Tokens and secrets stay in the console.** Creating a bridge and replacing its token or secrets need the bot's credential, and no tool of this server takes a credential as an argument (see [Control-Plane Auth](#control-plane-auth)), so there is no tool for them. The descriptions and outputs say where to go instead: Connections > Add connection > Chat apps, or the hub's Chat apps tab, and **Replace token** on the bot. `thalovant_update_bridge` refuses a setting whose name looks like a token or secret, at any depth, before any request, naming it by its dotted path and never its value.
+
+| Tool | What it does | Kind |
+|------|--------------|------|
+| `thalovant_list_chat_app_connectors` | The chat apps (`GET /v1/bridges/connectors`) in `en` or `fr`: status (`offered`, `beta`), whether a bridge can be created now, description and setup steps, the secrets the console asks for (by key and label, never a value), the settings form, what a chat id looks like (`targets`), the mention rule, session scopes and helpers | read-only |
+| `thalovant_get_bridge_networks` | Networks offered and the plan's allowance (`GET /v1/bridges/networks`): `limit`, `used`, `remaining`, `paid_plan`, `can_create`, and a `summary` in words. Free plans get 0. With `hubId`, the hub owner's allowance | read-only |
+| `thalovant_list_bridges` | Bridges of one hub (`hubId`) or every bridge the token may see (`ownerId` narrows it; `limit` 1-500) | read-only |
+| `thalovant_get_bridge` | One bridge, with its status in plain words | read-only |
+| `thalovant_list_bridge_chats` | The chats, channels or rooms the bot can see, to choose from; `manual_entry: true` when the ids are typed instead. Changes nothing, but needs `hubs:write` and a paid plan (it asks the network) | read-only, write scope |
+| `thalovant_pause_bridge` | `PATCH paused: true`: stops answering everywhere, keeps chats, settings and token. Always allowed | write |
+| `thalovant_resume_bridge` | `PATCH paused: false`. Needs a paid plan with room in its allowance | write |
+| `thalovant_update_bridge` | The chats it answers in (`allowed`, which replaces the whole list), `requireMention`, `sessionScope`, and non-secret `settings` | write |
+| `thalovant_send_bridge_test_message` | Posts a short "Connected to <hub>." line in one allowed chat | write |
+| `thalovant_delete_bridge` | Deletes the bridge and its stored token; opt-in like the other [destructive tools](#destructive-tools) | destructive |
+
+Each bridge comes back with the API's own members (`network`, `connector`, `state`, `allowed`, `require_mention`, `session_scope`, `paused`, `hold`, `bot`, `invite_links`, `secrets_set` by name, `etag`, timestamps, and `operation` when the change queued one) and `status`:
+
+- `reason` is the API's customer-safe status, and `summary` says it in words: `Setup` (no chats chosen yet), `Starting`, `Connected`, `Paused`, `Unavailable`, `TokenMissing` and `TokenRejected` (both send the person to **Replace token** in the console). A reason this server does not know yet is kept and named.
+- `phase`, `ready`, and `applied`: `true` once the bridge carries the latest change, `false` while it is on its way, `null` in setup.
+- `hold` says why the platform paused a bridge: `plan_limit` (the plan allows fewer running chat apps, after a downgrade; it resumes on its own once there is room) or `account_suspended`. It is `null` for the owner's own pause.
+
+The platform's own diagnostic sentence and condition (`status.message`, `status.operator_reason`, sent to administrators' tokens) are never included. Outputs are built from the members the API documents rather than passed through, so a member added later does not reach the model unreviewed; `settings` and `operation` go through the usual secret redaction.
+
+The write tools take an optional `etag` (the bridge's `etag` field; there is no ETag header), sent as `If-Match`: a stale one fails `412` and changes nothing. Telegram lists chats only while its bridge is paused (`409 bridge_running`), so the flow is pause, send `/start@<bot>` in the new group, list, update `allowed`, resume. A refusal keeps the API's code, sentence and fields (see [Tool Errors](#tool-errors)) and adds a hint by code: the settings a `bridge_settings_invalid` or `bridge_url_*` refusal names (names only), the plan's allowance after `402` or `403 plan_limit`, the wait after `429`, and the console for anything about a token.
+
+Reads need `hubs:read`, except `thalovant_list_bridge_chats`: it changes nothing, but it asks the chat network on the bot's behalf, so it needs `hubs:write`, the hub's owner or a workspace manager, and a paid plan, like the writes. Writes need the same, except pausing and deleting, which always work on any plan. `THALOVANT_MCP_READONLY` keeps the four reads a `hubs:read` token can call and leaves `thalovant_list_bridge_chats` out.
 
 ## Local Stdio
 
@@ -412,11 +444,24 @@ Hub skills, acting on the hub’s shared runtime (see [Hub Skills](#hub-skills);
 - `thalovant_update_hub_skill`
 - `thalovant_remove_hub_skill`
 
+Chat apps (see [Chat Apps](#chat-apps); the first five are read-only, and `thalovant_list_bridge_chats` needs `hubs:write`):
+
+- `thalovant_list_chat_app_connectors`
+- `thalovant_get_bridge_networks`
+- `thalovant_list_bridges`
+- `thalovant_get_bridge`
+- `thalovant_list_bridge_chats`
+- `thalovant_pause_bridge`
+- `thalovant_resume_bridge`
+- `thalovant_update_bridge`
+- `thalovant_send_bridge_test_message`
+
 Destructive, **not registered unless explicitly enabled** (see [Destructive Tools](#destructive-tools)):
 
 - `thalovant_delete_hub`
 - `thalovant_delete_runtime_group`
 - `thalovant_delete_client`
+- `thalovant_delete_bridge`
 
 Tool outputs redact credential-shaped fields. `thalovant_create_client_identity` does not return secret identity material; pass `savePath` when you want the full identity written to a local file with mode `0600`. `savePath` is confined to the server's identity directory (`THALOVANT_MCP_IDENTITY_DIR`, default `<config-dir>/thalovant/identities`): pass a plain filename, since absolute paths outside that directory and `..` traversal are rejected, so a model cannot drop a credential file into a git working tree or synced folder. `thalovant_config_status` reports the active `identityDir`.
 
@@ -467,6 +512,8 @@ fields: {"allowed_images":{"bus":[...],"core":[...]},"allowed_repositories":{"co
   echoes back from the request -- each entry's `input` in a `detail` or
   `errors` list, whatever its key or shape -- is replaced with `"[omitted]"`
   there and never reaches the first line. A plan refusal carries `resource`, `limit`, `used` and `plan` here.
+  A chat app refusal about settings or secrets carries the API's own `fields`
+  list here: their names, never their values. Its hint repeats the names.
 
 A hint may follow for statuses that need one. A `platform_image_required` or
 `plan_limit` 403 gets its own hint rather than the general scope hint.
@@ -500,7 +547,7 @@ or use an SDK that preserves large JSON integers.
 
 ## Destructive Tools
 
-`thalovant_delete_hub`, `thalovant_delete_runtime_group` and `thalovant_delete_client` are **disabled by default**. They are not merely blocked when called — they are never registered, so they do not appear in `tools/list` and a model cannot see or attempt them.
+`thalovant_delete_hub`, `thalovant_delete_runtime_group`, `thalovant_delete_client` and `thalovant_delete_bridge` are **disabled by default**. They are not merely blocked when called — they are never registered, so they do not appear in `tools/list` and a model cannot see or attempt them.
 
 A long-lived control-plane token combined with an always-available delete tool is a categorically different risk from a read or update tool: deleting a hub also deletes its dependent clients and ACLs, and none of it is reversible. So these are opt-in:
 
@@ -520,7 +567,7 @@ export MCP_TOOL_DENYLIST="thalovant_delete_hub,thalovant_delete_runtime_group"
 
 The global deny applies to every principal and cannot be overridden by a principal's `allowedTools`. To restrict only selected principals, leave these tools out of the global denylist and use those principals' `deniedTools` instead.
 
-Deleting a hub still requires a current etag (`412` otherwise), and deleting a runtime group fails with `409` while it is the workspace default or still has hubs attached. Deleting a client cuts off the device or link using it; its etag is read first when none is given.
+Deleting a hub still requires a current etag (`412` otherwise), and deleting a runtime group fails with `409` while it is the workspace default or still has hubs attached. Deleting a client cuts off the device or link using it; its etag is read first when none is given. Deleting a chat app bridge removes its stored token, so connecting the bot again means pasting the token in the console; to stop a bridge for now, pause it instead.
 
 ## Non-Catalog Skill Sources
 
@@ -534,7 +581,7 @@ With the flag unset, a call with any `sourceType` other than `catalog` fails bef
 
 ## Read-Only Mode
 
-Set `THALOVANT_MCP_READONLY=1` to register only tools annotated `readOnlyHint: true` (the sign-in tools are not among them; `thalovant_wait_for_admission` is). Write and destructive tools are then never registered and never appear in `tools/list`, so an operator can run an observe-only agent without hand-writing a denylist. Like the other registration-time gates it is read when a server instance is created; `thalovant_config_status` reports the state as `readOnly`.
+Set `THALOVANT_MCP_READONLY=1` to register only tools annotated `readOnlyHint: true` (the sign-in tools are not among them; `thalovant_wait_for_admission` is), less those the API serves only to a write scope: `thalovant_list_bridge_chats` changes nothing but needs `hubs:write`, which an observe-only agent's token does not carry. Write and destructive tools are then never registered and never appear in `tools/list`, so an operator can run an observe-only agent without hand-writing a denylist. Like the other registration-time gates it is read when a server instance is created; `thalovant_config_status` reports the state as `readOnly`.
 
 ## HiveMind Runtime Compatibility
 
@@ -542,7 +589,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.6.6 requires `@thalovant/sdk` `^0.9.9` (0.9.9 through versions below 0.10.0). Since 0.5.1 the server enforces
+Version 0.7.0 requires `@thalovant/sdk` `^0.10.0` (0.10.0 through versions below 0.11.0), which carries the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
@@ -622,7 +669,7 @@ one tool for every SDK conversation or event-listener method.
 
 ### Shared-runtime skill management
 
-The catalog has 50 default tools, 24 in read-only mode, and 53 with destructive tools enabled.
+The catalog has 59 default tools, 28 in read-only mode, and 63 with destructive tools enabled.
 
 Hub-addressed skill methods select the runtime group attached to the hub UUID.
 Every hub sharing that group sees the same skill changes and history. The API

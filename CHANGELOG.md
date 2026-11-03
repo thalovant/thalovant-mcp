@@ -1,8 +1,24 @@
-Last Edit: Codex (exact runtime model identifier unavailable) - 2026-10-25 - Motive: Document the scoped dependency security patch.
+Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: 0.7.0 chat apps tools; date the published 0.6.6.
 
 # Changelog
 
-## 0.6.6 - Unreleased
+## 0.7.0 - Unreleased
+
+A hub can answer in a chat network through a chat app: Telegram and Discord, and Matrix, Mattermost and Twitch as beta once the API lists them. These tools let an agent read and look after the bridges a person connected in the console. Existing tool schemas are unchanged.
+
+- **Reads:** `thalovant_list_chat_app_connectors` (status, setup steps in `en` or `fr`, the secrets the console asks for by name, the settings form, chat id format, helpers), `thalovant_get_bridge_networks` (networks offered and the plan's allowance, with a `summary`; Free plans get 0), `thalovant_list_bridges`, `thalovant_get_bridge` and `thalovant_list_bridge_chats`. All five change nothing. The first four need `hubs:read` and stay in `THALOVANT_MCP_READONLY` mode. `thalovant_list_bridge_chats` asks the chat network on the bot's behalf, so the API serves it only to `hubs:write`, the hub's owner or a manager, and a paid plan; read-only mode leaves it out.
+- **Status in plain words.** Each bridge's `status` keeps the API's `reason`, `phase`, `ready` and `applied`, and adds `summary`: what `Setup`, `Starting`, `Connected`, `Paused`, `Unavailable`, `TokenMissing` or `TokenRejected` means and what to do, a `plan_limit` or `account_suspended` hold and since when, and whether the latest change has reached the bridge. A reason this server does not know yet is kept and named. The platform's own diagnostic message (`status.message`, `status.operator_reason`) is never included, even for an administrator's token.
+- **Writes:** `thalovant_pause_bridge` and `thalovant_resume_bridge` (`PATCH paused`), `thalovant_update_bridge` (`allowed`, which replaces the whole list, `requireMention`, `sessionScope` and non-secret `settings`) and `thalovant_send_bridge_test_message`. Each takes an optional `etag`, sent as `If-Match` only when given.
+- **Tokens and secrets stay in the console.** No tool takes a credential as an argument, so creating a bridge and replacing its token or secrets have no tool; descriptions and outputs say where to go (Connections > Add connection > Chat apps, or the hub's Chat apps tab, and **Replace token**). `thalovant_update_bridge` refuses a setting whose name looks like a token or secret, at any depth, before any request, naming it by its dotted path without its value.
+- **`thalovant_delete_bridge`**, opt-in with the other destructive tools (`THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`): it removes the bridge and its stored token, which only the console can put back.
+- **Outputs are allowlisted.** Bridges, connectors, chats and the allowance are built from the members the API documents, not passed through; the owner's `settings` and a queued `operation` go through the usual redaction. Redacting whole bridges by key name would have hidden `secrets_set` and `secrets` (names) and `token_updated_at` (a time).
+- **Hints by code** after a refused chat app call: the settings a `bridge_settings_invalid` or `bridge_url_*` refusal names (from the SDK's new `ThalovantApiError.fields`, names only), Telegram's pause-to-list rule (`bridge_running`), the plan's allowance after `402` or `403 plan_limit`, the wait after a `429`, a stale `etag` (`412`), a bridge the token cannot see (`404`), and the console for every token or secret code.
+- The catalog has 59 default tools (28 in read-only mode, 63 with destructive tools enabled).
+- Takes `@thalovant/sdk` ^0.10.0, which carries the chat app methods and `ThalovantApiError.fields`.
+- The parity contract declares `chat-apps` as required and refreshes the evidence hashes of `src/index.ts`, `test/http.test.ts` and `test/provisioning.test.ts`.
+- `package.json`, `package-lock.json`, `server.json`, the OCI label, the README and this file move to 0.7.0 together.
+
+## 0.6.6 - 2026-10-26
 
 - Update body-parser to 2.4.0 (CVE-2026-111181), Zod to 4.6.7 (patched bounds checks from 4.6.6), and the existing fast-uri override to 3.1.9. No audit suppression is added.
 - Migrate five records to Zod 4's explicit string-key signature. Bounded arrays reject oversized input before parsing elements. UUIDs now enforce standard version/variant bits (plus nil/max UUIDs); memory-list offsets reject unsafe integers.
