@@ -15,7 +15,7 @@ CodeRabbit's review bodies on #29 and #30 carried six "Nitpick comments", which 
 | #30 | Positive `savePath` test | Already fixed in 084bcd9 (#58): `my-hub.json` lands in the identity directory with mode 0600 |
 | #30 | List every added redaction key | Already fixed in 084bcd9 (#58): CHANGELOG 0.1.x entry names all ten |
 
-Verification: `npm ci`, typecheck, build and the full test suite pass; the reference's `check-sdk-parity.py --consumer thalovant-mcp` passes with the refreshed `test/provisioning.test.ts` hash. Test and contract files only; no release.
+Verification: `npm ci`, typecheck, build and the full test suite pass; the reference's `check-sdk-parity.py --consumer thalovant-mcp` passes with the refreshed `test/provisioning.test.ts` hash. Test, contract and report files only (AUDIT.md, MAINTENANCE_REPORT.md); no release.
 
 ### Transparency Report
 
