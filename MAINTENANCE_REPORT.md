@@ -11,7 +11,7 @@ CodeRabbit's review bodies on #29 and #30 carried six "Nitpick comments", which 
 | #29 | Document the restart `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` needs | Already fixed in 084bcd9 (#58): README "Destructive Tools" |
 | #29 | Unguarded `JSON.parse` in the fake control plane | Already fixed in 084bcd9 (#58): a malformed body answers 400 |
 | #29 | Two copies of the fake control-plane helper | Already fixed in 084bcd9 (#58): `startFailingControlPlane` delegates to `startFakeControlPlane`, which calls `closeAllConnections()` |
-| #29 | Tool calls that never assert `isError` | Already fixed in 084bcd9 (#58) via `callToolSuccessfully`; the two calls a later test added ("URL-encodes the skill name in the path") now use it too |
+| #29 | Tool calls that never assert `isError` | Already fixed in 084bcd9 (#58) via `callToolSuccessfully`; the two calls a later test added ("URL-encodes the skill name in the path") now use it too, and the idempotency-key reuse case asserts its error (CodeRabbit on this PR) |
 | #30 | Positive `savePath` test | Already fixed in 084bcd9 (#58): `my-hub.json` lands in the identity directory with mode 0600 |
 | #30 | List every added redaction key | Already fixed in 084bcd9 (#58): CHANGELOG 0.1.x entry names all ten |
 

@@ -1048,6 +1048,7 @@ describe("control-plane error guidance", () => {
       name: "thalovant_create_hub",
       arguments: { name: "kitchen", spec: { version: "1" }, idempotencyKey: "key-1" },
     });
+    expect(result.isError).toBe(true);
     const text = resultText(result);
     expect(text).toMatch(/Idempotency key re-used with different payload/i);
     expect(text).toContain("idempotencyKey");
