@@ -372,7 +372,7 @@ export function bridgeErrorHint(error: unknown): string | undefined {
     case 402:
       return "The hub's owner is on a plan without chat apps (Free plans get 0). Pausing and deleting a bridge always work; anything else needs a paid plan, and granting a scope will not help.";
     case 403:
-      return "Reading chat apps needs the hubs:read scope and changing them hubs:write. A 403 can also mean the token's account does not manage this bridge (only the hub's owner or a workspace manager may change it), or that the owner's account is deactivated.";
+      return "Reading chat apps needs the hubs:read scope, and changing them hubs:write. Listing a bridge's chats (thalovant_list_bridge_chats) also needs hubs:write and a paid plan, because it asks the chat network. A 403 can also mean the token's account does not manage this bridge (only the hub's owner or a workspace manager may change it or list its chats), or that the owner's account is deactivated.";
     case 404:
       return "No bridge with this id is visible to this token: a bridge is visible to its hub's owner, the workspace's members above basic, and platform administrators. thalovant_list_bridges lists the visible ones. An API without chat apps answers 404 on every bridge route.";
     case 412:

@@ -283,7 +283,7 @@ describe("hints after a refused chat app call", () => {
 
   it.each([
     [401, /Sign in again/],
-    [403, /hubs:read scope and changing them hubs:write/],
+    [403, /hubs:read scope, and changing them hubs:write\. Listing a bridge's chats \(thalovant_list_bridge_chats\) also needs hubs:write and a paid plan/],
     [404, /No bridge with this id is visible/],
     [412, /ETag mismatch.*thalovant_get_bridge/],
   ])("explains a bare HTTP %i", (status, hint) => {

@@ -26,7 +26,7 @@ Telegram lists chats only while the bridge is paused (`409 bridge_running` other
 
 1. Pause it with `thalovant_pause_bridge`.
 2. Have someone send `/start@<bot username>` in the group.
-3. List the chats with `thalovant_list_bridge_chats`.
+3. List the chats with `thalovant_list_bridge_chats`. It needs `hubs:write` and a paid plan, because it asks the chat network, so `THALOVANT_MCP_READONLY` leaves it out.
 4. Call `thalovant_update_bridge` with `allowed`, which replaces the whole list, so keep the existing chats.
 5. Resume it with `thalovant_resume_bridge`.
 

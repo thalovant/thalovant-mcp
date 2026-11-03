@@ -12,7 +12,7 @@ Run against `@thalovant/sdk` 0.10.0, packed from its chat apps branch and instal
 | --- | --- |
 | `npm run typecheck` | passed |
 | `npm run build` | passed |
-| `npm test`, 2 workers | 380 tests passed in 20 files; `main` had 310 in 18 |
+| `npm test`, 2 workers | 381 tests passed in 20 files; `main` had 310 in 18 |
 | `npm run test:smoke` | 2 passed |
 | `npm run test:http` | 9 passed |
 | Conformance (`THALOVANT_CONFORMANCE_OUT`) | structurally identical to `contracts/conformance-results.json` |
@@ -20,7 +20,7 @@ Run against `@thalovant/sdk` 0.10.0, packed from its chat apps branch and instal
 The new tests are in three files:
 
 - [test/chat-apps-output.test.ts](test/chat-apps-output.test.ts) has 42 unit tests.
-- [test/chat-apps.test.ts](test/chat-apps.test.ts) has 27 stdio tests against the built server and a loopback API.
+- [test/chat-apps.test.ts](test/chat-apps.test.ts) has 28 stdio tests against the built server and a loopback API.
 - [test/http.test.ts](test/http.test.ts) has one Streamable HTTP test with a principal's own credential.
 
 ### Findings
@@ -34,7 +34,8 @@ The new tests are in three files:
 5. **Name heuristic for credential-looking settings.** `isSecretKeyName()` ([src/index.ts](src/index.ts) line 912) reuses `SECRET_KEYS`, so a future setting named, for example, `token_endpoint` or `certificate_url` would be refused locally. Today's connector settings (`homeserver`, `user_id`, `url`, `bot_login`, `client_id`) do not match.
 6. **Parity evidence churn.** `src/index.ts` (3,757 lines) is implementation evidence for 13 capabilities besides `chat-apps`, so this change refreshed all 13 hashes without changing their behaviour. The conformance results above are unchanged.
 7. **Delete is not idempotent.** `thalovant_delete_bridge` answers the API's 404 on a second call, with the not-visible hint; it is annotated `idempotentHint: false`. It is registered only with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`: test "deletes a bridge only when destructive tools are enabled" (line 554).
-8. **Release blocker.** `package.json` still asks for `@thalovant/sdk` ^0.9.9, whose published versions have no chat app methods. Hosted CI typechecks against those and fails until 0.10.0 is published and the dependency and lock move to ^0.10.0.
+8. **Listing chats needs a write scope (corrected).** The API serves `GET /v1/bridges/{id}/chats` only to `hubs:write`, the hub's owner or a manager, and a paid owner, because it asks the chat network. The first draft documented it as `hubs:read`. It changes nothing (Telegram is read without acknowledging updates), so `thalovant_list_bridge_chats` keeps `readOnlyHint: true`. `WRITE_SCOPE_READ_TOOLS` in [src/index.ts](src/index.ts) leaves it out of `THALOVANT_MCP_READONLY` mode, whose token would be refused. Tests: "keeps only the chat app reads a hubs:read token can call in read-only mode" and "says which scope each chat app tool needs" in [test/chat-apps.test.ts](test/chat-apps.test.ts).
+9. **Release blocker.** `package.json` still asks for `@thalovant/sdk` ^0.9.9, whose published versions have no chat app methods. Hosted CI typechecks against those and fails until 0.10.0 is published and the dependency and lock move to ^0.10.0.
 
 ## 0.6.6 dependency security audit
 

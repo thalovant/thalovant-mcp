@@ -19,11 +19,12 @@ Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Log the 0.7.0 chat apps tools,
 - Creating a bridge and replacing its token or secrets need a credential, and this server never takes a credential through tool arguments, so those stay in the console.
 - Deleting follows the existing pattern for hubs, runtime groups and clients: registered only when the operator sets `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`.
 - Outputs are built from the members the API documents, so the platform-only `status.message` and `status.operator_reason` never reach a model.
+- `thalovant_list_bridge_chats` changes nothing, but the API serves it only to `hubs:write` and a paid plan, because it asks the chat network. It is documented that way and left out of read-only mode.
 
 **Verification** (against `@thalovant/sdk` 0.10.0, packed locally):
 
 - typecheck and build pass;
-- 380 tests pass in 20 files;
+- 381 tests pass in 20 files;
 - smoke 2/2 and HTTP 9/9 pass;
 - conformance results are identical to the committed ones;
 - the parity checker verifies the record.

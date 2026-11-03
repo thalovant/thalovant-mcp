@@ -202,11 +202,25 @@ describe("chat app tool registration", () => {
     expect(status.destructiveTools).toContain("thalovant_delete_bridge");
   }, 20_000);
 
-  it("keeps only the chat app reads in read-only mode", async () => {
+  it("keeps only the chat app reads a hubs:read token can call in read-only mode", async () => {
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_MCP_READONLY: "1", THALOVANT_ENABLE_DESTRUCTIVE_TOOLS: "1" });
     const names = (await client.listTools()).tools.map((tool) => tool.name);
-    for (const name of READ_TOOLS) expect(names).toContain(name);
-    for (const name of [...WRITE_TOOLS, "thalovant_delete_bridge"]) expect(names).not.toContain(name);
+    for (const name of READ_TOOLS.filter((tool) => tool !== "thalovant_list_bridge_chats")) expect(names).toContain(name);
+    // It changes nothing, but the API serves it only to hubs:write and a paid plan.
+    for (const name of ["thalovant_list_bridge_chats", ...WRITE_TOOLS, "thalovant_delete_bridge"]) expect(names).not.toContain(name);
+  }, 15_000);
+
+  it("says which scope each chat app tool needs, and that listing chats needs hubs:write", async () => {
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN });
+    const tools = (await client.listTools()).tools;
+    const description = (name: string) => tools.find((tool) => tool.name === name)?.description ?? "";
+    for (const name of READ_TOOLS.filter((tool) => tool !== "thalovant_list_bridge_chats")) {
+      expect(description(name), name).toContain("Requires the hubs:read scope");
+    }
+    expect(description("thalovant_list_bridge_chats")).toMatch(/needs the hubs:write scope, a paid plan/);
+    expect(description("thalovant_list_bridge_chats")).not.toContain("Requires the hubs:read scope");
+    expect(description("thalovant_list_bridge_chats")).toMatch(/403 for a hubs:read token/);
+    for (const name of WRITE_TOOLS) expect(description(name), name).toContain("Requires the hubs:write scope");
   }, 15_000);
 
   it("takes no token or secret in any chat app tool, and says where they go", async () => {

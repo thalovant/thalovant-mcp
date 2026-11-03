@@ -74,9 +74,9 @@ Minimum scopes for the full control-plane tool surface:
 
 | Scope | Used by |
 |-------|---------|
-| `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, `thalovant_list_marketplace_skills`, `thalovant_list_runtime_groups`, `thalovant_get_runtime_group`, `thalovant_get_runtime_group_config`, the guarded merge read in `thalovant_update_runtime_group_config`, the hub lookup inside `thalovant_create_client_identity`, and the chat app reads (`thalovant_list_chat_app_connectors`, `thalovant_get_bridge_networks`, `thalovant_list_bridges`, `thalovant_get_bridge`, `thalovant_list_bridge_chats`) |
+| `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, `thalovant_list_marketplace_skills`, `thalovant_list_runtime_groups`, `thalovant_get_runtime_group`, `thalovant_get_runtime_group_config`, the guarded merge read in `thalovant_update_runtime_group_config`, the hub lookup inside `thalovant_create_client_identity`, and the chat app reads (`thalovant_list_chat_app_connectors`, `thalovant_get_bridge_networks`, `thalovant_list_bridges`, `thalovant_get_bridge`) |
 | `hubs:inspect` | `thalovant_get_hub_runtime_capabilities`, `thalovant_list_runtime_group_marketplace`, `thalovant_list_runtime_group_inventory`, `thalovant_list_hub_skills`, `thalovant_list_hub_skill_history` |
-| `hubs:write` | All hub and runtime-group provisioning: `thalovant_create_hub`, `thalovant_update_hub`, `thalovant_release_hub`, `thalovant_create_runtime_group`, `thalovant_update_runtime_group`, `thalovant_update_runtime_group_config`, `thalovant_release_runtime_group`, `thalovant_install_runtime_group_skill`, `thalovant_uninstall_runtime_group_skill`, the per-hub `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, `thalovant_remove_hub_skill`, the hub rating tools, the chat app writes (`thalovant_pause_bridge`, `thalovant_resume_bridge`, `thalovant_update_bridge`, `thalovant_send_bridge_test_message`), and the opt-in delete tools |
+| `hubs:write` | All hub and runtime-group provisioning: `thalovant_create_hub`, `thalovant_update_hub`, `thalovant_release_hub`, `thalovant_create_runtime_group`, `thalovant_update_runtime_group`, `thalovant_update_runtime_group_config`, `thalovant_release_runtime_group`, `thalovant_install_runtime_group_skill`, `thalovant_uninstall_runtime_group_skill`, the per-hub `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, `thalovant_remove_hub_skill`, the hub rating tools, the chat app writes (`thalovant_pause_bridge`, `thalovant_resume_bridge`, `thalovant_update_bridge`, `thalovant_send_bridge_test_message`), `thalovant_list_bridge_chats` (it changes nothing but asks the chat network, so the API serves it only to `hubs:write` and a paid plan), and the opt-in delete tools |
 | `clients:write` | `thalovant_create_client_identity` (`POST /v1/clients`) and the opt-in `thalovant_delete_client` |
 | `memory:read` | `thalovant_list_memory_items`, `thalovant_get_memory_summary`, `thalovant_get_memory_item` |
 | `memory:write` | `thalovant_create_memory_item`, `thalovant_update_memory_item`, `thalovant_delete_memory_item` |
@@ -152,7 +152,7 @@ A hub can answer in a chat network through a **chat app**: Telegram and Discord 
 | `thalovant_get_bridge_networks` | Networks offered and the plan's allowance (`GET /v1/bridges/networks`): `limit`, `used`, `remaining`, `paid_plan`, `can_create`, and a `summary` in words. Free plans get 0. With `hubId`, the hub owner's allowance | read-only |
 | `thalovant_list_bridges` | Bridges of one hub (`hubId`) or every bridge the token may see (`ownerId` narrows it; `limit` 1-500) | read-only |
 | `thalovant_get_bridge` | One bridge, with its status in plain words | read-only |
-| `thalovant_list_bridge_chats` | The chats, channels or rooms the bot can see, to choose from; `manual_entry: true` when the ids are typed instead | read-only |
+| `thalovant_list_bridge_chats` | The chats, channels or rooms the bot can see, to choose from; `manual_entry: true` when the ids are typed instead. Changes nothing, but needs `hubs:write` and a paid plan (it asks the network) | read-only, write scope |
 | `thalovant_pause_bridge` | `PATCH paused: true`: stops answering everywhere, keeps chats, settings and token. Always allowed | write |
 | `thalovant_resume_bridge` | `PATCH paused: false`. Needs a paid plan with room in its allowance | write |
 | `thalovant_update_bridge` | The chats it answers in (`allowed`, which replaces the whole list), `requireMention`, `sessionScope`, and non-secret `settings` | write |
@@ -169,7 +169,7 @@ The platform's own diagnostic sentence and condition (`status.message`, `status.
 
 The write tools take an optional `etag` (the bridge's `etag` field; there is no ETag header), sent as `If-Match`: a stale one fails `412` and changes nothing. Telegram lists chats only while its bridge is paused (`409 bridge_running`), so the flow is pause, send `/start@<bot>` in the new group, list, update `allowed`, resume. A refusal keeps the API's code, sentence and fields (see [Tool Errors](#tool-errors)) and adds a hint by code: the settings a `bridge_settings_invalid` or `bridge_url_*` refusal names (names only), the plan's allowance after `402` or `403 plan_limit`, the wait after `429`, and the console for anything about a token.
 
-Reads need `hubs:read`; writes need `hubs:write`, the hub's owner or a workspace manager, and a paid plan, except pausing and deleting, which always work. `THALOVANT_MCP_READONLY` keeps the five reads.
+Reads need `hubs:read`, except `thalovant_list_bridge_chats`: it changes nothing, but it asks the chat network on the bot's behalf, so it needs `hubs:write`, the hub's owner or a workspace manager, and a paid plan, like the writes. Writes need the same, except pausing and deleting, which always work on any plan. `THALOVANT_MCP_READONLY` keeps the four reads a `hubs:read` token can call and leaves `thalovant_list_bridge_chats` out.
 
 ## Local Stdio
 
@@ -444,7 +444,7 @@ Hub skills, acting on the hub’s shared runtime (see [Hub Skills](#hub-skills);
 - `thalovant_update_hub_skill`
 - `thalovant_remove_hub_skill`
 
-Chat apps (see [Chat Apps](#chat-apps); the first five are read-only):
+Chat apps (see [Chat Apps](#chat-apps); the first five are read-only, and `thalovant_list_bridge_chats` needs `hubs:write`):
 
 - `thalovant_list_chat_app_connectors`
 - `thalovant_get_bridge_networks`
@@ -581,7 +581,7 @@ With the flag unset, a call with any `sourceType` other than `catalog` fails bef
 
 ## Read-Only Mode
 
-Set `THALOVANT_MCP_READONLY=1` to register only tools annotated `readOnlyHint: true` (the sign-in tools are not among them; `thalovant_wait_for_admission` is). Write and destructive tools are then never registered and never appear in `tools/list`, so an operator can run an observe-only agent without hand-writing a denylist. Like the other registration-time gates it is read when a server instance is created; `thalovant_config_status` reports the state as `readOnly`.
+Set `THALOVANT_MCP_READONLY=1` to register only tools annotated `readOnlyHint: true` (the sign-in tools are not among them; `thalovant_wait_for_admission` is), less those the API serves only to a write scope: `thalovant_list_bridge_chats` changes nothing but needs `hubs:write`, which an observe-only agent's token does not carry. Write and destructive tools are then never registered and never appear in `tools/list`, so an operator can run an observe-only agent without hand-writing a denylist. Like the other registration-time gates it is read when a server instance is created; `thalovant_config_status` reports the state as `readOnly`.
 
 ## HiveMind Runtime Compatibility
 
@@ -669,7 +669,7 @@ one tool for every SDK conversation or event-listener method.
 
 ### Shared-runtime skill management
 
-The catalog has 59 default tools, 29 in read-only mode, and 63 with destructive tools enabled.
+The catalog has 59 default tools, 28 in read-only mode, and 63 with destructive tools enabled.
 
 Hub-addressed skill methods select the runtime group attached to the hub UUID.
 Every hub sharing that group sees the same skill changes and history. The API

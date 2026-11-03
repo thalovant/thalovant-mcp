@@ -20,7 +20,7 @@ shapes the answer in `src/chat-apps-output.ts`.
 | `thalovant_get_bridge_networks` | `getBridgeNetworks({ hubId })` | `GET /v1/bridges/networks` | read-only |
 | `thalovant_list_bridges` | `listBridges({ hubId, ownerId, limit })` | `GET /v1/bridges` | read-only |
 | `thalovant_get_bridge` | `getBridge(id)` | `GET /v1/bridges/{id}` | read-only |
-| `thalovant_list_bridge_chats` | `listBridgeChats(id)` | `GET /v1/bridges/{id}/chats` | read-only |
+| `thalovant_list_bridge_chats` | `listBridgeChats(id)` | `GET /v1/bridges/{id}/chats` | read-only, needs `hubs:write` and a paid plan; not in read-only mode |
 | `thalovant_pause_bridge` | `updateBridge(id, { paused: true }, { etag })` | `PATCH /v1/bridges/{id}` | write |
 | `thalovant_resume_bridge` | `updateBridge(id, { paused: false }, { etag })` | `PATCH /v1/bridges/{id}` | write |
 | `thalovant_update_bridge` | `updateBridge(id, { allowed, requireMention, sessionScope, settings }, { etag })` | `PATCH /v1/bridges/{id}` | write |

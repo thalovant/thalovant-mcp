@@ -255,6 +255,16 @@ function readOnlyModeEnabled(): boolean {
   return parseBool(process.env.THALOVANT_MCP_READONLY, false);
 }
 
+/**
+ * Tools that change nothing (readOnlyHint: true) but that the API serves only
+ * to a write scope, so read-only mode leaves them out as well: an observe-only
+ * agent runs on a read-only token, which the API would refuse with 403.
+ * thalovant_list_bridge_chats asks the chat network on the bot's behalf, and
+ * the API answers it only for hubs:write, the hub's owner or a manager, and a
+ * paid plan.
+ */
+const WRITE_SCOPE_READ_TOOLS: ReadonlySet<string> = new Set(["thalovant_list_bridge_chats"]);
+
 const capacityProfileSchema = z
   .enum(["standard", "autoscaling"])
   .describe(
@@ -860,8 +870,9 @@ function registerThalovantTool(
 ): void {
   if (readOnlyModeEnabled()) {
     const annotations = (config.annotations ?? {}) as { readOnlyHint?: boolean };
-    if (annotations.readOnlyHint !== true) {
-      // Read-only mode: do not register write/destructive tools at all.
+    if (annotations.readOnlyHint !== true || WRITE_SCOPE_READ_TOOLS.has(name)) {
+      // Read-only mode: do not register write/destructive tools at all, nor
+      // the reads only a write scope may call.
       return;
     }
   }
@@ -3258,7 +3269,7 @@ export function createServer(): McpServer {
     {
       title: "List Bridge Chats",
       description:
-        "List the chats, channels or rooms a bridge's bot can see (GET /v1/bridges/{id}/chats), to choose from for allowed in thalovant_update_bridge. Each row has id, title, kind, the Discord server (guild_id, guild_name), allowed (it already answers there), and selectable (false for an encrypted room it cannot read). manual_entry true means this chat app cannot list its chats: type the ids instead, matching targets.pattern from thalovant_list_chat_app_connectors. Telegram lists only chats that wrote to the bot in the last 24 hours, and only while the bridge is paused (409 bridge_running otherwise): pause it with thalovant_pause_bridge, send /start@<bot username> in the new group, list, choose with thalovant_update_bridge, then resume. Listing is rate-limited per bridge. Requires the hubs:read scope. Changes nothing on Thalovant.",
+        "List the chats, channels or rooms a bridge's bot can see (GET /v1/bridges/{id}/chats), to choose from for allowed in thalovant_update_bridge. Each row has id, title, kind, the Discord server (guild_id, guild_name), allowed (it already answers there), and selectable (false for an encrypted room it cannot read). manual_entry true means this chat app cannot list its chats: type the ids instead, matching targets.pattern from thalovant_list_chat_app_connectors. Telegram lists only chats that wrote to the bot in the last 24 hours, and only while the bridge is paused (409 bridge_running otherwise): pause it with thalovant_pause_bridge, send /start@<bot username> in the new group, list, choose with thalovant_update_bridge, then resume. Listing is rate-limited per bridge. It changes nothing, but because it asks the chat network on the bot's behalf it needs the hubs:write scope, a paid plan, and the hub's owner or a workspace manager (403 for a hubs:read token, 402 on a plan without chat apps); THALOVANT_MCP_READONLY leaves it out.",
       inputSchema: { ...controlPlaneSchema, bridgeId: bridgeIdSchema },
       annotations: { readOnlyHint: true, openWorldHint: true },
     },

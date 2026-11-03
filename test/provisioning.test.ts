@@ -170,7 +170,7 @@ const ENABLED_TOOLS = [
 
 // Registered tool counts per mode. README and CHANGELOG quote these numbers.
 const DEFAULT_TOOL_COUNT = 59;
-const READ_ONLY_TOOL_COUNT = 29;
+const READ_ONLY_TOOL_COUNT = 28;
 const DESTRUCTIVE_ENABLED_TOOL_COUNT = 63;
 
 describe("provisioning and discovery tool registration", () => {
