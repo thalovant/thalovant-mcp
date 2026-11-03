@@ -899,9 +899,9 @@ describe("hub skill tools", () => {
     const fake = await startFakeControlPlane(jsonResponder(hubSkillResponder(["ready"])));
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
 
-    await client.callTool({ name: "thalovant_remove_hub_skill", arguments: { hubId: "hub-1", skill: "skill/weather v2" } });
+    await callToolSuccessfully(client, { name: "thalovant_remove_hub_skill", arguments: { hubId: "hub-1", skill: "skill/weather v2" } });
     findRequest(fake, "DELETE", "/v1/hubs/hub-1/skills/skill%2Fweather%20v2");
-    await client.callTool({ name: "thalovant_update_hub_skill", arguments: { hubId: "hub-1", skill: "skill/weather v2", version: "2.0.0" } });
+    await callToolSuccessfully(client, { name: "thalovant_update_hub_skill", arguments: { hubId: "hub-1", skill: "skill/weather v2", version: "2.0.0" } });
     findRequest(fake, "PATCH", "/v1/hubs/hub-1/skills/skill%2Fweather%20v2");
   }, 15_000);
 

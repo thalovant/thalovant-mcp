@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Audit the 0.7.0 chat apps tools from test results and code review; keep the 0.6.6 dependency audit.
+Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Audit the 0.7.0 chat apps tools from test results and code review; keep the 0.6.6 dependency audit; and note the provisioning-test success assertions closed from CodeRabbit's #29 review.
 
 # Audit
 
@@ -61,3 +61,7 @@ Local install/audit reports zero vulnerabilities. Typecheck, build and all 310 t
 0.6.6 is prepared, not published. Before production adoption, the existing release workflow must publish matching npm/OCI/registry metadata and pass the published-artifact smoke checks. This source audit is not proof of live rollout or legal clearance.
 
 The source-bound parity gate initially rejected the five record edits. A fresh full 310-test run with `THALOVANT_CONFORMANCE_OUT` generated results structurally identical to `contracts/conformance-results.json`. Only the existing `src/index.ts` evidence hashes were refreshed; accepted reference digests, capability declarations, tests and expected results remain unchanged. The current Python reference's parity checker then verifies the consumer record.
+
+## Test Assertions (2026-11-03)
+
+A provisioning test that only looks up the recorded request passes even when the tool reports an error after making it. `test/provisioning.test.ts` routes such calls through `callToolSuccessfully`, which asserts `isError` is false. The "URL-encodes the skill name in the path" case was the last to call `client.callTool` without it.

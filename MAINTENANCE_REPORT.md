@@ -1,6 +1,27 @@
-Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Log the 0.7.0 chat apps tools, their verification and AI transparency.
+Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Log the 0.7.0 chat apps tools, their verification and AI transparency; and record the CodeRabbit review-body items on merged PRs #29 and #30, checked against main.
 
 # Maintenance Report
+
+## 2026-11-03 — CodeRabbit review-body items (#29, #30)
+
+CodeRabbit's review bodies on #29 and #30 carried six "Nitpick comments", which are not threads and were never answered. Each was checked against `main` (ceb6581). All six were already fixed in 084bcd9 (#58); each old PR has a comment listing its items.
+
+| PR | Item | Outcome |
+| :--- | :--- | :--- |
+| #29 | Document the restart `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` needs | Already fixed in 084bcd9 (#58): README "Destructive Tools" |
+| #29 | Unguarded `JSON.parse` in the fake control plane | Already fixed in 084bcd9 (#58): a malformed body answers 400 |
+| #29 | Two copies of the fake control-plane helper | Already fixed in 084bcd9 (#58): `startFailingControlPlane` delegates to `startFakeControlPlane`, which calls `closeAllConnections()` |
+| #29 | Tool calls that never assert `isError` | Already fixed in 084bcd9 (#58) via `callToolSuccessfully`; the two calls a later test added ("URL-encodes the skill name in the path") now use it too |
+| #30 | Positive `savePath` test | Already fixed in 084bcd9 (#58): `my-hub.json` lands in the identity directory with mode 0600 |
+| #30 | List every added redaction key | Already fixed in 084bcd9 (#58): CHANGELOG 0.1.x entry names all ten |
+
+Verification: `npm ci`, typecheck, build and the full test suite pass; the reference's `check-sdk-parity.py --consumer thalovant-mcp` passes with the refreshed `test/provisioning.test.ts` hash. Test and contract files only; no release.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Read each review-body item against current code and tests; made two test calls assert success; refreshed that file's parity evidence hash; wrote this entry and the AUDIT note; commented on #29 and #30.
+- **Oversight**: Run by an agent on the repository owner's request to handle every CodeRabbit item on merged PRs; the pull request goes through the normal CI gates, and its merge waits for the lead's go.
 
 ## 2026-11-03: chat apps tools (0.7.0)
 

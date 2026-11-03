@@ -96,7 +96,7 @@
       "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures.",
       "status": "required",
       "tests": {
-        "test/provisioning.test.ts": "5524d3e62f75411aa8cda3aa176f30d56d8b107a23e0abe8201ee29737273429",
+        "test/provisioning.test.ts": "7f90363c4106a9dd77910b9aa9db27a469a45d185c15c491703a53432cb2dcf1",
         "test/security-hardening.test.ts": "c3e07c5b310a86c8339f716b158490dfd7e1ff98082d6f99c691efccd70fe932"
       }
     },
