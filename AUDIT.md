@@ -12,14 +12,14 @@ Run against `@thalovant/sdk` 0.10.0, packed from its chat apps branch and instal
 | --- | --- |
 | `npm run typecheck` | passed |
 | `npm run build` | passed |
-| `npm test`, 2 workers | 379 tests passed in 20 files; `main` had 310 in 18 |
+| `npm test`, 2 workers | 380 tests passed in 20 files; `main` had 310 in 18 |
 | `npm run test:smoke` | 2 passed |
 | `npm run test:http` | 9 passed |
 | Conformance (`THALOVANT_CONFORMANCE_OUT`) | structurally identical to `contracts/conformance-results.json` |
 
 The new tests are in three files:
 
-- [test/chat-apps-output.test.ts](test/chat-apps-output.test.ts) has 41 unit tests.
+- [test/chat-apps-output.test.ts](test/chat-apps-output.test.ts) has 42 unit tests.
 - [test/chat-apps.test.ts](test/chat-apps.test.ts) has 27 stdio tests against the built server and a loopback API.
 - [test/http.test.ts](test/http.test.ts) has one Streamable HTTP test with a principal's own credential.
 
@@ -27,7 +27,7 @@ The new tests are in three files:
 
 1. **Credential boundary (by design).** No chat app tool takes a token or secret, so `createBridge`, `replaceBridgeToken` and `replaceBridgeSecrets` have no tool. The console does them.
    - Evidence: [test/chat-apps.test.ts](test/chat-apps.test.ts) "takes no token or secret in any chat app tool" (line 212) checks every chat app tool's input properties.
-   - `thalovant_update_bridge` refuses a setting whose name looks like a credential before any request ([src/index.ts](src/index.ts) line 3328). The refusal names the setting, never its value: test "refuses an empty change ..." (line 494).
+   - `thalovant_update_bridge` refuses a setting whose name looks like a credential, at any depth, before any request ([src/index.ts](src/index.ts) line 3328). The refusal names the setting, never its value: test "refuses an empty change ..." (line 494).
 2. **Platform-only status fields are dropped.** An administrator's token receives `status.message` and `status.operator_reason`. `bridgeView()` ([src/chat-apps-output.ts](src/chat-apps-output.ts) line 172) builds the output from the documented members and leaves both out. Test "lists bridges with the status in words, never the platform's message or a credential" (line 320) sends both, plus a stray `token`, and asserts none appears.
 3. **Key-name redaction hides non-secret names (tech debt).** `redactSecrets()` ([src/index.ts](src/index.ts) line 917) redacts any member whose name contains `secret` or `token`. That would turn a bridge's `secrets_set` and `token_updated_at`, and a connector's `secrets` list, into `[redacted]`, though they hold names and a time. The chat app views are allowlisted instead, and only `settings` and `operation` go through redaction. A future pass of `redactSecrets()` over a whole view would hide those names again.
 4. **`fields` label collision.** `apiErrorText()` ([src/api-error-output.ts](src/api-error-output.ts) line 68) prints the rest of an error body under `fields:`. A refusal's own `fields` list then appears as `fields: {"detail":{..."fields":["homeserver"]}}`. `bridgeErrorHint()` repeats the names in words: test "names the settings a refusal is about, never their values" (line 516). Not changed here, because `api-error-output.ts` is shared `api-errors` evidence; see [SUGGESTIONS.md](SUGGESTIONS.md).

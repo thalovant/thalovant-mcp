@@ -272,13 +272,31 @@ export function chatsOutput(list: BridgeChatList, redact: Redact): Record<string
   };
 }
 
-/** Setting names a tool refuses to send, because they look like a token or secret. */
+/**
+ * Setting names a tool refuses to send because they look like a token or
+ * secret, at any depth, as dotted paths (`server.auth.token`, `hosts.0.token`).
+ * Only names are returned, never values.
+ */
 export function secretLookingSettings(settings: Record<string, unknown> | undefined, isSecretKey: (key: string) => boolean): string[] {
-  return settings ? Object.keys(settings).filter(isSecretKey) : [];
+  const found: string[] = [];
+  const visit = (value: unknown, path: string): void => {
+    if (Array.isArray(value)) {
+      value.forEach((item, index) => visit(item, `${path}.${index}`));
+      return;
+    }
+    if (!isRecord(value)) return;
+    for (const [key, nested] of Object.entries(value)) {
+      const here = path ? `${path}.${key}` : key;
+      if (isSecretKey(key)) found.push(here);
+      else visit(nested, here);
+    }
+  };
+  visit(settings, "");
+  return found;
 }
 
 export function secretSettingsRefusal(names: readonly string[]): string {
-  return `settings never carry a token or secret, and ${names.join(", ")} looks like one, so nothing was sent. Paste tokens and secrets in ${CONSOLE_REPLACE_TOKEN}. ${NO_SECRETS_HERE}`;
+  return `Nothing was sent: settings never carry a token or secret, and these setting names look like one: ${names.join(", ")}. Paste tokens and secrets in ${CONSOLE_REPLACE_TOKEN}. ${NO_SECRETS_HERE}`;
 }
 
 function named(error: ThalovantApiError, what: string): string {

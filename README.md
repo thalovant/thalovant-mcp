@@ -144,7 +144,7 @@ Answering the hub's requests afterwards is the integration's own long-lived job,
 
 A hub can answer in a chat network through a **chat app**: Telegram and Discord are offered, and Matrix, Mattermost and Twitch appear as beta when the API lists them. Each connection of a hub to a chat network is a *bridge* (`/v1/bridges`). The person makes the bot in the chat network, then connects it to a hub in the Thalovant console.
 
-**Tokens and secrets stay in the console.** Creating a bridge and replacing its token or secrets need the bot's credential, and no tool of this server takes a credential as an argument (see [Control-Plane Auth](#control-plane-auth)), so there is no tool for them. The descriptions and outputs say where to go instead: Connections > Add connection > Chat apps, or the hub's Chat apps tab, and **Replace token** on the bot. `thalovant_update_bridge` refuses a setting whose name looks like a token or secret before any request, naming the setting and never its value.
+**Tokens and secrets stay in the console.** Creating a bridge and replacing its token or secrets need the bot's credential, and no tool of this server takes a credential as an argument (see [Control-Plane Auth](#control-plane-auth)), so there is no tool for them. The descriptions and outputs say where to go instead: Connections > Add connection > Chat apps, or the hub's Chat apps tab, and **Replace token** on the bot. `thalovant_update_bridge` refuses a setting whose name looks like a token or secret, at any depth, before any request, naming it by its dotted path and never its value.
 
 | Tool | What it does | Kind |
 |------|--------------|------|

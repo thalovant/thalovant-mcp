@@ -37,14 +37,14 @@
     },
     "chat-apps": {
       "implementation": {
-        "src/chat-apps-output.ts": "ce2aef0b3ef4d9661784598f384b9fe643f37c2ce016449d0553240a14d29685",
+        "src/chat-apps-output.ts": "76afe8b3e9c76c66b3a4e1baa7a4312ff58d94f7ae58d835980e3f87787dbf22",
         "src/index.ts": "ea4cfe4e06de9eab29edfd1d42ab58bda237e67b6c042878a98f20f69029774a"
       },
       "reason": "Ten tools over the @thalovant/sdk chat app methods, registered in src/index.ts: thalovant_list_chat_app_connectors (listChatAppConnectors), thalovant_get_bridge_networks (getBridgeNetworks), thalovant_list_bridges (listBridges), thalovant_get_bridge (getBridge) and thalovant_list_bridge_chats (listBridgeChats) read only; thalovant_pause_bridge and thalovant_resume_bridge (updateBridge with paused), thalovant_update_bridge (updateBridge with allowed, requireMention, sessionScope and settings; the etag is sent as If-Match only when given) and thalovant_send_bridge_test_message (sendBridgeTestMessage) write; thalovant_delete_bridge (deleteBridge) is registered only with THALOVANT_ENABLE_DESTRUCTIVE_TOOLS, like the hub, runtime group and client deletes. src/chat-apps-output.ts builds each answer from the members the API documents, words status.reason, hold and status.applied as status.summary, never includes the operator-only status.message or status.operator_reason, and adds a hint by refusal code that names ThalovantApiError.fields (names only). createBridge, replaceBridgeToken and replaceBridgeSecrets are console-only: they take a credential, and no tool of this server accepts one as an argument; thalovant_update_bridge refuses a setting whose name looks like a credential before any request. getBridgeAvatar is not exposed (image bytes). Tested over stdio against the built server and a loopback API (test/chat-apps.test.ts), over Streamable HTTP with a principal's own credential (test/http.test.ts), and as units (test/chat-apps-output.test.ts).",
       "status": "required",
       "tests": {
-        "test/chat-apps-output.test.ts": "b3a9c908eb5780ba833b17bc78ce2ba215339e20a8c6c7f29a01feb4f5ce906d",
-        "test/chat-apps.test.ts": "d2ace4a163b2788d178b7ea49a63b855dfc0a2bd228b917f4aeaeec1f91ea6da",
+        "test/chat-apps-output.test.ts": "2e9e1599dbeff1805573aa5a83b471dfe314676fb10aaf089c499987e1619d0a",
+        "test/chat-apps.test.ts": "633310526aa6228136da8c22c4dd9eecd5b8b0cd1edc7db52359862821d661b9",
         "test/http.test.ts": "d99ae60f7a4aa9f4c12b31168b5bddfb5e0e26c7276971e0996b131dddf00765"
       }
     },

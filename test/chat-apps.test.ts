@@ -505,11 +505,11 @@ describe("chat app writes", () => {
     });
     const secret = await callError(client, "thalovant_update_bridge", {
       bridgeId: BRIDGE_ID,
-      settings: { homeserver: "https://matrix.example.org", access_token: "syt_should-not-appear" },
+      settings: { homeserver: "https://matrix.example.org", access_token: "syt_should-not-appear", auth: { refresh_token: "rt_should-not-appear" } },
     });
-    expect(secret).toMatch(/access_token looks like one, so nothing was sent/);
+    expect(secret).toMatch(/Nothing was sent: .*setting names look like one: access_token, auth\.refresh_token\./);
     expect(secret).toMatch(/Replace token/);
-    expect(secret).not.toContain("syt_should-not-appear");
+    expect(secret).not.toMatch(/should-not-appear/);
     expect(fake.requests).toHaveLength(0);
   }, 15_000);
 

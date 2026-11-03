@@ -220,8 +220,20 @@ describe("settings that look like secrets", () => {
     expect(secretLookingSettings({ homeserver: "https://x", access_token: "syt_value" }, isSecret)).toEqual(["access_token"]);
     expect(secretLookingSettings(undefined, isSecret)).toEqual([]);
     const refusal = secretSettingsRefusal(["access_token"]);
-    expect(refusal).toMatch(/access_token looks like one, so nothing was sent/);
+    expect(refusal).toMatch(/^Nothing was sent: .*setting names look like one: access_token\./);
     expect(refusal).not.toContain("syt_value");
+  });
+
+  it("finds them at any depth, as dotted paths, and returns no value", () => {
+    const settings = {
+      homeserver: "https://x",
+      server: { url: "https://y", auth: { bot_token: "nested-value", user: "hub" } },
+      hosts: [{ name: "a" }, { client_secret: "array-value" }],
+      plain: ["token-looking-value-is-not-a-name"],
+    };
+    const found = secretLookingSettings(settings, isSecret);
+    expect(found).toEqual(["server.auth.bot_token", "hosts.1.client_secret"]);
+    expect(JSON.stringify(found)).not.toMatch(/nested-value|array-value/);
   });
 });
 
