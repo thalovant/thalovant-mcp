@@ -521,8 +521,9 @@ A 409 `skill_unavailable_licensing` says the store refuses the skill for its
 licensing and where the catalog announces it, instead of the version hint. A
 memory create or update refused with 409 `memory_limit` (the plan's remembered
 items are used up; a Free plan keeps one, `limit` and `upgrade_plan` are in the
-fields) names the delete and update tools that free a slot and the plan to move
-to; other memory refusals carry the SDK's message alone.
+fields) names the delete tool that frees a slot, the update tool that changes
+the item that exists, and the plan to move to; other memory refusals carry the
+SDK's message alone.
 
 ## Request hints, embedded audio, and configuration merging
 
