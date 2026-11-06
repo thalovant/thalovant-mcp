@@ -348,7 +348,7 @@ function releaseOptionsFrom(args: {
 }
 
 /** Which failure modes a control-plane call can produce, for error guidance. */
-type ControlPlaneErrorProfile = "read" | "write" | "hubWrite" | "skillInstall" | "hubSkillInstall";
+type ControlPlaneErrorProfile = "read" | "write" | "hubWrite" | "skillInstall" | "hubSkillInstall" | "memoryWrite";
 
 const SCOPE_HINT_403 =
   'HTTP 403 "Insufficient scopes" — the token lacks the scope this route needs: hubs:write for provisioning, hubs:read for the marketplace catalog, hubs:inspect for runtime-group and hub runtime views (hubs:write implies hubs:read, which implies hubs:inspect and hubs:preview). The API checks scope BEFORE the paid-plan gate, so a 403 can mask a plan problem and granting the scope may surface a 402 next. Free-plan API tokens are capped at hubs:read, clients:read, and clients:write, so a free-tier API token fails provisioning with this 403 and never reaches the 402. A 403 here can also mean the caller does not own the resource ("Ownership required"), or a plan restriction such as HUB_AUTOSCALING_NOT_INCLUDED or a custom hub domain the plan does not allow.';
@@ -358,6 +358,11 @@ const PLATFORM_IMAGE_HINT_403 =
 
 const PLAN_LIMIT_HINT_403 =
   'HTTP 403 plan_limit — the plan\'s allowance for the named resource is used up (see resource, used and limit in the fields above). Granting a scope will not help: free one (delete or reuse an existing one) or move the workspace to a larger plan.';
+
+const LICENSING_HINT_409 =
+  "HTTP 409 skill_unavailable_licensing — the store does not install this skill on Thalovant: the service's terms do not allow a hosted assistant to play its content (YouTube, YouTube Music, Spotify, SoundCloud and Bandcamp; the problem's reason says licensing). No plan, scope or version changes that, and retrying will not either; radio and aggregator skills such as TuneIn, SomaFM and News install as usual. thalovant_list_marketplace_skills reports this per skill as unavailable_reason and installable (false), so check them before installing.";
+const MEMORY_LIMIT_HINT_409 =
+  "HTTP 409 memory_limit — the plan's remembered items are used up (see limit in the fields above; a Free plan keeps one). Free a slot with thalovant_delete_memory_item, change the item that exists with thalovant_update_memory_item, or move the workspace to the plan upgrade_plan names (Home); granting a scope will not help.";
 
 const PLAN_HINT_402 =
   'HTTP 402 "API access requires a paid plan." — the token is valid and correctly scoped but the tenant is on the free plan. Free-tier callers can browse the catalog (thalovant_list_marketplace_skills) and set hub ratings, but cannot create, update, release, or delete hubs and runtime groups, and cannot install skills.';
@@ -377,6 +382,11 @@ function controlPlaneErrorHint(
   body: string,
   code?: string,
 ): string | undefined {
+  if (profile === "memoryWrite") {
+    // The memory routes have their own scopes and refusals, which the hub-centric
+    // hints below would misdescribe; the one worth a hint is the plan's limit.
+    return status === 409 && code === "memory_limit" ? MEMORY_LIMIT_HINT_409 : undefined;
+  }
   switch (status) {
     case 402:
       return (profile === "skillInstall" || profile === "hubSkillInstall") && /marketplace/i.test(body) ? MARKETPLACE_HINT_402 : PLAN_HINT_402;
@@ -391,6 +401,7 @@ function controlPlaneErrorHint(
         ? "HTTP 404 (hub_without_runtime_group) — the hub exists but has no runtime group attached yet, so it cannot hold skills; attach it to a runtime group (thalovant_update_hub) before managing its skills. A 404 without that code means the hub is unknown, or the named skill is not installed on it."
         : undefined;
     case 409:
+      if (code === "skill_unavailable_licensing") return LICENSING_HINT_409;
       if (profile === "hubWrite") {
         return 'HTTP 409 — for a hub create this is either a duplicate ("Hub with name ... already exists for this owner" / "Hub slug ... already exists"), an autoscaling slot limit (AUTOSCALING_HUB_LIMIT_REACHED), or "Idempotency key re-used with different payload". Only hub create honors Idempotency-Key: retrying an identical create is safe and returns the original hub, but reusing a key with a changed body conflicts — use a new idempotencyKey for a genuinely different hub.';
       }
@@ -2414,7 +2425,7 @@ export function createServer(): McpServer {
       const { loginScope, apiUrl, ...payload } = args;
       const api = await createControlPlane({ loginScope, apiUrl });
       ensureAuthenticated(api);
-      return jsonContent(redactSecrets(await api.createMemoryItem(payload as MemoryCreatePayload)));
+      return jsonContent(redactSecrets(await callControlPlane("memoryWrite", () => api.createMemoryItem(payload as MemoryCreatePayload))));
     },
   );
 
@@ -2448,7 +2459,7 @@ export function createServer(): McpServer {
       const { loginScope, apiUrl, memoryId, ...payload } = args;
       const api = await createControlPlane({ loginScope, apiUrl });
       ensureAuthenticated(api);
-      return jsonContent(redactSecrets(await api.updateMemoryItem(memoryId, payload as MemoryUpdatePayload)));
+      return jsonContent(redactSecrets(await callControlPlane("memoryWrite", () => api.updateMemoryItem(memoryId, payload as MemoryUpdatePayload))));
     },
   );
 

@@ -1,8 +1,13 @@
-Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: 0.7.0 chat apps tools; date the published 0.6.6.
+Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: 0.7.1 hints for the store's licensing refusal and the memory limit; date the published 0.7.0.
 
 # Changelog
 
-## 0.7.0 - Unreleased
+## 0.7.1 - Unreleased
+
+- **Two refusals explained by their code.** A skill the store does not install for licensing reasons (YouTube, YouTube Music, Spotify, SoundCloud and Bandcamp; the API's 409 `skill_unavailable_licensing` with `reason: licensing`, declared with the launch data-protection change) got the generic 409 hint, which talks about a version already installed. It now says the service's terms do not allow a hosted assistant to play its content, that no plan, scope, version or retry changes that, that radio and aggregator skills install as usual, and that `thalovant_list_marketplace_skills` reports it per skill as `unavailable_reason` and `installable`. A memory create or update refused with 409 `memory_limit` (the plan's remembered items are used up; a Free plan keeps one) carried no hint at all, because the memory tools never went through the hint path; `thalovant_create_memory_item` and `thalovant_update_memory_item` now do, under a profile of their own that adds a hint for that code alone (the hub-centric scope and plan hints would misdescribe the memory routes), naming the `limit` and `upgrade_plan` fields, the delete tool that frees a slot, the update tool that changes the item that exists, and that granting a scope will not help. Two tests drive both through the fake control plane.
+- `package.json`, `package-lock.json`, `server.json`, the OCI label, the README and this file move to 0.7.1 together.
+
+## 0.7.0 - 2026-11-03
 
 A hub can answer in a chat network through a chat app: Telegram and Discord, and Matrix, Mattermost and Twitch as beta once the API lists them. These tools let an agent read and look after the bridges a person connected in the console. Existing tool schemas are unchanged.
 
