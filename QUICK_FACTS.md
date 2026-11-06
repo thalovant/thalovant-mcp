@@ -1,11 +1,11 @@
-Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Record the 0.7.0 chat apps tools, tool counts and SDK requirement.
+Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: Version 0.7.1 prepared: hints for skill_unavailable_licensing and memory_limit.
 
 # Quick Facts
 
 | Fact | Value |
 | --- | --- |
 | Package | `@thalovant/mcp-server` (npm), `ghcr.io/thalovant/thalovant-mcp` (OCI), `io.github.thalovant/thalovant-mcp` (MCP Registry) |
-| Version | 0.7.0 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
+| Version | 0.7.1 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
 | Entry point | `thalovant-mcp` bin, `dist/index.js`: stdio by default, Streamable HTTP with `--http` |
 | Thalovant SDK | `@thalovant/sdk` ^0.10.0 (chat app methods, `ThalovantApiError.fields`) |
 | Tools | 59 by default, 28 with `THALOVANT_MCP_READONLY`, 63 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` |

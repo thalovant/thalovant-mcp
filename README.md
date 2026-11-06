@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Chat apps tools (connectors, bridges, pause/resume, chats, test message, allowance) for 0.7.0.
+Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: Say what the 409 skill_unavailable_licensing and memory_limit refusals get as hints (0.7.1).
 
 # Thalovant MCP Server
 
@@ -103,7 +103,7 @@ Grant fewer scopes for narrower deployments: a read-only assistant needs only `h
 
 `thalovant_list_hub_skills` returns the whole `GET /v1/hubs/{hub_id}/skills` envelope: `hub_id`, `runtime_group_id`, `observed_at`, `source`, the runtime's phase and message, and `data`, one row per skill (possibly empty) with `skill`, `title`, `marketplace_skill_id`, `package_name`, `source_type`, `install_source`, `version`, `version_pin`, `installed_version`, `observed_version`, `previous_version`, `latest_version`, `available_version`, `update_available`, `changelog`, `active`, `state`, the runtime's phase, message and last error, and `last_transition_at`. `state` is one of `pending`, `installed`, `failed`, `removing`, `drifted`, `quarantined`, or `unmanaged`; a change in progress shows as `pending`.
 
-Each write answers `202` with `operation_id`, `hub_id`, `runtime_group_id`, `skill`, `version` (`null` for a removal), `previous_version`, and `state` (`installing`, `updating`, or `removing`); pass `wait: true` to poll that operation every 2 s until it converges (`installed`, or `removed` for a removal; a `failed` or `timed_out` operation raises an error carrying its `error_message`), with a 120 s default `timeoutMs`, or follow it yourself with `thalovant_get_operation`. Installing a skill that is already installed at another version performs an update; the same version fails `409` with code `skill_version_already_installed`. A hub with no runtime group fails `404` with code `hub_without_runtime_group` (a plain `404` means an unknown hub or a skill that is not installed), and an unresolvable `latest` or an invalid version fails `422`. Errors are RFC 7807 problem bodies; the tool error keeps the short `message`, which appends the root `code` in parentheses, for example `Thalovant API request failed with HTTP 409: Skill version already installed. (skill_version_already_installed)`, and then the code and the body's other fields (see [Tool Errors](#tool-errors)).
+Each write answers `202` with `operation_id`, `hub_id`, `runtime_group_id`, `skill`, `version` (`null` for a removal), `previous_version`, and `state` (`installing`, `updating`, or `removing`); pass `wait: true` to poll that operation every 2 s until it converges (`installed`, or `removed` for a removal; a `failed` or `timed_out` operation raises an error carrying its `error_message`), with a 120 s default `timeoutMs`, or follow it yourself with `thalovant_get_operation`. Installing a skill that is already installed at another version performs an update; the same version fails `409` with code `skill_version_already_installed`. A hub with no runtime group fails `404` with code `hub_without_runtime_group` (a plain `404` means an unknown hub or a skill that is not installed), and an unresolvable `latest` or an invalid version fails `422`. Errors are RFC 7807 problem bodies; the tool error keeps the short `message`, which appends the root `code` in parentheses, for example `Thalovant API request failed with HTTP 409: Skill version already installed. (skill_version_already_installed)`, and then the code and the body's other fields (see [Tool Errors](#tool-errors)). A skill the store does not install for licensing reasons (YouTube, YouTube Music, Spotify, SoundCloud and Bandcamp: the service's terms do not allow a hosted assistant to play its content) fails `409` with code `skill_unavailable_licensing` and `reason: licensing`, which `thalovant_list_marketplace_skills` announces per skill as `unavailable_reason` and `installable`; no plan, scope or version changes that.
 
 Listing needs `hubs:inspect` (implied by `hubs:read`); the writes need `hubs:write` and a paid plan, and because scope is checked before plan a free-plan token sees `403`, never `402`. Hub-restricted tokens (a `hub_ids` allowlist) are honoured on all four routes. The server uses the published Node SDK hub-skill methods and preserves MCP cancellation checks during polling. A failed status read retains the accepted operation ID; use `thalovant_get_operation` with that ID instead of submitting the write again. No new poll starts at or after the polling deadline. That deadline does not cancel an HTTP request already in flight.
 
@@ -517,6 +517,12 @@ fields: {"allowed_images":{"bus":[...],"core":[...]},"allowed_repositories":{"co
 
 A hint may follow for statuses that need one. A `platform_image_required` or
 `plan_limit` 403 gets its own hint rather than the general scope hint.
+A 409 `skill_unavailable_licensing` says the store refuses the skill for its
+licensing and where the catalog announces it, instead of the version hint. A
+memory create or update refused with 409 `memory_limit` (the plan's remembered
+items are used up; a Free plan keeps one, `limit` and `upgrade_plan` are in the
+fields) names the delete and update tools that free a slot and the plan to move
+to; other memory refusals carry the SDK's message alone.
 
 ## Request hints, embedded audio, and configuration merging
 
@@ -589,7 +595,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.7.0 requires `@thalovant/sdk` `^0.10.0` (0.10.0 through versions below 0.11.0), which carries the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
+Version 0.7.1 requires `@thalovant/sdk` `^0.10.0` (0.10.0 through versions below 0.11.0), which carries the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`

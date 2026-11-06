@@ -1006,6 +1006,60 @@ describe("control-plane error guidance", () => {
     expect(text).toContain("thalovant_get_hub");
   }, 15_000);
 
+  it("explains a 409 skill_unavailable_licensing as the store's refusal, not a version clash", async () => {
+    const fake = await startFakeControlPlane(jsonResponder((request) =>
+      request.method === "POST" && request.path === "/v1/hubs/hub-1/skills"
+        ? {
+            status: 409,
+            body: {
+              type: "about:blank",
+              title: "Conflict",
+              status: 409,
+              code: "skill_unavailable_licensing",
+              reason: "licensing",
+              message: "YouTube is not available on Thalovant: the service's terms do not allow a hosted assistant to play its content. Radio skills such as TuneIn and SomaFM are available.",
+            },
+          }
+        : undefined,
+    ));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_install_hub_skill", arguments: { hubId: "hub-1", skill: "ovos-skill-youtube" } });
+    expect(result.isError).toBe(true);
+    const text = resultText(result);
+    expect(text).toContain("(skill_unavailable_licensing)");
+    expect(text).toContain("unavailable_reason");
+    expect(text).toContain("thalovant_list_marketplace_skills");
+    expect(text).not.toMatch(/DIFFERENT version performs an update/);
+  }, 15_000);
+
+  it("explains a 409 memory_limit on a memory create as the plan's allowance, naming the upgrade", async () => {
+    const fake = await startFakeControlPlane(jsonResponder((request) =>
+      request.method === "POST" && request.path === "/v1/memory"
+        ? {
+            status: 409,
+            body: {
+              type: "about:blank",
+              title: "Conflict",
+              status: 409,
+              code: "memory_limit",
+              limit: 1,
+              upgrade_plan: "HOME",
+              message: "Your plan keeps one remembered item. Upgrade to Home to keep more.",
+            },
+          }
+        : undefined,
+    ));
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_create_memory_item", arguments: { content: "The garage code is 4321." } });
+    expect(result.isError).toBe(true);
+    const text = resultText(result);
+    expect(text).toContain("(memory_limit)");
+    expect(text).toContain("thalovant_delete_memory_item");
+    expect(text).toContain("upgrade_plan");
+  }, 15_000);
+
   it("explains a 403 as a missing scope that can mask the plan gate", async () => {
     const fake = await startFailingControlPlane(403, JSON.stringify({ detail: "forbidden" }));
     const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });

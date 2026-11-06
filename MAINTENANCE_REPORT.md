@@ -1,6 +1,28 @@
-Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Log the 0.7.0 chat apps tools, their verification and AI transparency; and record the CodeRabbit review-body items on merged PRs #29 and #30, checked against main.
+Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: Log the 0.7.1 refusal hints (skill_unavailable_licensing, memory_limit) and their verification.
 
 # Maintenance Report
+
+## 2026-11-06 — Refusal hints: the store's licensing refusal and the memory limit (0.7.1)
+
+thalovant-api's launch data-protection declaration (`.changes/api-impact-launch-data-protection.yaml`, 2026-09-28) asked this server to map `skill_unavailable_licensing` on the skill-install tools, and its launch catalogue declaration asked the plan-limit hints to know the `memory_limit` code. Neither had been done: a licensing refusal got the hint about a version already installed, and the memory tools did not go through `callControlPlane` at all, so a `memory_limit` carried no hint.
+
+**Changes**
+
+- `controlPlaneErrorHint` answers a 409 whose code is `skill_unavailable_licensing` with its own hint (what the refusal means, that nothing the caller changes lifts it, which skills still install, where `thalovant_list_marketplace_skills` announces it), before the profile-specific 409 texts.
+- A `memoryWrite` profile: `thalovant_create_memory_item` and `thalovant_update_memory_item` now run through `callControlPlane`, and the profile adds a hint for 409 `memory_limit` alone. Every other status keeps the SDK's message, because the hub-centric 403 and 402 texts would misdescribe the memory routes.
+- Two tests in `test/provisioning.test.ts` ("control-plane error guidance") drive both refusals through the fake control plane and check the hint, the code in parentheses and, for the licensing case, that the version hint is gone.
+- README (install paragraph, Tool Errors), CHANGELOG (0.7.1; 0.7.0 dated, it is on npm), QUICK_FACTS, `package.json`, `package-lock.json`, `server.json` and the OCI label move to 0.7.1 together. The hub and marketplace outputs already pass `listing_review_status`, `unavailable_reason` and `installable` through unchanged, so nothing else from those declarations was owed here.
+
+**Verification**
+
+- `npm ci` (which also replaced a stale local `node_modules` that still held an older `@thalovant/sdk`), `npm run typecheck`, `npm run build`, `npm test` (the stdio tests run the built `dist/index.js`, so the build comes first).
+- The reference's `scripts/check-sdk-parity.py --workspace` passes with the refreshed evidence hashes of `src/index.ts` and `test/provisioning.test.ts`.
+
+### Transparency Report
+
+- **AI Model**: Claude Fable 5.1.
+- **Actions Taken**: Audited every SDK and the MCP against thalovant-api's impact declarations; found these two deferred items; wrote the hints, the profile, the tests and these notes; refreshed the parity evidence hashes; opened the pull request.
+- **Oversight**: Run by an agent on the repository owner's request to bring the SDKs and MCP up to date with the platform's features; the pull request goes through the normal CI gates, and its merge and the 0.7.1 tag wait for the owner.
 
 ## 2026-11-03 — CodeRabbit review-body items (#29, #30)
 
