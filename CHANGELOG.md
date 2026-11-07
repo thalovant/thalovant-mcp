@@ -1,10 +1,11 @@
-Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: 0.7.1 hints for the store's licensing refusal and the memory limit; date the published 0.7.0.
+Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: Date 0.7.1 for its tag; the real-transport Noise test gets the budget a shared runner needs.
 
 # Changelog
 
-## 0.7.1 - Unreleased
+## 0.7.1 - 2026-11-06
 
 - **Two refusals explained by their code.** A skill the store does not install for licensing reasons (YouTube, YouTube Music, Spotify, SoundCloud and Bandcamp; the API's 409 `skill_unavailable_licensing` with `reason: licensing`, declared with the launch data-protection change) got the generic 409 hint, which talks about a version already installed. It now says the service's terms do not allow a hosted assistant to play its content, that no plan, scope, version or retry changes that, that radio and aggregator skills install as usual, and that `thalovant_list_marketplace_skills` reports it per skill as `unavailable_reason` and `installable`. A memory create or update refused with 409 `memory_limit` (the plan's remembered items are used up; a Free plan keeps one) carried no hint at all, because the memory tools never went through the hint path; `thalovant_create_memory_item` and `thalovant_update_memory_item` now do, under a profile of their own that adds a hint for that code alone (the hub-centric scope and plan hints would misdescribe the memory routes), naming the `limit` and `upgrade_plan` fields, the delete tool that frees a slot, the update tool that changes the item that exists, and that granting a scope will not help. Two tests drive both through the fake control plane.
+- **The real-transport test gets a 90 s budget.** `test/runtime-noise.test.ts` opens eight HTTPS sessions against a local hub, each with its own Noise handshake over a polled connection, and takes about 22 s on a workstation; its 30 s budget ran out on a shared runner twice (`main`, 2026-11-03 and 2026-11-06), passing on the rerun both times. The budget is for the runner, not the calls: every call keeps its own `timeoutMs`, and no assertion changes.
 - `package.json`, `package-lock.json`, `server.json`, the OCI label, the README and this file move to 0.7.1 together.
 
 ## 0.7.0 - 2026-11-03
