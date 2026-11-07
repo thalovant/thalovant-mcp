@@ -1,4 +1,4 @@
-Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: Version 0.7.1 prepared: hints for skill_unavailable_licensing and memory_limit.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Unreleased hint for skill_unavailable_unpublished (thalovant-api#495) noted; the version stays 0.7.1.
 
 # Quick Facts
 
@@ -10,6 +10,7 @@ Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: Version 0.7.1 prepared: hints
 | Thalovant SDK | `@thalovant/sdk` ^0.10.0 (chat app methods, `ThalovantApiError.fields`) |
 | Tools | 59 by default, 28 with `THALOVANT_MCP_READONLY`, 63 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` |
 | Validation | `npm ci`, `npm run typecheck`, `npm run build`, `npm test`, `npm run test:smoke`, `npm run test:http` |
+| Refusal hints by code (409) | `skill_unavailable_licensing`, `skill_unavailable_unpublished` (unreleased), any other `skill_unavailable_*`, `memory_limit`, `skill_version_already_installed` (generic), in `controlPlaneErrorHint` (`src/index.ts`) |
 
 ## Chat apps tools (0.7.0)
 

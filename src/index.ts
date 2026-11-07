@@ -361,6 +361,11 @@ const PLAN_LIMIT_HINT_403 =
 
 const LICENSING_HINT_409 =
   "HTTP 409 skill_unavailable_licensing — the store does not install this skill on Thalovant: the service's terms do not allow a hosted assistant to play its content (YouTube, YouTube Music, Spotify, SoundCloud and Bandcamp; the problem's reason says licensing). No plan, scope or version changes that, and retrying will not either; radio and aggregator skills such as TuneIn, SomaFM and News install as usual. thalovant_list_marketplace_skills reports this per skill as unavailable_reason and installable (false), so check them before installing.";
+const UNPUBLISHED_HINT_409 =
+  'HTTP 409 skill_unavailable_unpublished — this skill cannot be installed: no release of it has been published yet, so there is nothing a runtime could install (the problem\'s reason says unpublished). No plan, scope, version or retry changes that, and it cannot be bought either; it becomes installable only once a release is published. A non-admin token does not see it in thalovant_list_marketplace_skills at all (an admin\'s lists it with unavailable_reason "unpublished" and installable false), and thalovant_list_runtime_group_marketplace lists it only for a group that already has it, with unavailable_reason, installable false and purchase_required false.';
+/** Any other `skill_unavailable_*` refusal: a reason the API may add later. */
+const SKILL_UNAVAILABLE_HINT_409 =
+  "HTTP 409 skill_unavailable — the store does not install this skill on Thalovant; the problem's reason and sentence say why. No plan, scope, version or retry changes that, and there is nothing to buy. thalovant_list_runtime_group_marketplace reports such a skill with unavailable_reason, and installable false, for a group that already has it.";
 const MEMORY_LIMIT_HINT_409 =
   "HTTP 409 memory_limit — the plan's remembered items are used up (see limit in the fields above; a Free plan keeps one). Free a slot with thalovant_delete_memory_item, change the item that exists with thalovant_update_memory_item, or move the workspace to the plan upgrade_plan names (Home); granting a scope will not help.";
 
@@ -401,7 +406,11 @@ function controlPlaneErrorHint(
         ? "HTTP 404 (hub_without_runtime_group) — the hub exists but has no runtime group attached yet, so it cannot hold skills; attach it to a runtime group (thalovant_update_hub) before managing its skills. A 404 without that code means the hub is unknown, or the named skill is not installed on it."
         : undefined;
     case 409:
+      // A skill the store refuses answers 409 before any paid-plan 402, and is
+      // never the version clash the generic hint below describes.
       if (code === "skill_unavailable_licensing") return LICENSING_HINT_409;
+      if (code === "skill_unavailable_unpublished") return UNPUBLISHED_HINT_409;
+      if (code?.startsWith("skill_unavailable_")) return SKILL_UNAVAILABLE_HINT_409;
       if (profile === "hubWrite") {
         return 'HTTP 409 — for a hub create this is either a duplicate ("Hub with name ... already exists for this owner" / "Hub slug ... already exists"), an autoscaling slot limit (AUTOSCALING_HUB_LIMIT_REACHED), or "Idempotency key re-used with different payload". Only hub create honors Idempotency-Key: retrying an identical create is safe and returns the original hub, but reusing a key with a changed body conflicts — use a new idempotencyKey for a genuinely different hub.';
       }
@@ -2528,7 +2537,7 @@ export function createServer(): McpServer {
     {
       title: "List Runtime Group Marketplace",
       description:
-        "List the marketplace catalog resolved against one runtime group. This is the view to read immediately before installing: every catalog entry comes back with the group's own state folded in — whether the skill is desired (active, version_pin, source_type), whether it was observed running (observed_source, observed_at, intent counts), operator status, and the plan verdict (purchase_required, installable, access_message). Check installable and purchase_required here to avoid a 402 at install time. Requires the hubs:inspect scope; browsing needs no paid plan. Answers 404 for an unknown group and 403 when the caller does not own it.",
+        "List the marketplace catalog resolved against one runtime group. This is the view to read immediately before installing: every catalog entry comes back with the group's own state folded in — whether the skill is desired (active, version_pin, source_type), whether it was observed running (observed_source, observed_at, intent counts), operator status, and the plan verdict (purchase_required, installable, access_message). Check installable and purchase_required here to avoid a 402 at install time. A skill the store does not install carries unavailable_reason (licensing or unpublished) with installable and purchase_required false, and is listed only when the group already has it. Requires the hubs:inspect scope; browsing needs no paid plan. Answers 404 for an unknown group and 403 when the caller does not own it.",
       inputSchema: {
         ...controlPlaneSchema,
         runtimeGroupId: z.string().min(1).describe("Runtime group UUID."),

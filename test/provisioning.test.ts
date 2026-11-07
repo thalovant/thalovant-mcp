@@ -1033,6 +1033,81 @@ describe("control-plane error guidance", () => {
     expect(text).not.toMatch(/DIFFERENT version performs an update/);
   }, 15_000);
 
+  // thalovant-api#495: the RFC 7807 body carries the plain sentence in `detail`.
+  function unavailableResponder(path: string, code: string, reason: string, detail: string) {
+    return jsonResponder((request) =>
+      request.method === "POST" && request.path === path
+        ? {
+            status: 409,
+            body: { type: "about:blank", title: "HTTPException", status: 409, detail, code, reason },
+          }
+        : undefined,
+    );
+  }
+
+  it("explains a 409 skill_unavailable_unpublished on a hub install as a skill with no release, not a version clash", async () => {
+    const detail =
+      "Easter Eggs cannot be installed yet: no release of it has been published. It cannot be installed or bought until one is.";
+    const fake = await startFakeControlPlane(
+      unavailableResponder("/v1/hubs/hub-1/skills", "skill_unavailable_unpublished", "unpublished", detail),
+    );
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({
+      name: "thalovant_install_hub_skill",
+      arguments: { hubId: "hub-1", skill: "ovos-skill-easter-eggs" },
+    });
+    expect(result.isError).toBe(true);
+    const text = resultText(result);
+    expect(text).toContain("(skill_unavailable_unpublished)");
+    expect(text).toContain("no release of it has been published");
+    expect(text).toContain("this skill cannot be installed");
+    expect(text).toContain("cannot be bought");
+    expect(text).toContain("thalovant_list_runtime_group_marketplace");
+    expect(text).not.toMatch(/DIFFERENT version performs an update/);
+    expect(text).not.toMatch(/service's terms/);
+  }, 15_000);
+
+  it("explains a 409 skill_unavailable_unpublished on a runtime group install the same way, not as a paid add-on", async () => {
+    const detail =
+      "Runtime Sentinel cannot be installed yet: no release of it has been published. It cannot be installed or bought until one is.";
+    const fake = await startFakeControlPlane(
+      unavailableResponder("/v1/runtime-groups/rg-1/skills", "skill_unavailable_unpublished", "unpublished", detail),
+    );
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({
+      name: "thalovant_install_runtime_group_skill",
+      arguments: { runtimeGroupId: "rg-1", skillId: "skill-runtime-sentinel" },
+    });
+    expect(result.isError).toBe(true);
+    const text = resultText(result);
+    expect(text).toContain("(skill_unavailable_unpublished)");
+    expect(text).toContain("no release of it has been published");
+    expect(text).not.toMatch(/paid marketplace access/);
+    expect(text).not.toMatch(/DIFFERENT version performs an update/);
+  }, 15_000);
+
+  it("gives a skill_unavailable code it does not know yet the store's refusal, not the version hint", async () => {
+    const fake = await startFakeControlPlane(
+      unavailableResponder(
+        "/v1/hubs/hub-1/skills",
+        "skill_unavailable_embargoed",
+        "embargoed",
+        "News is not available on Thalovant.",
+      ),
+    );
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: fake.url });
+
+    const result = await client.callTool({ name: "thalovant_install_hub_skill", arguments: { hubId: "hub-1", skill: "skill-news" } });
+    expect(result.isError).toBe(true);
+    const text = resultText(result);
+    expect(text).toContain("(skill_unavailable_embargoed)");
+    expect(text).toContain("the store does not install this skill");
+    expect(text).not.toMatch(/DIFFERENT version performs an update/);
+    expect(text).not.toMatch(/no release of it has been published yet, so/);
+  }, 15_000);
+
   it("explains a 409 memory_limit on a memory create as the plan's allowance, naming the upgrade", async () => {
     const fake = await startFakeControlPlane(jsonResponder((request) =>
       request.method === "POST" && request.path === "/v1/memory"

@@ -1,6 +1,11 @@
-Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Audit the 0.7.0 chat apps tools from test results and code review; keep the 0.6.6 dependency audit; and note the provisioning-test success assertions closed from CodeRabbit's #29 review.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Record the skill_unavailable_* hint gap closed for thalovant-api#495, from test results.
 
 # Audit
+
+## Store refusals by code (2026-11-07, unreleased)
+
+- **Closed:** a 409 `skill_unavailable_unpublished` (thalovant-api#495) or any `skill_unavailable_*` code other than licensing fell through `controlPlaneErrorHint` (`src/index.ts`) to the generic 409 hint, which tells the caller the skill is already installed at that version and to POST a different one: wrong advice for a skill nothing can install. Evidence: the three `skill_unavailable` tests in `test/provisioning.test.ts` assert the new hints and that the version text is absent; `npm test` 386/386, `test:smoke` 2/2, `test:http` 9/9.
+- **Open, minor:** `LICENSING_HINT_409` says `thalovant_list_marketplace_skills` reports the refusal per skill; that is true for an admin's token only, as the API leaves unavailable rows out for everyone else. Left as it is; the unpublished hint says it plainly.
 
 ## 0.7.0 chat apps tools (2026-11-03)
 
