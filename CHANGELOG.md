@@ -1,6 +1,12 @@
-Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: Date 0.7.1 for its tag; the real-transport Noise test gets the budget a shared runner needs.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Unreleased: hints for 409 skill_unavailable_unpublished and any other skill_unavailable_* code (thalovant-api#495).
 
 # Changelog
+
+## Unreleased
+
+- **A skill with no published release is explained by its code.** thalovant-api#495 adds a second reason the store refuses a skill: `unpublished`, when no installable release of it exists. Installing one answers 409 `skill_unavailable_unpublished` with `reason: unpublished`, before any paid-plan 402, and it got the generic 409 hint, which talks about a version already installed. It now says the skill cannot be installed because no release has been published, that no plan, scope, version or retry changes that and there is nothing to buy, that a non-admin token does not see it in `thalovant_list_marketplace_skills`, and that `thalovant_list_runtime_group_marketplace` lists it only for a group that already has it, with `unavailable_reason` and `installable` and `purchase_required` false. Any other `skill_unavailable_*` code gets the store's refusal in general terms instead of the version hint. `thalovant_list_runtime_group_marketplace`'s description names the field. Three tests drive the hub and runtime-group installs and an unknown code through the fake control plane.
+- The parity contract refreshes the evidence hashes of `src/index.ts` and `test/provisioning.test.ts`.
+- No version change: `package.json`, `server.json` and the OCI label stay at 0.7.1 until the release that carries this entry.
 
 ## 0.7.1 - 2026-11-06
 

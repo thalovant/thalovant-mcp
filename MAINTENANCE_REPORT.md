@@ -1,6 +1,29 @@
-Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: Log the 0.7.1 refusal hints and their verification; then the release date and the real-transport test's budget.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Log the skill_unavailable_unpublished hint (thalovant-api#495) and its verification; no version change.
 
 # Maintenance Report
+
+## 2026-11-07 — Hint for a skill with no published release (unreleased)
+
+thalovant-api#495 (`fix/catalog-unpublished-skills`, `.changes/api-impact-catalog-unpublished-skills.yaml`) adds `unpublished` beside `licensing` as a reason the store refuses a skill, and answers an install or attach of one with 409 `skill_unavailable_unpublished` (`reason: unpublished`, a plain `detail` sentence) before any paid-plan 402. Its declaration owes this server a hint: `controlPlaneErrorHint` gave the new code the generic 409 text, which talks about a version already installed.
+
+**Changes**
+
+- `controlPlaneErrorHint` (`src/index.ts`) answers 409 `skill_unavailable_unpublished` with `UNPUBLISHED_HINT_409`: the skill cannot be installed because no release has been published; no plan, scope, version or retry changes that; nothing to buy; a non-admin token does not see it in `thalovant_list_marketplace_skills`; `thalovant_list_runtime_group_marketplace` lists it only for a group that already has it, with `unavailable_reason`, and `installable` and `purchase_required` false. Any other `skill_unavailable_*` code gets `SKILL_UNAVAILABLE_HINT_409`, the refusal in general terms, so a reason the API adds later never reads as a version clash. The licensing hint is unchanged.
+- `thalovant_list_runtime_group_marketplace`'s description names `unavailable_reason`.
+- Three tests in `test/provisioning.test.ts` ("control-plane error guidance") send the API's real problem body (`detail`, `code`, `reason` at the root) through the fake control plane: a hub install and a runtime-group install refused as unpublished, and an unknown `skill_unavailable_embargoed`.
+- README (install paragraph, Tool Errors, the marketplace paragraph), CHANGELOG (an Unreleased entry), QUICK_FACTS. The parity evidence hashes of `src/index.ts` and `test/provisioning.test.ts` are refreshed.
+- No version change: a version without its release breaks the infra contracts, so `package.json`, `package-lock.json`, `server.json` and the OCI label stay at 0.7.1, and the release is the owner's.
+
+**Verification**
+
+- `npm ci`, `npm run typecheck`, `npm run build`, `npm test` (386 passed, 20 files), `npm run test:smoke` (2 passed), `npm run test:http` (9 passed).
+- `thalovant-python-sdk/scripts/check-sdk-parity.py --workspace <ws> --consumer thalovant-mcp` against a fresh clone of the Python SDK's `main` (ac5be33): verified.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Read thalovant-api#495's diff and impact declaration; wrote the two hints, the description clause, the three tests and these notes; refreshed the two parity hashes; opened the pull request.
+- **Oversight**: Run by an agent on the repository owner's request; the pull request goes through the normal CI gates, and its merge and any release wait for the owner.
 
 ## 2026-11-06 — Refusal hints: the store's licensing refusal and the memory limit (0.7.1)
 
