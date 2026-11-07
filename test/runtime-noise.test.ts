@@ -258,4 +258,8 @@ it("serializes real HTTPS Noise runtime tools, preserves identity and releases f
     await closeHub?.();
     await rm(directory, { recursive: true, force: true });
   }
-}, 30_000);
+  // Eight polled HTTPS sessions, each with its own Noise handshake, take
+  // about 22 s on a workstation; 30 s ran out on a shared runner (main,
+  // 2026-11-03 and 2026-11-06). The budget is for the runner, not the
+  // calls: each keeps its own timeoutMs.
+}, 90_000);

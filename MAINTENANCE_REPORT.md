@@ -1,4 +1,4 @@
-Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: Log the 0.7.1 refusal hints (skill_unavailable_licensing, memory_limit) and their verification.
+Last Edit: Claude Fable 5.1 - 2026-11-06 - Motive: Log the 0.7.1 refusal hints and their verification; then the release date and the real-transport test's budget.
 
 # Maintenance Report
 
@@ -18,11 +18,13 @@ thalovant-api's launch data-protection declaration (`.changes/api-impact-launch-
 - `npm ci` (which also replaced a stale local `node_modules` that still held an older `@thalovant/sdk`), `npm run typecheck`, `npm run build`, `npm test` (the stdio tests run the built `dist/index.js`, so the build comes first).
 - The reference's `scripts/check-sdk-parity.py --workspace` passes with the refreshed evidence hashes of `src/index.ts` and `test/provisioning.test.ts`.
 
+**Release date and the real-transport test's budget (2026-11-06, later).** The 0.7.1 entry is dated for its tag. On the merge of #119, the Node 20 job on `main` timed out in `test/runtime-noise.test.ts` (30 s); the same tree had passed that test on the pull request and on Node 22 and 24, and the rerun passed. The same timeout failed `main` on 2026-11-03, on #118's merge. The test opens eight HTTPS sessions against a local hub, each with a Noise handshake over a polled connection, and takes about 22 s on a workstation, so 30 s left a shared runner almost nothing. Its budget is now 90 s; every call keeps its own `timeoutMs` and no assertion changes.
+
 ### Transparency Report
 
 - **AI Model**: Claude Fable 5.1.
 - **Actions Taken**: Audited every SDK and the MCP against thalovant-api's impact declarations; found these two deferred items; wrote the hints, the profile, the tests and these notes; refreshed the parity evidence hashes; opened the pull request.
-- **Oversight**: Run by an agent on the repository owner's request to bring the SDKs and MCP up to date with the platform's features; the pull request goes through the normal CI gates, and its merge and the 0.7.1 tag wait for the owner.
+- **Oversight**: Run by an agent on the repository owner's request to bring the SDKs and MCP up to date with the platform's features; the pull request goes through the normal CI gates, and its merge and the 0.7.1 tag wait for the owner. The budget change was measured on the workstation (22.5 s for the test) and read from the two timed-out jobs' logs; the calls' own timeouts were left alone because shortening the asks' `timeoutMs` to 1 s made the test itself time out, which says the time goes to the sessions, not to idle waits.
 
 ## 2026-11-03 — CodeRabbit review-body items (#29, #30)
 

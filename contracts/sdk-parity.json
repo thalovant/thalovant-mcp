@@ -178,7 +178,7 @@
       "status": "required",
       "tests": {
         "test/inherited-parity.test.ts": "ae686e0dbc9114bf3a3173dce5679887daab20dd6233f6bbc56a25b25d9213c8",
-        "test/runtime-noise.test.ts": "f5f0c7c428d7a663a32cd386839f9e986ecdb74986133057ba4877a8cf51c57b"
+        "test/runtime-noise.test.ts": "edf844cbf8c166b88e9af41768b2a67ca4300cdfbc861970528f21f579d9e064"
       },
       "vectors": {
         "question-vectors.json": "test/question-vectors.json"
@@ -229,7 +229,7 @@
         "test/reply-claim-vectors.json": "303bc10666baafbc85e67d7a9dcd6e0fbb16a99e539aed6d829fb0f4744c96b8",
         "test/reply-claims.test.ts": "abf665fc0443e415610ab68d1d0e1210ac804456259e5eeb65d589cce6609ba0",
         "test/runtime-cancellation.test.ts": "aba20f93ebfe9c03886c899f016eb2b79772714827593d51f7b1d4a26daec013",
-        "test/runtime-noise.test.ts": "f5f0c7c428d7a663a32cd386839f9e986ecdb74986133057ba4877a8cf51c57b"
+        "test/runtime-noise.test.ts": "edf844cbf8c166b88e9af41768b2a67ca4300cdfbc861970528f21f579d9e064"
       },
       "vectors": {
         "reply-claim-vectors.json": "test/reply-claim-vectors.json"
