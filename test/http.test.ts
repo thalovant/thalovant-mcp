@@ -18,9 +18,7 @@ afterEach(async () => {
 
 describe("streamable HTTP MCP server", () => {
   it.each(["SIGTERM", "SIGINT"] as const)("closes an active MCP session and exits cleanly on %s", async (signal) => {
-    const port = await freePort();
-    const child = spawnHttpServer(port, { MCP_HTTP_AUTH_TOKEN: "shutdown-test-token" });
-    await waitForHealth(port);
+    const { port, child } = await startMcpHttpServer(() => ({ MCP_HTTP_AUTH_TOKEN: "shutdown-test-token" }));
     const client = new Client({ name: "shutdown-regression", version: "0.0.0" });
     const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
       requestInit: { headers: { Authorization: "Bearer shutdown-test-token" } },
@@ -40,12 +38,10 @@ describe("streamable HTTP MCP server", () => {
   }, 20_000);
 
   it("requires bearer auth and serves MCP over Streamable HTTP", async () => {
-    const port = await freePort();
-    spawnHttpServer(port, {
+    const { port } = await startMcpHttpServer(() => ({
       MCP_HTTP_AUTH_TOKEN: "test-http-token",
       MCP_HTTP_ALLOWED_ORIGINS: "https://agent.example",
-    });
-    await waitForHealth(port);
+    }));
 
     const metadata = await fetch(`http://127.0.0.1:${port}/.well-known/oauth-protected-resource`);
     expect(metadata.status).toBe(200);
@@ -84,8 +80,6 @@ describe("streamable HTTP MCP server", () => {
   }, 20_000);
 
   it("validates JWT bearer tokens with JWKS, issuer, audience, and scope", async () => {
-    const port = await freePort();
-    const audience = `http://127.0.0.1:${port}/mcp`;
     const { privateKey, publicKey } = await generateKeyPair("RS256");
     const jwk = await exportJWK(publicKey);
     jwk.alg = "RS256";
@@ -99,17 +93,20 @@ describe("streamable HTTP MCP server", () => {
       }
       sendJsonResponse(res, 404, { error: "not found" });
     });
-    const child = spawnHttpServer(port, {
-      MCP_HTTP_AUTH_MODE: "jwt",
-      MCP_OAUTH_ISSUER: oauth.url,
-      MCP_OAUTH_JWKS_URL: `${oauth.url}/jwks`,
-      MCP_OAUTH_AUDIENCE: audience,
-      MCP_OAUTH_AUTHORIZATION_SERVERS: oauth.url,
-      MCP_OAUTH_REQUIRED_SCOPES: "mcp:thalovant",
-    });
+    let child: ChildProcessWithoutNullStreams | undefined;
 
     try {
-      await waitForHealth(port);
+      const started = await startMcpHttpServer((port) => ({
+        MCP_HTTP_AUTH_MODE: "jwt",
+        MCP_OAUTH_ISSUER: oauth.url,
+        MCP_OAUTH_JWKS_URL: `${oauth.url}/jwks`,
+        MCP_OAUTH_AUDIENCE: mcpUrl(port),
+        MCP_OAUTH_AUTHORIZATION_SERVERS: oauth.url,
+        MCP_OAUTH_REQUIRED_SCOPES: "mcp:thalovant",
+      }));
+      child = started.child;
+      const { port } = started;
+      const audience = mcpUrl(port);
       const missingScopeToken = await new SignJWT({ scope: "other:scope", client_id: "codex-test-client" })
         .setProtectedHeader({ alg: "RS256", kid: "test-key" })
         .setIssuer(oauth.url)
@@ -148,16 +145,16 @@ describe("streamable HTTP MCP server", () => {
         await client.close();
       }
     } finally {
-      child.kill("SIGTERM");
+      child?.kill("SIGTERM");
       await oauth.close();
     }
   }, 20_000);
 
   it("validates introspected OAuth tokens and writes JSONL audit events", async () => {
-    const port = await freePort();
     const dir = await mkdtemp(join(tmpdir(), "thalovant-mcp-audit-"));
     const auditFile = join(dir, "audit.jsonl");
-    const audience = `http://127.0.0.1:${port}/mcp`;
+    // Known once the server holds its port; the introspection answers come after that.
+    let audience = "";
     let introspectionAuthorization: string | undefined;
     let introspectionBody = "";
     const oauth = await startTestHttpServer(async (req, res) => {
@@ -178,18 +175,21 @@ describe("streamable HTTP MCP server", () => {
         exp: Math.floor(Date.now() / 1_000) + 300,
       });
     });
-    const child = spawnHttpServer(port, {
-      MCP_HTTP_AUTH_MODE: "introspection",
-      MCP_OAUTH_INTROSPECTION_URL: `${oauth.url}/introspect`,
-      MCP_OAUTH_CLIENT_ID: "mcp-server-client",
-      MCP_OAUTH_CLIENT_SECRET: "mcp-server-secret",
-      MCP_OAUTH_AUDIENCE: audience,
-      MCP_AUDIT_LOG: "file",
-      MCP_AUDIT_LOG_FILE: auditFile,
-    });
+    let child: ChildProcessWithoutNullStreams | undefined;
 
     try {
-      await waitForHealth(port);
+      const started = await startMcpHttpServer((port) => ({
+        MCP_HTTP_AUTH_MODE: "introspection",
+        MCP_OAUTH_INTROSPECTION_URL: `${oauth.url}/introspect`,
+        MCP_OAUTH_CLIENT_ID: "mcp-server-client",
+        MCP_OAUTH_CLIENT_SECRET: "mcp-server-secret",
+        MCP_OAUTH_AUDIENCE: mcpUrl(port),
+        MCP_AUDIT_LOG: "file",
+        MCP_AUDIT_LOG_FILE: auditFile,
+      }));
+      child = started.child;
+      const { port } = started;
+      audience = mcpUrl(port);
       const client = new Client({ name: "thalovant-http-introspection", version: "0.0.0" }, { capabilities: {} });
       const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
         requestInit: { headers: { Authorization: "Bearer opaque-token" } },
@@ -219,19 +219,17 @@ describe("streamable HTTP MCP server", () => {
         ),
       ).toBe(true);
     } finally {
-      child.kill("SIGTERM");
+      child?.kill("SIGTERM");
       await oauth.close();
       await rm(dir, { recursive: true, force: true });
     }
   }, 20_000);
 
   it("enforces server-side tool policy", async () => {
-    const port = await freePort();
-    const child = spawnHttpServer(port, {
+    const { port, child } = await startMcpHttpServer(() => ({
       MCP_HTTP_AUTH_TOKEN: "policy-token",
       MCP_TOOL_DENYLIST: "thalovant_config_status",
-    });
-    await waitForHealth(port);
+    }));
 
     const client = new Client({ name: "thalovant-http-policy", version: "0.0.0" }, { capabilities: {} });
     const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
@@ -252,7 +250,6 @@ describe("streamable HTTP MCP server", () => {
   }, 20_000);
 
   it("loads per-principal policy from credential files", async () => {
-    const port = await freePort();
     const dir = await mkdtemp(join(tmpdir(), "thalovant-mcp-"));
     const principalId = sha256("credential-token").slice(0, 32);
     const credentialFile = join(dir, `${sha256(principalId)}.json`);
@@ -264,11 +261,10 @@ describe("streamable HTTP MCP server", () => {
       }),
       { mode: 0o600 },
     );
-    const child = spawnHttpServer(port, {
+    const { port, child } = await startMcpHttpServer(() => ({
       MCP_HTTP_AUTH_TOKEN: "credential-token",
       THALOVANT_PRINCIPAL_CREDENTIALS_DIR: dir,
-    });
-    await waitForHealth(port);
+    }));
 
     const client = new Client({ name: "thalovant-http-credentials", version: "0.0.0" }, { capabilities: {} });
     const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
@@ -306,16 +302,17 @@ describe("streamable HTTP MCP server", () => {
     await writeFile(join(dir, `${sha256(principalId)}.json`), JSON.stringify({
       control: { apiUrl: configured.url, accessToken: "synthetic-principal-api-token" },
     }), { mode: 0o600 });
-    const port = await freePort();
-    const child = spawnHttpServer(port, {
-      MCP_HTTP_AUTH_TOKEN: "origin-fixture-token",
-      THALOVANT_PRINCIPAL_CREDENTIALS_DIR: dir,
-      THALOVANT_API_TOKEN: "unused-shared-token",
-      THALOVANT_API_URL: untrusted.url,
-    });
     const client = new Client({ name: "thalovant-principal-origin-test", version: "0.0.0" }, { capabilities: {} });
+    let child: ChildProcessWithoutNullStreams | undefined;
     try {
-      await waitForHealth(port);
+      const started = await startMcpHttpServer(() => ({
+        MCP_HTTP_AUTH_TOKEN: "origin-fixture-token",
+        THALOVANT_PRINCIPAL_CREDENTIALS_DIR: dir,
+        THALOVANT_API_TOKEN: "unused-shared-token",
+        THALOVANT_API_URL: untrusted.url,
+      }));
+      child = started.child;
+      const { port } = started;
       await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
         requestInit: { headers: { Authorization: "Bearer origin-fixture-token" } },
       }));
@@ -332,7 +329,7 @@ describe("streamable HTTP MCP server", () => {
       expect(untrustedRequests).toBe(0);
     } finally {
       await client.close();
-      await stopChild(child);
+      if (child) await stopChild(child);
       await Promise.all([configured.close(), untrusted.close()]);
       await rm(dir, { recursive: true, force: true });
     }
@@ -361,22 +358,22 @@ describe("streamable HTTP MCP server", () => {
     await writeFile(join(dir, `${sha256(principalId)}.json`), JSON.stringify({
       control: { apiUrl: api.url, accessToken: "synthetic-bridge-principal-token" },
     }), { mode: 0o600 });
-    const port = await freePort();
-    const child = spawnHttpServer(port, {
-      MCP_HTTP_AUTH_TOKENS: "bridge-fixture-token,other-fixture-token",
-      THALOVANT_PRINCIPAL_CREDENTIALS_DIR: dir,
-    });
-    const connect = async (token: string) => {
-      const client = new Client({ name: "thalovant-bridge-http-test", version: "0.0.0" }, { capabilities: {} });
-      await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
-        requestInit: { headers: { Authorization: `Bearer ${token}` } },
-      }));
-      return client;
-    };
+    let child: ChildProcessWithoutNullStreams | undefined;
     let owner: Client | undefined;
     let other: Client | undefined;
     try {
-      await waitForHealth(port);
+      const started = await startMcpHttpServer(() => ({
+        MCP_HTTP_AUTH_TOKENS: "bridge-fixture-token,other-fixture-token",
+        THALOVANT_PRINCIPAL_CREDENTIALS_DIR: dir,
+      }));
+      child = started.child;
+      const connect = async (token: string) => {
+        const client = new Client({ name: "thalovant-bridge-http-test", version: "0.0.0" }, { capabilities: {} });
+        await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl(started.port)), {
+          requestInit: { headers: { Authorization: `Bearer ${token}` } },
+        }));
+        return client;
+      };
       owner = await connect("bridge-fixture-token");
       const text = (result: Awaited<ReturnType<Client["callTool"]>>) => (result.content as Array<{ text?: string }>)[0]?.text ?? "";
 
@@ -401,12 +398,45 @@ describe("streamable HTTP MCP server", () => {
     } finally {
       await owner?.close();
       await other?.close();
-      await stopChild(child);
+      if (child) await stopChild(child);
       await api.close();
       await rm(dir, { recursive: true, force: true });
     }
   }, 20_000);
+
+  it("moves to a fresh port when another loopback server takes the freed one", async () => {
+    // What a fake control plane from another test file does when it is given the port
+    // freePort() just released: it answers every path, /healthz included, with 200.
+    const impostorPaths: string[] = [];
+    const impostor = await startTestHttpServer((req, res) => {
+      impostorPaths.push(req.url ?? "");
+      sendJsonResponse(res, 200, { ok: true, path: req.url });
+    });
+    const taken = Number(new URL(impostor.url).port);
+    const ports = [taken];
+    const client = new Client({ name: "thalovant-port-race-test", version: "0.0.0" }, { capabilities: {} });
+    try {
+      const { port } = await startMcpHttpServer(
+        () => ({ MCP_HTTP_AUTH_TOKEN: "port-race-token" }),
+        async () => ports.shift() ?? freePort(),
+      );
+      expect(port).not.toBe(taken);
+      expect(impostorPaths).toContain("/healthz");
+      await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl(port)), {
+        requestInit: { headers: { Authorization: "Bearer port-race-token" } },
+      }));
+      expect((await client.listTools()).tools.map((tool) => tool.name)).toContain("thalovant_config_status");
+      expect(impostorPaths.every((path) => path === "/healthz")).toBe(true);
+    } finally {
+      await client.close();
+      await impostor.close();
+    }
+  }, 30_000);
 });
+
+function mcpUrl(port: number): string {
+  return `http://127.0.0.1:${port}/mcp`;
+}
 
 async function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -426,17 +456,73 @@ async function freePort(): Promise<number> {
   });
 }
 
-async function waitForHealth(port: number): Promise<void> {
-  const deadline = Date.now() + 5_000;
+/**
+ * Starts `dist/index.js --http` and returns it once it answers on its own port.
+ *
+ * `freePort()` releases the port it found before the child binds it, and the other test
+ * files' loopback servers (listening on port 0, answering every path with 200) run in
+ * parallel workers and can be given that port in between. The child then exits on
+ * EADDRINUSE while the other server answers `/healthz`. So only this server's health body
+ * counts as ready, from a child that is still running, and a child that lost its port is
+ * replaced on a fresh one. `envFor` builds the environment for each port tried.
+ */
+async function startMcpHttpServer(
+  envFor: (port: number) => Record<string, string>,
+  pickPort: () => Promise<number> = freePort,
+): Promise<{ port: number; child: ChildProcessWithoutNullStreams }> {
+  const attempts: string[] = [];
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const port = await pickPort();
+    const child = spawnHttpServer(port, envFor(port));
+    const outcome = await waitForOwnHealth(child, port);
+    if (outcome.ready) return { port, child };
+    attempts.push(`port ${port}: ${outcome.reason}`);
+    if (!outcome.portTaken) break;
+  }
+  throw new Error(`HTTP MCP server did not start (${attempts.join("; ")}).`);
+}
+
+async function waitForOwnHealth(
+  child: ChildProcessWithoutNullStreams,
+  port: number,
+): Promise<{ ready: true } | { ready: false; portTaken: boolean; reason: string }> {
+  let stderr = "";
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (chunk: string) => {
+    stderr = `${stderr}${chunk}`.slice(-4_000);
+  });
+  const deadline = Date.now() + 10_000;
+  let last = "no answer";
   while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      // Read the rest of stderr before saying why it stopped.
+      await new Promise<void>((resolve) => {
+        if (child.stderr.readableEnded) return resolve();
+        const timer = setTimeout(resolve, 1_000);
+        child.stderr.once("end", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+      });
+      return {
+        ready: false,
+        portTaken: stderr.includes("EADDRINUSE"),
+        reason: `exited (${child.exitCode ?? child.signalCode}): ${stderr.trim() || "no output"}`,
+      };
+    }
     try {
       const response = await fetch(`http://127.0.0.1:${port}/healthz`);
-      if (response.ok) return;
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      const body = (await response.json().catch(() => null)) as { name?: unknown; transport?: unknown } | null;
+      if (response.ok && body?.name === "thalovant" && body.transport === "streamable-http" && child.exitCode === null) {
+        return { ready: true };
+      }
+      last = `${response.status} ${JSON.stringify(body)}`;
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error);
     }
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error("HTTP MCP server did not become healthy.");
+  return { ready: false, portTaken: false, reason: `not healthy within 10 s (last: ${last}): ${stderr.trim() || "no output"}` };
 }
 
 function spawnHttpServer(port: number, env: Record<string, string>): ChildProcessWithoutNullStreams {

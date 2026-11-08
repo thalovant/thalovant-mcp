@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Propose a fix for the port race in the HTTP shutdown tests.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: The HTTP tests' port race is fixed in the tests; keep the server-side port 0 idea as optional.
 
 # Follow-up
 
@@ -19,8 +19,8 @@ Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Propose a fix for the port rac
 - Publish 0.7.0 only after `@thalovant/sdk` 0.10.0 is on npm and the lock resolves it. Then run the Published artifacts smoke workflow (npm, OCI, MCP Registry) before any deployment adopts the image.
 - Keep bounded inputs bounded: the Zod container fix is not a general memory cap for schemas with no `.max()` constraint. The chat app inputs carry the API's own bounds: `allowed` 1-50 entries, ids of 1-255 characters, `limit` 1-500.
 
-## Let the HTTP test server pick its own port
+## Let the HTTP server listen on port 0 (optional)
 
-- **Problem:** `freePort()` in `test/http.test.ts` frees a port and then starts the server on it, so a fake control plane from another test file can take it in between (see AUDIT.md, CI run 42420904832 on Node 20). `test/runtime-noise.test.ts` and the release workflow's own `npm test` can fail the same way.
-- **Proposal:** have `waitForHealth` require the MCP health body (`name: "thalovant"`, `transport: "streamable-http"`) rather than any 200, and have the test start the server again on a fresh port when it is not. That is test-only. Starting the child on port 0 is not, today: `getHttpConfig()` in `src/index.ts` reads `MCP_HTTP_PORT` with a minimum of 1, derives the default public URL and allowed hosts from that port, and the startup line names the configured URL, so it would also need the server to report the bound port and build those from it.
-- **Impact:** removes an intermittent red `main` and a possible failed release run. Small, test-only change.
+- **Problem:** the port race in `test/http.test.ts` is fixed in the tests (see AUDIT.md): `startMcpHttpServer()` checks the server's own health body and retries on a fresh port after `EADDRINUSE`. The tests still pick a port before the server binds it, so a stolen port costs one extra server start.
+- **Proposal:** accept `MCP_HTTP_PORT=0`. `getHttpConfig()` in `src/index.ts` reads it with a minimum of 1 and derives the default public URL and allowed hosts from it, and the startup line names the configured URL, so the server would build those from `httpServer.address()` after binding and print the bound URL; the tests would then read the port from that line.
+- **Impact:** no retry at all, and a way to run several servers on one host for local work. Product change, so it waits for a release; small effort.
