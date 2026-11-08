@@ -47,7 +47,7 @@
         "test/browser-login-harness.ts": "face60b724a522a348dbc5fd2e139dbff7e2eb75c3feae2f043868cb502a5687",
         "test/browser-login-vectors.json": "9058adf2ad30fd8b7f255882ce718865170d0d4b84d36f8fbfa23bde51d1651e",
         "test/browser-login-vectors.test.ts": "9f2aad936f1e2c2e0a7b9dcd0e8bd566d5e0aa9f59a18a1a411ba1bb2d905af3",
-        "test/browser-login.test.ts": "35a14cdee9c33292fb7ea955b3349fb0971afaa7124652b07faa4e2aba7e444c",
+        "test/browser-login.test.ts": "a85aae918bbcb62474c8ef13fcecaca05b196ef059ca66ceea1cd123836a175f",
         "test/conformance-global-setup.ts": "ca4194f8a446991716e5b1cb1df590abda626a139706168b60d9d66ac433280d",
         "test/conformance-record.ts": "d13c487114a25e4ff35a895be1007cfa01aeb8e055a2d5674ac73630391cdde4",
         "test/platform-preload.mjs": "0ec3b7cae75ac17d9a51cbb7461a0d1fe3e19a37e0002e8bc94bb0de95d76ebd",

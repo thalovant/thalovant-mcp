@@ -290,7 +290,9 @@ function rawStdio(env: Record<string, string>): {
     answer: async (id) => {
       const until = Date.now() + 15_000;
       while (Date.now() < until) {
-        for (const line of stdout.split("\n")) {
+        // Only newline-terminated lines: the segment after the last newline may
+        // be a message still arriving, split across two pipe reads.
+        for (const line of stdout.split("\n").slice(0, -1)) {
           if (!line.trim()) continue;
           const message = JSON.parse(line) as Record<string, unknown>;
           if (message.id === id) return message;
@@ -304,9 +306,16 @@ function rawStdio(env: Record<string, string>): {
   };
 }
 
-/** Every line on stdout is a JSON-RPC message, and none of them is a printed prompt. */
+/**
+ * Every line on stdout is a JSON-RPC message, and none of them is a printed
+ * prompt. Called once the last answer has arrived, when the server owes
+ * nothing more, so stdout must end on a message's newline: anything after it
+ * would be text no message framed.
+ */
 function onlyProtocol(stdout: string): void {
-  const lines = stdout.split("\n").filter((line) => line.trim());
+  const segments = stdout.split("\n");
+  expect(segments.at(-1)).toBe("");
+  const lines = segments.slice(0, -1).filter((line) => line.trim());
   expect(lines.length).toBeGreaterThan(0);
   for (const line of lines) {
     const message = JSON.parse(line) as Record<string, unknown>;
