@@ -26,7 +26,9 @@ No. The browser path's link delivers nothing to a sender on another computer, bu
 
 ### Does `timeoutMs` apply to a device login?
 
-Yes, on both transports: past it a device code is not accepted even if the code itself lives longer, `expiresIn` in the begin answer says the shorter of the two, and a poll answers `expired`.
+Yes, on both transports: past it the server stops polling for the device code, `expiresIn` in the begin answer says the shorter of the two, and a poll answers `expired`. That is the server's wait, not the API's: the code stays approvable at the API until its own expiry, but approving it then signs nothing in here, so the `expired` answer asks the model to tell the person not to approve it and to begin a new sign-in.
+
+The `expired` answer lasts until the code's own expiry over Streamable HTTP, and five minutes past the wait over stdio. After that the server has forgotten the sign-in, and a poll answers a tool error saying it expired, ended, or belongs to another principal; begin a new one either way.
 
 ### The browser did not open. What now?
 

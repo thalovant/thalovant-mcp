@@ -489,6 +489,9 @@ describe("over stdio", () => {
     expect((await tool(client, "thalovant_poll_browser_login", { loginId: begun.json!.loginId })).json).toMatchObject({ outcome: "pending" });
     const ended = await pollUntilEnded(client, begun.json!.loginId as string);
     expect(ended.json).toMatchObject({ outcome: "expired", method: "device", status: null });
+    // The wait was the server's: the code may still be approvable at the API, and the person is told not to.
+    expect(ended.json!.next).toContain("approving it now signs nothing in here");
+    expect(ended.json!.next).toContain("ask the person not to approve it");
   }, 30_000);
 
   it("refuses an unknown or another principal's sign-in, and reaches only the configured API origin", async () => {
@@ -609,7 +612,11 @@ describe("over Streamable HTTP, a timeout", () => {
     expect((await tool(client, "thalovant_poll_device_login", { loginId })).json).toMatchObject({ outcome: "pending" });
     const polls = api.seen.filter((request) => request.path === "/v1/auth/device/token").length;
     await sleep(1_100);
-    expect((await tool(client, "thalovant_poll_device_login", { loginId })).json).toMatchObject({ outcome: "expired", status: null });
+    const expired = await tool(client, "thalovant_poll_device_login", { loginId });
+    expect(expired.json).toMatchObject({ outcome: "expired", status: null });
+    // The wait was the server's: the code may still be approvable at the API, and the person is told not to.
+    expect(expired.json!.next).toContain("approving it now signs nothing in here");
+    expect(expired.json!.next).toContain("ask the person not to approve it");
     // Past its wait it is not polled again, and it has ended.
     expect(api.seen.filter((request) => request.path === "/v1/auth/device/token")).toHaveLength(polls);
     expect((await tool(client, "thalovant_poll_device_login", { loginId })).error).toBe(true);

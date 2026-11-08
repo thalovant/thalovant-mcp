@@ -1105,6 +1105,13 @@ function deviceExpiresIn(expiresIn: number, timeoutMs: number | undefined): numb
 /** Said with every device code a tool answers: unlike a browser sign-in's link, the code signs in whoever approves it. */
 const SHOW_CODE_ONLY_TO_SIGNER = "Show the code only to the person signing in: whoever approves it signs this server in as their account.";
 
+/**
+ * Said when a device login's wait ended on this server: the server stops
+ * polling, but the API knows nothing of that wait and keeps the code
+ * approvable until the code's own expiry.
+ */
+const DEVICE_WAIT_OVER = "this server no longer polls for it, so approving it now signs nothing in here, though the code may stay approvable at the API until its own expiry: ask the person not to approve it, and begin a new sign-in.";
+
 /** What thalovant_begin_browser_login answers for a sign-in it started, by what the person is shown. */
 function browserLoginStarted(loginId: string, shown: Shown, method: LoginMethod, timeoutMs: number | undefined): Record<string, unknown> {
   if (shown.method === "browser") {
@@ -1990,7 +1997,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           .min(1_000)
           .max(900_000)
           .optional()
-          .describe("How long the sign-in waits for the person, in milliseconds, on either transport; a device code is not accepted past it even when the code itself lives longer (expiresIn says which). Default each method's own: 300000 for the browser, 900000 for a device login."),
+          .describe("How long the sign-in waits for the person, in milliseconds, on either transport. Past it the server stops polling for a device code even when the code itself lives longer at the API (expiresIn reports the shorter), so approving the code later signs nothing in here. Default each method's own: 300000 for the browser, 900000 for a device login."),
       },
       annotations: {
         readOnlyHint: false,
@@ -2094,7 +2101,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           outcome: "expired",
           method,
           status: ended.status,
-          next: method === "browser" ? "Nobody approved the sign-in in time. Begin a new one." : "The code expired before anybody approved it. Begin a new sign-in.",
+          next: method === "browser" ? "Nobody approved the sign-in in time. Begin a new one." : `Nobody approved the code in time: ${DEVICE_WAIT_OVER}`,
         });
       }
       const error = ended.error;
@@ -2180,7 +2187,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
       if (deviceLogins.timedOut(login)) {
         // The wait it was given (timeoutMs) is over, though the code may still live: it is not polled again.
         deviceLogins.finish(loginId);
-        return jsonContent({ outcome: "expired", status: null, next: "Nobody approved the sign-in within the time it was given. Begin a new sign-in." });
+        return jsonContent({ outcome: "expired", status: null, next: `Nobody approved the sign-in within the time it was given: ${DEVICE_WAIT_OVER}` });
       }
       try {
         const token = await login.api.pollDeviceLogin(login.authorization);

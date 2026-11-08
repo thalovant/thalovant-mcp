@@ -1,6 +1,20 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: #125 against the published @thalovant/sdk 0.11.0: the lock gets its integrity, the suite passes from a clean npm ci.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: CodeRabbit on d591ad3: a device login's wait is the server's, not the API's; what a poll answers once the sign-in is forgotten.
 
 # Maintenance Report
+
+## 2026-11-08 — CodeRabbit on d591ad3: the server's wait and the API's code
+
+One thread, two points, both right.
+
+**Changes**
+
+- A device login's `timeoutMs` is the server's wait: past it the server stops polling, but the API keeps the code approvable until its own expiry. The `timeoutMs` description and both `expired` answers for a timed-out device login (`thalovant_poll_device_login`, and `thalovant_poll_browser_login` for a device login on stdio) now say that approving the code then signs nothing in here, and ask the model to tell the person not to approve it and to begin a new sign-in (`DEVICE_WAIT_OVER` in `src/index.ts`). The API's own `expired_token` answer keeps its text.
+- What a poll answers once the sign-in is forgotten: README, FAQ and CHANGELOG say that `expired` lasts until the code's own expiry over Streamable HTTP and five minutes past the wait over stdio, and that a poll after that answers the tool error naming the sign-in as expired or ended. The behaviour is unchanged; only its description was missing.
+- Tests: the stdio and HTTP timeout tests in `test/browser-login.test.ts` check the warning. Hashes refreshed for `src/index.ts` (15 capabilities) and `test/browser-login.test.ts`.
+
+**Verification**
+
+- Clean `npm ci` (published `@thalovant/sdk` 0.11.0), audit 0, typecheck, build, `npm test` 561 passed in 22 files, smoke 2, http 10; conformance re-ran to the committed file; parity verified against Python 39e31d8 and `main`.
 
 ## 2026-11-08 — Against the published `@thalovant/sdk` 0.11.0
 
