@@ -11,7 +11,7 @@ Run on Node 22.23.1 with `@thalovant/sdk` 0.11.0 built from the Node SDK's `feat
 | Step | Result |
 | --- | --- |
 | `npm run typecheck`, `npm run build` | passed |
-| `npm test` | 557 passed in 22 files (`main` with 0.10.0: 387 in 20) |
+| `npm test` | 561 passed in 22 files (`main` with 0.10.0: 387 in 20) |
 | `npm run test:smoke` / `npm run test:http` | 2 / 10 passed |
 | `npm audit --audit-level=high` | 0 vulnerabilities |
 | `npm pack --dry-run` | 26 files, `dist/browser-login.js` included, no test file |
@@ -23,6 +23,11 @@ Run on Node 22.23.1 with `@thalovant/sdk` 0.11.0 built from the Node SDK's `feat
 - `test/browser-login-vectors.test.ts` runs `sign_ins` and `chooser` through the SDK and through the tools over stdio and records both under the same names; `record()` (`test/conformance-record.ts`) refuses a case recorded twice with different outputs, so the tools produced exactly what the SDK did.
 - `test/browser-login.test.ts` "prints the browser prompt on stderr, never on the protocol stream…" and "prints a device login's prompt on stderr too…" drive the built server with raw JSON-RPC lines and parse every stdout line. With `keepStdoutForProtocol()` (`src/index.ts:4002`) made a no-op in `dist/index.js`, both fail; restored, both pass.
 - "signs in with a device login exactly as before…" runs `--http` with `DISPLAY` set: `method: "browser"` is refused with no request, `auto` sends only `POST /v1/auth/device/authorize`, and the stand-in openers record nothing.
+
+### Closed (CodeRabbit on #125, second review)
+
+- `timeoutMs` was ignored by the hosted device login: `thalovant_begin_browser_login` over Streamable HTTP called `DeviceLogins.start()` without it, so a sign-in stayed pollable for the code's whole life. Fixed with a deadline in `DeviceLogins` (`timedOut()`), an `expired` answer from `thalovant_poll_device_login` once it passes, and an `expiresIn` that reports it; evidence: "over Streamable HTTP, a timeout…" in `test/browser-login.test.ts`, which fails with the check removed.
+- The descriptions promised more than a device login gives, and assumed the server's loopback is the person's. Both are scoped now (see MAINTENANCE_REPORT.md); evidence: "scopes what a browser sign-in promises…".
 
 ### Open
 

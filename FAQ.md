@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Add the browser sign-in questions (0.8.0); keep the chat apps, Zod 4 and HTTP test answers.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in: the shared loopback it needs, what a device code allows, and timeoutMs on both transports.
 
 # FAQ
 
@@ -15,6 +15,18 @@ The browser hands the sign-in code to `http://127.0.0.1:<port>/callback`, which 
 ### Why did it start a device login on my laptop?
 
 `auto` uses the browser only when this computer can show one and the API offers browser sign-in. It never does with `CI`, `SSH_CONNECTION` or `SSH_TTY` set (the browser would open somewhere else, or nowhere); on Linux and the BSDs it needs `DISPLAY` or `WAYLAND_DISPLAY`. An API that answers `GET /v1/auth/native/config` with 404 (before thalovant-api #501 is deployed) or with a configuration the SDK cannot use also means a device login. Nothing was opened by then, so this is not a downgrade. `method: "browser"` forces the browser and fails instead.
+
+### Can I force a browser sign-in in a container or over SSH?
+
+Only if the person's browser can reach the server's `127.0.0.1`, which it usually cannot: a container and a remote shell each have a loopback of their own. `auto` signs in with a device login over SSH and without a display; a forced `method: "browser"` would wait out its timeout there (unless the port is forwarded). Use `method: "device"`.
+
+### Is a device login's code as safe to share as the browser link?
+
+No. The browser path's link delivers nothing to a sender on another computer, but a device code signs this server in as whoever approves it, from any device. Every device answer says so: show the code only to the person signing in.
+
+### Does `timeoutMs` apply to a device login?
+
+Yes, on both transports: past it a device code is not accepted even if the code itself lives longer, `expiresIn` in the begin answer says the shorter of the two, and a poll answers `expired`.
 
 ### The browser did not open. What now?
 

@@ -6,6 +6,7 @@ import {
   MAX_DEVICE_NAME_LENGTH,
   ThalovantDeviceLoginDeniedError,
   ThalovantDeviceLoginExpiredError,
+  ThalovantTimeoutError,
 } from "@thalovant/sdk";
 import type { ThalovantControlPlane } from "@thalovant/sdk";
 
@@ -209,10 +210,17 @@ export class SignInWatch {
   }
 }
 
-/** How an interactive sign-in's error reads as an outcome. */
+/**
+ * How an interactive sign-in's error reads as an outcome. A device login that
+ * ran out of the wait it was given rejects with the SDK's own timeout error
+ * rather than the expired one (the SDK keeps that error as it was); for the
+ * person it is the same thing, nobody approved it in time, so it reads as
+ * expired too.
+ */
 export function outcomeOf(error: unknown): SignInOutcome {
   if (error instanceof ThalovantDeviceLoginDeniedError) return { outcome: "denied", status: error.statusCode ?? null };
   if (error instanceof ThalovantDeviceLoginExpiredError) return { outcome: "expired", status: error.statusCode ?? null };
+  if (error instanceof ThalovantTimeoutError) return { outcome: "expired", status: null };
   return { outcome: "error", error };
 }
 

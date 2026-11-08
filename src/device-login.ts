@@ -18,6 +18,11 @@ interface PendingLogin {
   readonly api: ThalovantControlPlane;
   readonly authorization: DeviceAuthorization;
   readonly expiresAt: number;
+  /**
+   * When the wait the caller asked for ends: the code's own expiry, or sooner
+   * when the sign-in was given a shorter timeout.
+   */
+  readonly deadline: number;
 }
 
 /** The token an approved sign-in minted, on the control plane that holds it. */
@@ -46,10 +51,12 @@ export class DeviceLogins {
   /**
    * Keep a started sign-in for `principal`; returns the id its polls name it by.
    *
-   * A principal holds at most a few at once, and starting another drops only
-   * its own oldest. Throws when the server as a whole holds as many as it will.
+   * `timeoutMs`, when given, ends the wait before the code's own expiry: see
+   * {@link timedOut}. A principal holds at most a few at once, and starting
+   * another drops only its own oldest. Throws when the server as a whole
+   * holds as many as it will.
    */
-  start(principal: string, api: ThalovantControlPlane, authorization: DeviceAuthorization): string {
+  start(principal: string, api: ThalovantControlPlane, authorization: DeviceAuthorization, timeoutMs?: number): string {
     this.prune();
     const own = [...this.pending].filter(([, login]) => login.principal === principal);
     for (const [loginId] of own.slice(0, Math.max(0, own.length - MAX_PENDING_PER_PRINCIPAL + 1))) {
@@ -59,13 +66,25 @@ export class DeviceLogins {
       throw new Error("Too many device sign-ins are in progress on this server. Try again once some have finished or expired.");
     }
     const loginId = randomUUID();
+    const now = this.now();
+    const expiresAt = now + authorization.expiresIn * 1000;
     this.pending.set(loginId, {
       principal,
       api,
       authorization,
-      expiresAt: this.now() + authorization.expiresIn * 1000,
+      expiresAt,
+      deadline: timeoutMs === undefined ? expiresAt : Math.min(expiresAt, now + timeoutMs),
     });
     return loginId;
+  }
+
+  /**
+   * Whether the wait the sign-in was given is over. The code itself may still
+   * live, so the sign-in is kept until then and a poll can say it expired
+   * rather than that it never existed.
+   */
+  timedOut(login: PendingLogin): boolean {
+    return this.now() >= login.deadline;
   }
 
   /** The pending sign-in `loginId` names, if `principal` started it and it has not expired. */

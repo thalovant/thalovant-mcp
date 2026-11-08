@@ -1097,6 +1097,14 @@ function signInError(error: unknown, method: LoginMethod): Error {
   return new Error(lines.join("\n"), { cause: error });
 }
 
+/** A device code's life as the person may use it: the code's own, or the shorter wait the sign-in was given. */
+function deviceExpiresIn(expiresIn: number, timeoutMs: number | undefined): number {
+  return timeoutMs === undefined ? expiresIn : Math.min(expiresIn, Math.ceil(timeoutMs / 1000));
+}
+
+/** Said with every device code a tool answers: unlike a browser sign-in's link, the code signs in whoever approves it. */
+const SHOW_CODE_ONLY_TO_SIGNER = "Show the code only to the person signing in: whoever approves it signs this server in as their account.";
+
 /** What thalovant_begin_browser_login answers for a sign-in it started, by what the person is shown. */
 function browserLoginStarted(loginId: string, shown: Shown, method: LoginMethod, timeoutMs: number | undefined): Record<string, unknown> {
   if (shown.method === "browser") {
@@ -1113,6 +1121,7 @@ function browserLoginStarted(loginId: string, shown: Shown, method: LoginMethod,
   const why = method === "device"
     ? "This is the device sign-in that was asked for."
     : "This computer cannot show a browser to sign in with here (over SSH, in CI, or without a display), or the API does not offer browser sign-in yet, so this is a device sign-in.";
+  const expiresIn = deviceExpiresIn(shown.expiresIn, timeoutMs);
   return {
     loginId,
     method: "device",
@@ -1120,8 +1129,8 @@ function browserLoginStarted(loginId: string, shown: Shown, method: LoginMethod,
     verificationUri: shown.verificationUri,
     verificationUriComplete: shown.verificationUriComplete,
     interval: shown.interval,
-    expiresIn: shown.expiresIn,
-    next: `${why} Ask the person to open ${shown.verificationUri} and enter ${shown.userCode}, then call thalovant_poll_browser_login with this loginId every ${shown.interval} seconds until the outcome is no longer pending. The code expires in ${shown.expiresIn} seconds.`,
+    expiresIn,
+    next: `${why} Ask the person to open ${shown.verificationUri} and enter ${shown.userCode}, then call thalovant_poll_browser_login with this loginId every ${shown.interval} seconds until the outcome is no longer pending. The code expires in ${expiresIn} seconds. ${SHOW_CODE_ONLY_TO_SIGNER}`,
   };
 }
 
@@ -1958,13 +1967,13 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     {
       title: "Begin Browser Sign-In",
       description:
-        "Sign a person in when no API token is configured, the way this server allows. Over stdio (the server runs on the person's computer) method auto, the default, opens the person's browser at Thalovant's consent page and waits for it to come back to this server on 127.0.0.1 (PKCE, RFC 8252): only the browser on this computer can complete it, and a link or code sent to someone on another computer delivers nothing to the sender. When this computer cannot show a browser (over SSH, in CI, or without a display) or the API does not offer browser sign-in yet, auto starts a device login instead (method device in the answer, with userCode and verificationUri to show). Over Streamable HTTP this server's 127.0.0.1 is not the person's, so auto and device start a device login exactly as thalovant_begin_device_login does, and method browser is refused. Show the person what the answer names, then call the poll tool its next field names with loginId. The verifier, the state, the device code and the token stay on this server; once approved, control-plane tools for this principal use the token. A Home Assistant link signs in as its registered app: use thalovant_begin_device_login with clientId for it.",
+        "Sign a person in when no API token is configured, the way this server allows. Over stdio (the server runs on the person's computer) method auto, the default, opens the person's browser at Thalovant's consent page and waits for it to come back to this server on 127.0.0.1 (PKCE, RFC 8252). Only a browser that shares this server's 127.0.0.1 can complete it, so a link or code sent to someone on another computer delivers nothing to the sender; a stdio server started over SSH without forwarding the port, or inside a container, does not share the person's, so use method device there. When this computer cannot show a browser (over SSH, in CI, or without a display) or the API does not offer browser sign-in yet, auto starts a device login instead (method device in the answer, with userCode and verificationUri to show). Over Streamable HTTP this server's 127.0.0.1 is not the person's, so auto and device start a device login exactly as thalovant_begin_device_login does, and method browser is refused. Show the person what the answer names, then call the poll tool its next field names with loginId. What a browser sign-in promises does not hold for a device login: whoever approves its code signs this server in as their account, so show the code only to the person signing in. The verifier, the state, the device code and the token stay on this server; once approved, control-plane tools for this principal use the token. A Home Assistant link signs in as its registered app: use thalovant_begin_device_login with clientId for it.",
       inputSchema: {
         apiUrl: controlPlaneSchema.apiUrl,
         method: z
           .enum(["auto", "browser", "device"])
           .default("auto")
-          .describe("auto (the default): the browser when this computer can show one and the API offers it, a device login otherwise. browser: the browser, or an error (never a device login); refused over Streamable HTTP. device: a device login."),
+          .describe("auto (the default): the browser when this computer can show one and the API offers it, a device login otherwise. browser: the browser, or an error (never a device login); it completes only in a browser that shares this server's 127.0.0.1 (not over SSH without port forwarding, not inside a container), and it is refused over Streamable HTTP. device: a device login."),
         scopes: z
           .array(z.string().min(1).max(64))
           .max(32)
@@ -1981,7 +1990,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           .min(1_000)
           .max(900_000)
           .optional()
-          .describe("How long the sign-in waits for the person, in milliseconds. Default each method's own: 300000 for the browser, 900000 for a device login."),
+          .describe("How long the sign-in waits for the person, in milliseconds, on either transport; a device code is not accepted past it even when the code itself lives longer (expiresIn says which). Default each method's own: 300000 for the browser, 900000 for a device login."),
       },
       annotations: {
         readOnlyHint: false,
@@ -1999,7 +2008,9 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         // thalovant_begin_device_login starts one.
         const api = await signInControlPlane(apiUrl);
         const grant = await api.beginDeviceLogin({ scopes, clientName: deviceName });
-        const loginId = deviceLogins.start(principal, api, grant);
+        // timeoutMs ends the wait before the code's own expiry, as it does over stdio.
+        const loginId = deviceLogins.start(principal, api, grant, timeoutMs);
+        const expiresIn = deviceExpiresIn(grant.expiresIn, timeoutMs);
         return jsonContent({
           loginId,
           method: "device",
@@ -2007,8 +2018,8 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           verificationUri: grant.verificationUri,
           verificationUriComplete: grant.verificationUriComplete,
           interval: grant.interval,
-          expiresIn: grant.expiresIn,
-          next: `This server runs over Streamable HTTP, where a browser sign-in cannot come back to it, so this is a device sign-in. Ask the person to open ${grant.verificationUri} and enter ${grant.userCode}, then call thalovant_poll_device_login with this loginId every ${grant.interval} seconds until the outcome is no longer pending. The code expires in ${grant.expiresIn} seconds.`,
+          expiresIn,
+          next: `This server runs over Streamable HTTP, where a browser sign-in cannot come back to it, so this is a device sign-in. Ask the person to open ${grant.verificationUri} and enter ${grant.userCode}, then call thalovant_poll_device_login with this loginId every ${grant.interval} seconds until the outcome is no longer pending. The code expires in ${expiresIn} seconds. ${SHOW_CODE_ONLY_TO_SIGNER}`,
         });
       }
       const watch = new SignInWatch();
@@ -2105,7 +2116,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     {
       title: "Begin Device Sign-In",
       description:
-        "Start a device sign-in (RFC 8628) when no API token is configured: a person approves it in a browser, on any device. Show the person verificationUri and userCode (or verificationUriComplete, which carries the code), then call thalovant_poll_device_login with loginId every `interval` seconds. The device code stays on this server. Once approved, control-plane tools for this principal use the token it minted. On a stdio server, thalovant_begin_browser_login signs the person in through the browser on their own computer instead, where a link or code sent to someone on another computer delivers nothing to the sender; use this tool for a registered app's sign-in or a hosted server. A Home Assistant link asks for hubs:read, clients:read and clients:write, which is also all a Free plan can approve, and signs in as the registered app thalovant-home-assistant (clientId).",
+        "Start a device sign-in (RFC 8628) when no API token is configured: a person approves it in a browser, on any device. Whoever approves the code signs this server in as their account, so show it only to the person signing in. Show the person verificationUri and userCode (or verificationUriComplete, which carries the code), then call thalovant_poll_device_login with loginId every `interval` seconds. The device code stays on this server. Once approved, control-plane tools for this principal use the token it minted. On a stdio server whose 127.0.0.1 the person's browser shares, thalovant_begin_browser_login signs them in through that browser instead, where a link or code sent to someone on another computer delivers nothing to the sender; use this tool for a registered app's sign-in or a hosted server. A Home Assistant link asks for hubs:read, clients:read and clients:write, which is also all a Free plan can approve, and signs in as the registered app thalovant-home-assistant (clientId).",
       inputSchema: {
         apiUrl: controlPlaneSchema.apiUrl,
         scopes: z
@@ -2139,7 +2150,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         verificationUriComplete: grant.verificationUriComplete,
         interval: grant.interval,
         expiresIn: grant.expiresIn,
-        next: `Ask the person to open ${grant.verificationUri} and enter ${grant.userCode}, then call thalovant_poll_device_login with this loginId every ${grant.interval} seconds until the outcome is no longer pending. The code expires in ${grant.expiresIn} seconds.`,
+        next: `Ask the person to open ${grant.verificationUri} and enter ${grant.userCode}, then call thalovant_poll_device_login with this loginId every ${grant.interval} seconds until the outcome is no longer pending. The code expires in ${grant.expiresIn} seconds. ${SHOW_CODE_ONLY_TO_SIGNER}`,
       });
     },
   );
@@ -2165,6 +2176,11 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
       const login = deviceLogins.find(loginId, principal);
       if (!login) {
         throw new Error("No device sign-in in progress has this loginId: it expired, already ended, or was started by another principal. Begin a new one with thalovant_begin_device_login.");
+      }
+      if (deviceLogins.timedOut(login)) {
+        // The wait it was given (timeoutMs) is over, though the code may still live: it is not polled again.
+        deviceLogins.finish(loginId);
+        return jsonContent({ outcome: "expired", status: null, next: "Nobody approved the sign-in within the time it was given. Begin a new sign-in." });
       }
       try {
         const token = await login.api.pollDeviceLogin(login.authorization);

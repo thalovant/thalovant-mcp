@@ -1,6 +1,29 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in moves to the final contract (Python #113 at 39e31d8, Node #110 at a7097d2); CodeRabbit's two items on #125.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: CodeRabbit's second review of #125: timeoutMs on the hosted device login, the shared loopback a browser sign-in needs, and what a device code allows.
 
 # Maintenance Report
+
+## 2026-11-08 — CodeRabbit's second review of #125
+
+Two new threads, both minor, on b8dd5f0.
+
+**Changes**
+
+- `timeoutMs` over Streamable HTTP (thread on QUICK_FACTS.md): it was accepted and ignored there. `DeviceLogins.start()` (`src/device-login.ts`) now takes it as a deadline beside the code's expiry, `DeviceLogins.timedOut()` reads it, and `thalovant_poll_device_login` answers `expired` without another request once it has passed; `expiresIn` in the begin answer is the shorter of the two, on stdio too (`deviceExpiresIn()` in `src/index.ts`). On stdio the SDK's own device timeout (`ThalovantTimeoutError`) now reads as `expired` (`outcomeOf()`, `src/browser-login.ts`) instead of `error`. `thalovant_begin_device_login` takes no timeout, so its sign-ins are unchanged.
+- The shared loopback (thread on README.md): the begin tool's description, its `method` description, the device tool's description, README and FAQ say a browser sign-in completes only in a browser that shares the server's `127.0.0.1`, which a stdio server over SSH without port forwarding, or in a container, does not, and to use `method: "device"` there.
+- What a device code allows (same thread): the browser path's promise is now scoped to the browser path in both descriptions, README and CHANGELOG, and every device answer (`thalovant_begin_browser_login` on both transports, `thalovant_begin_device_login`) says to show the code only to the person signing in, since whoever approves it signs the server in as their account.
+- Tests in `test/browser-login.test.ts`: the deadline in `DeviceLogins`, `outcomeOf()` for the SDK's timeout, a stdio device login and an HTTP one each given 1000 ms (`expiresIn: 1`, then `expired`, and over HTTP no token poll after the deadline), and the descriptions. With the HTTP deadline check taken out of `dist/index.js`, the HTTP test fails.
+- `contracts/sdk-parity.json`: hashes refreshed for the changed `src/browser-login.ts`, `src/device-login.ts`, `src/index.ts` and `test/browser-login.test.ts` (20 entries); the `device-login` reason says what changes for a timed device login. Reference digests unchanged.
+
+**Verification**
+
+- SDK packed from a7097d2, installed with `npm install --no-save`. `npm run typecheck`, `npm run build`, `npm test` (561 passed, 22 files), `npm run test:smoke` (2), `npm run test:http` (10), Node 22.23.1. Conformance re-recorded to a scratch file: identical to the committed results.
+- `check-sdk-parity.py --consumer thalovant-mcp`: verified against Python 39e31d8 and against `main` 44b6e2b.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Checked both findings against the code, added the device-login deadline, the consistent `expiresIn` and the timeout mapping, scoped the descriptions and docs, wrote the tests and a mutation check, refreshed the changed files' hashes, answered and resolved the threads.
+- **Oversight**: Run by an agent at the lead's request; nothing merged or published.
 
 ## 2026-11-08 — Browser sign-in on the final contract; CodeRabbit on #125
 

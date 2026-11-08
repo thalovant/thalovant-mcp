@@ -13,14 +13,17 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { LATEST_PROTOCOL_VERSION } from "@modelcontextprotocol/sdk/types.js";
 import {
+  DeviceAuthorization,
   ThalovantApiError,
   ThalovantControlPlane,
   ThalovantDeviceLoginDeniedError,
   ThalovantDeviceLoginExpiredError,
+  ThalovantTimeoutError,
 } from "@thalovant/sdk";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { BrowserLogins, SignInWatch, browserCommand, defaultDeviceName, outcomeOf } from "../src/browser-login.js";
+import { DeviceLogins } from "../src/device-login.js";
 import { BROWSER, BrowserShims, http, machineEnv, pollUntilEnded, refused, Signing, sleep, stdioServer, tool } from "./browser-login-harness.js";
 
 const MINTED = "tvpat_minted_by_a_browser_sign_in";
@@ -39,8 +42,15 @@ interface Seen {
   authorization?: string;
 }
 
-/** A control plane offering browser sign-in (unless `browser: false`) and device login, recording every request. */
-async function controlPlane(options: { browser?: boolean } = {}): Promise<{ url: string; seen: Seen[] }> {
+/** What every device login's answer says to the model, unlike a browser sign-in's. */
+const SHOW_ONLY = "Show the code only to the person signing in: whoever approves it signs this server in as their account.";
+
+/**
+ * A control plane offering browser sign-in (unless `browser: false`) and
+ * device login, recording every request. With `devicePending`, nobody ever
+ * approves the device code: every token poll answers authorization_pending.
+ */
+async function controlPlane(options: { browser?: boolean; devicePending?: boolean } = {}): Promise<{ url: string; seen: Seen[] }> {
   const seen: Seen[] = [];
   const server: Server = createServer((request: IncomingMessage, response: ServerResponse) => {
     request.resume();
@@ -71,11 +81,12 @@ async function controlPlane(options: { browser?: boolean } = {}): Promise<{ url:
           user_code: "ABCD-EFGH",
           verification_uri: "https://dash.example.invalid/activate",
           verification_uri_complete: "https://dash.example.invalid/activate?user_code=ABCD-EFGH",
-          interval: 0,
+          interval: options.devicePending ? 1 : 0,
           expires_in: 600,
         });
       }
       if (path === "/v1/auth/device/token") {
+        if (options.devicePending) return json(400, { error: "authorization_pending" });
         return json(200, { access_token: DEVICE_MINTED, token_type: "bearer", scopes: ["hubs:read"], expires_at: "2027-11-08T12:00:00Z", token_id: "device-token-1" });
       }
       if (path.startsWith("/v1/auth/api-tokens/")) {
@@ -160,6 +171,8 @@ describe("sign-ins held by the server", () => {
     expect(outcomeOf(new ThalovantDeviceLoginExpiredError("expired"))).toEqual({ outcome: "expired", status: null });
     const failed = new ThalovantApiError("invalid_grant", { statusCode: 400 });
     expect(outcomeOf(failed)).toEqual({ outcome: "error", error: failed });
+    // A device login out of the wait it was given rejects with the SDK's timeout error: nobody approved it in time.
+    expect(outcomeOf(new ThalovantTimeoutError("Timed out waiting for the device sign-in to be approved."))).toEqual({ outcome: "expired", status: null });
   });
 
   it("stop a principal's own oldest to make room, and never another principal's", async () => {
@@ -207,6 +220,33 @@ describe("sign-ins held by the server", () => {
     expect(one.signal()?.aborted).toBe(true);
     one.settle().reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
     await expect(starting).rejects.toThrow("aborted");
+  });
+});
+
+describe("a device sign-in given a timeout", () => {
+  const grant = () => DeviceAuthorization.fromGrant({
+    device_code: DEVICE_CODE,
+    user_code: "ABCD-EFGH",
+    verification_uri: "https://dash.example.invalid/activate",
+    expires_in: 600,
+  });
+
+  it("times out at the shorter of its wait and the code's life, and is kept until the code expires", () => {
+    let now = 1_000;
+    const logins = new DeviceLogins(() => now);
+    const api = new ThalovantControlPlane("https://api.example.invalid");
+    const short = logins.start("alice", api, grant(), 1_000);
+    const long = logins.start("alice", api, grant(), 3_600_000);
+    const plain = logins.start("alice", api, grant());
+    now += 999;
+    expect(logins.timedOut(logins.find(short, "alice")!)).toBe(false);
+    now += 1;
+    // Out of its wait, and still there to say so.
+    expect(logins.timedOut(logins.find(short, "alice")!)).toBe(true);
+    expect(logins.timedOut(logins.find(long, "alice")!)).toBe(false);
+    now += 600_000;
+    // Past the code's own life every one is gone, whatever its wait.
+    for (const id of [short, long, plain]) expect(logins.find(id, "alice")).toBeUndefined();
   });
 });
 
@@ -375,6 +415,7 @@ describe("over stdio", () => {
     const begun = toolAnswer(await server.answer(2));
     expect(begun).toMatchObject({ method: "device", userCode: "ABCD-EFGH", verificationUri: "https://dash.example.invalid/activate" });
     expect(begun.next).toContain("thalovant_poll_browser_login");
+    expect(begun.next).toContain(SHOW_ONLY);
     const until = Date.now() + 5_000;
     while (!server.stderr().includes("ABCD-EFGH") && Date.now() < until) await sleep(20);
     expect(server.stderr()).toContain("To sign in, visit https://dash.example.invalid/activate and enter the code ABCD-EFGH");
@@ -436,6 +477,18 @@ describe("over stdio", () => {
     const approved = await pollUntilEnded(client, auto.json!.loginId as string);
     expect(approved.json).toMatchObject({ outcome: "approved", method: "device", tokenId: "device-token-1" });
     expect(opener.opened()).toEqual([]);
+  }, 30_000);
+
+  it("ends a device login at the wait it was given, says so in expiresIn, and reports it expired", async () => {
+    const api = await controlPlane({ devicePending: true });
+    const { client } = await stdioServer({ env: { THALOVANT_API_URL: api.url, SSH_TTY: "/dev/pts/3" }, shims: shims() });
+    cleanups.push(() => client.close());
+    const begun = await tool(client, "thalovant_begin_browser_login", { timeoutMs: 1_000 });
+    expect(begun.json).toMatchObject({ method: "device", expiresIn: 1 });
+    expect(begun.json!.next).toContain("The code expires in 1 seconds.");
+    expect((await tool(client, "thalovant_poll_browser_login", { loginId: begun.json!.loginId })).json).toMatchObject({ outcome: "pending" });
+    const ended = await pollUntilEnded(client, begun.json!.loginId as string);
+    expect(ended.json).toMatchObject({ outcome: "expired", method: "device", status: null });
   }, 30_000);
 
   it("refuses an unknown or another principal's sign-in, and reaches only the configured API origin", async () => {
@@ -517,6 +570,7 @@ describe("over Streamable HTTP", () => {
     expect(auto.error).toBe(false);
     expect(auto.json).toMatchObject({ method: "device", userCode: "ABCD-EFGH", verificationUri: "https://dash.example.invalid/activate", interval: 0, expiresIn: 600 });
     expect(auto.json!.next).toContain("thalovant_poll_device_login");
+    expect(auto.json!.next).toContain(SHOW_ONLY);
     // The device login's own begin: no configuration asked for, nothing opened, no loopback listener.
     expect(api.seen.map((request) => `${request.method} ${request.path}`)).toEqual(["POST /v1/auth/device/authorize"]);
     expect(auto.text).not.toContain(DEVICE_CODE);
@@ -533,6 +587,38 @@ describe("over Streamable HTTP", () => {
   }, 30_000);
 });
 
+describe("over Streamable HTTP, a timeout", () => {
+  it("ends the device login at the wait it was given, which expiresIn says, and polls report it expired", async () => {
+    const api = await controlPlane({ devicePending: true });
+    const port = await httpServer(machineEnv({
+      THALOVANT_API_URL: api.url,
+      THALOVANT_ALLOW_SHARED_CREDENTIALS: "true",
+      MCP_HTTP_AUTH_TOKEN: "browser-login-http-timeout",
+    }));
+    const client = new Client({ name: "thalovant-mcp-browser-login-http-timeout", version: "0.0.0" }, { capabilities: {} });
+    await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/mcp`), {
+      requestInit: { headers: { Authorization: "Bearer browser-login-http-timeout" } },
+    }));
+    cleanups.push(() => client.close());
+
+    const begun = await tool(client, "thalovant_begin_browser_login", { timeoutMs: 1_000 });
+    // The code lives 600 s; the sign-in was given one.
+    expect(begun.json).toMatchObject({ method: "device", expiresIn: 1 });
+    expect(begun.json!.next).toContain("The code expires in 1 seconds.");
+    const loginId = begun.json!.loginId;
+    expect((await tool(client, "thalovant_poll_device_login", { loginId })).json).toMatchObject({ outcome: "pending" });
+    const polls = api.seen.filter((request) => request.path === "/v1/auth/device/token").length;
+    await sleep(1_100);
+    expect((await tool(client, "thalovant_poll_device_login", { loginId })).json).toMatchObject({ outcome: "expired", status: null });
+    // Past its wait it is not polled again, and it has ended.
+    expect(api.seen.filter((request) => request.path === "/v1/auth/device/token")).toHaveLength(polls);
+    expect((await tool(client, "thalovant_poll_device_login", { loginId })).error).toBe(true);
+
+    // Without a timeout the code's own life stands, as before.
+    expect((await tool(client, "thalovant_begin_browser_login", {})).json).toMatchObject({ expiresIn: 600 });
+  }, 30_000);
+});
+
 describe("registration", () => {
   it("offers the browser sign-in tools by default and leaves them out in read-only mode", async () => {
     const byDefault = await stdioServer({ env: { THALOVANT_API_TOKEN: "tvpat_x" } });
@@ -545,5 +631,18 @@ describe("registration", () => {
     expect(readOnlyNames).not.toContain("thalovant_begin_browser_login");
     expect(readOnlyNames).not.toContain("thalovant_poll_browser_login");
     assert.ok(readOnlyNames.length > 0);
+  }, 30_000);
+
+  it("scopes what a browser sign-in promises to the browser, and names the loopback it needs", async () => {
+    const server = await stdioServer({ env: { THALOVANT_API_TOKEN: "tvpat_x" } });
+    cleanups.push(() => server.client.close());
+    const tools = new Map((await server.client.listTools()).tools.map((item) => [item.name, item]));
+    const browser = tools.get("thalovant_begin_browser_login")!;
+    expect(browser.description).toContain("Only a browser that shares this server's 127.0.0.1 can complete it");
+    expect(browser.description).toContain("over SSH without forwarding the port, or inside a container");
+    expect(browser.description).toContain("whoever approves its code signs this server in as their account");
+    const method = (browser.inputSchema.properties as Record<string, { description?: string }>).method!;
+    expect(method.description).toContain("not over SSH without port forwarding, not inside a container");
+    expect(tools.get("thalovant_begin_device_login")!.description).toContain("Whoever approves the code signs this server in as their account");
   }, 30_000);
 });
