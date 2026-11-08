@@ -1,11 +1,15 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Record the skill_unavailable_* hint gap closed for thalovant-api#495, from test results.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: The store refusal hints ship in 0.7.2; record the test/http.test.ts port race seen on main's Node 20 job.
 
 # Audit
 
-## Store refusals by code (2026-11-07, unreleased)
+## Store refusals by code (2026-11-07, 0.7.2)
 
 - **Closed:** a 409 `skill_unavailable_unpublished` (thalovant-api#495) or any `skill_unavailable_*` code other than licensing fell through `controlPlaneErrorHint` (`src/index.ts`) to the generic 409 hint, which tells the caller the skill is already installed at that version and to POST a different one: wrong advice for a skill nothing can install. Evidence: the three `skill_unavailable` tests in `test/provisioning.test.ts` assert the new hints and that the version text is absent; `npm test` 386/386, `test:smoke` 2/2, `test:http` 9/9.
 - **Open, minor:** `LICENSING_HINT_409` says `thalovant_list_marketplace_skills` reports the refusal per skill; that is true for an admin's token only, as the API leaves unavailable rows out for everyone else. Left as it is; the unpublished hint says it plainly.
+
+## Test port race in the HTTP shutdown tests (2026-11-07)
+
+- **Open, flaky test:** `freePort()` in `test/http.test.ts` binds port 0, reads the port and closes it before `spawnHttpServer` starts the server on it. Vitest runs files in parallel, and the fake control planes in `test/provisioning.test.ts` and `test/security-hardening.test.ts` also listen on port 0 and answer every path with `{ ok: true, path }`. When one of them takes the freed port first, `waitForHealth` sees a 200 from it and the MCP client talks to the fake API. Evidence: CI run 42420904832 (`main`, cacfb4a, Node 20) failed "closes an active MCP session and exits cleanly on SIGINT" with a `ZodError` naming the unrecognized keys `ok` and `path`; the same tree passed on the pull request and on Node 22 and 24. No product code is involved. See SUGGESTIONS.md.
 
 ## 0.7.0 chat apps tools (2026-11-03)
 

@@ -1,16 +1,16 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Unreleased hint for skill_unavailable_unpublished (thalovant-api#495) noted; the version stays 0.7.1.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Version 0.7.2, which carries the skill_unavailable_unpublished hint (thalovant-api#495).
 
 # Quick Facts
 
 | Fact | Value |
 | --- | --- |
 | Package | `@thalovant/mcp-server` (npm), `ghcr.io/thalovant/thalovant-mcp` (OCI), `io.github.thalovant/thalovant-mcp` (MCP Registry) |
-| Version | 0.7.1 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
+| Version | 0.7.2 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
 | Entry point | `thalovant-mcp` bin, `dist/index.js`: stdio by default, Streamable HTTP with `--http` |
 | Thalovant SDK | `@thalovant/sdk` ^0.10.0 (chat app methods, `ThalovantApiError.fields`) |
 | Tools | 59 by default, 28 with `THALOVANT_MCP_READONLY`, 63 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` |
 | Validation | `npm ci`, `npm run typecheck`, `npm run build`, `npm test`, `npm run test:smoke`, `npm run test:http` |
-| Refusal hints by code (409) | `skill_unavailable_licensing`, `skill_unavailable_unpublished` (unreleased), any other `skill_unavailable_*`, `memory_limit`, `skill_version_already_installed` (generic), in `controlPlaneErrorHint` (`src/index.ts`) |
+| Refusal hints by code (409) | `skill_unavailable_licensing`, `skill_unavailable_unpublished` (0.7.2), any other `skill_unavailable_*`, `memory_limit`, `skill_version_already_installed` (generic), in `controlPlaneErrorHint` (`src/index.ts`) |
 
 ## Chat apps tools (0.7.0)
 

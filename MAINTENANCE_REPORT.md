@@ -1,8 +1,29 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Log the skill_unavailable_unpublished hint (thalovant-api#495) and its verification; no version change.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Release 0.7.2 with the skill_unavailable_unpublished hint; log its verification and a test port race.
 
 # Maintenance Report
 
-## 2026-11-07 — Hint for a skill with no published release (unreleased)
+## 2026-11-07 — Release 0.7.2
+
+The owner asked for the merged `skill_unavailable_unpublished` hint (#121) to be published. Nothing else was unreleased since v0.7.1, and the change is a hint text for one more refusal code with no schema or behaviour change, so this is a patch release.
+
+**Changes**
+
+- `package.json`, `package-lock.json`, `server.json` (top-level version, npm package version, OCI identifier), the OCI label in `Dockerfile`, the README's SDK requirement line and QUICK_FACTS move to 0.7.2. The CHANGELOG's Unreleased entry becomes 0.7.2, dated 2026-11-07.
+- AUDIT.md and SUGGESTIONS.md record a port race in `test/http.test.ts` (`freePort()` frees a port before the server takes it), which failed the Node 20 job on `main` for cacfb4a (CI run 42420904832) while the pull request and Node 22 and 24 passed. Test-only; not changed here.
+- `@thalovant/sdk` stays at ^0.10.0 (the lock resolves 0.10.0, npm's latest). No source or parity evidence file changes, so `contracts/sdk-parity.json` is unchanged.
+
+**Verification**
+
+- `npm ci`, `npm audit --audit-level=high` (0 vulnerabilities), `npm run typecheck`, `npm run build`, `npm test`, `npm run test:smoke`, `npm run test:http`, Node 22.23.1: all pass (386 tests in 20 files, smoke 2, http 9). `package.json`, both lockfile entries and the three `server.json` fields read 0.7.2.
+- The tag `v0.7.2` on the merge commit runs the Release workflow (npm through trusted publishing, GHCR, MCP Registry, GitHub release); the published-artifacts smoke is run for 0.7.2 afterwards.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Bumped the aligned version files, dated the changelog entry, ran the validation sequence, opened and merged the version pull request, pushed the tag and checked npm, GHCR, the MCP Registry and the GitHub release.
+- **Oversight**: Run by an agent on the repository owner's request to publish the open fixes (2026-11-08Z); the pull request passed the normal CI gates before its merge.
+
+## 2026-11-07 — Hint for a skill with no published release (0.7.2)
 
 thalovant-api#495 (`fix/catalog-unpublished-skills`, `.changes/api-impact-catalog-unpublished-skills.yaml`) adds `unpublished` beside `licensing` as a reason the store refuses a skill, and answers an install or attach of one with 409 `skill_unavailable_unpublished` (`reason: unpublished`, a plain `detail` sentence) before any paid-plan 402. Its declaration owes this server a hint: `controlPlaneErrorHint` gave the new code the generic 409 text, which talks about a version already installed.
 

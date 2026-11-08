@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Say what a 409 skill_unavailable_unpublished (a skill with no published release, thalovant-api#495) and any other skill_unavailable_* code get as hints.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Version 0.7.2, which carries the skill_unavailable_unpublished hint.
 
 # Thalovant MCP Server
 
@@ -600,7 +600,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.7.1 requires `@thalovant/sdk` `^0.10.0` (0.10.0 through versions below 0.11.0), which carries the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
+Version 0.7.2 requires `@thalovant/sdk` `^0.10.0` (0.10.0 through versions below 0.11.0), which carries the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
