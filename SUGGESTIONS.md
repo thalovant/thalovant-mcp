@@ -1,6 +1,23 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: The HTTP tests' port race is fixed in the tests; keep the server-side port 0 idea as optional.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: @thalovant/sdk 0.11.0 is on npm and in the lock; what is left after the rollout.
 
 # Follow-up
+
+## Give `interactiveLogin()` a structured prompt (Node SDK)
+
+- **Problem:** `InteractiveLoginOptions` has no `prompt`, so a consumer that cannot print (an MCP server over stdio) learns what the person was shown indirectly: `SignInWatch` in `src/browser-login.ts` takes the consent URL from `openUrl` and a device code from the device authorization answer through the control plane's `fetch`, and the stdio entry point has to send `console.log` to stderr.
+- **Proposal:** an optional `prompt` on `interactiveLogin()` that receives `{ method: "browser", url }` or `{ method: "device", grant }` and replaces the print, as `browserLogin()`'s and `loginWithBrowser()`'s already do. That is a shape change in the parity reference (Python's `interactive_login` too), so it goes through the contract.
+- **Impact:** `SignInWatch` shrinks to a callback, nothing depends on the order of the SDK's calls, and the console redirect becomes a safety net only. Small in the SDKs, contract round needed.
+
+## Export the SDK's browser opener
+
+- **Problem:** passing `openUrl` replaces `@thalovant/sdk`'s own opener, which it does not export, so `browserCommand()` here repeats its rule.
+- **Proposal:** export `openExternalUrl()` (or an `openUrl` that observes and then delegates) from `@thalovant/sdk`, and call it from `SignInWatch`.
+- **Impact:** one rule for opening a URL. Small.
+
+## After the rollout
+
+- Done 2026-11-08: the lock's SDK entry has the published 0.11.0's `integrity` and the suite passes against it. Left: tag 0.8.0 per RELEASING.md, run the published-artifacts smoke, and update the docs.thalovant.com MCP setup and tool pages.
+- Once the Python reference's `main` carries `6dfb3bb31ac7…`: drop the older digests from `reference_digests` in a separate change.
 
 ## Split `src/index.ts` by tool family
 

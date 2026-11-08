@@ -11,6 +11,8 @@ import {
   secretLookingSettings,
   secretSettingsRefusal,
 } from "./chat-apps-output.js";
+import { BrowserLogins, DEFAULT_SIGN_IN_TIMEOUT_MS, SignInWatch, defaultDeviceName } from "./browser-login.js";
+import type { Shown } from "./browser-login.js";
 import { DeviceLogins } from "./device-login.js";
 import { inventoryPresentation } from "./inventory-output.js";
 import { runtimeReplyContent } from "./reply-output.js";
@@ -28,6 +30,7 @@ import {
   DEFAULT_CONTROL_API_URL,
   HOME_ASSISTANT_CLIENT_ID,
   HOME_ASSISTANT_SCOPES,
+  MAX_DEVICE_NAME_LENGTH,
   ThalovantAdmissionFailedError,
   ThalovantAdmissionTimeoutError,
   ThalovantAlreadyLinkedError,
@@ -54,11 +57,13 @@ import type {
   MemoryListOptions,
   MemoryUpdatePayload,
   HubSkillWaitOptions,
+  LoginMethod,
   ReleaseOptions,
   RuntimeGroupPayload,
   RuntimeGroupSkillInstallOptions,
 } from "@thalovant/sdk";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { Console } from "node:console";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -200,6 +205,24 @@ const DESTRUCTIVE_TOOLS = [
  * principal, for the life of this process. See device-login.ts.
  */
 const deviceLogins = new DeviceLogins();
+
+/**
+ * Interactive sign-ins a stdio server runs (browser, or a device login when
+ * the SDK chooses one), until each is polled. An approved one's token joins
+ * the device sign-ins' store at once, so every control-plane tool and the
+ * revoke treat it the same way. See browser-login.ts.
+ */
+const browserLogins = new BrowserLogins((principal, api) => deviceLogins.approve(principal, api));
+
+/** The transport a server instance answers on, which decides whether a browser sign-in can come back to it. */
+export type ServerTransport = "stdio" | "streamable-http";
+
+/** How long a pending browser sign-in suggests waiting between polls, in seconds. */
+const BROWSER_POLL_INTERVAL_S = 3;
+
+/** Why a browser sign-in is refused over Streamable HTTP. */
+const BROWSER_LOGIN_NEEDS_STDIO =
+  "Browser sign-in needs this server on the person's own computer (stdio): the browser hands the answer to 127.0.0.1, and over Streamable HTTP this server's 127.0.0.1 is not the person's computer. Begin again with method auto or device, which signs in with a device login here, or use thalovant_begin_device_login.";
 
 /** How long thalovant_wait_for_admission waits by default: a hub admits a new connection in about ninety seconds. */
 const ADMISSION_DEFAULT_TIMEOUT_MS = 120_000;
@@ -443,7 +466,7 @@ function connectionErrorHint(error: unknown, connectionType: string | undefined)
       : "The plan does not allow this connection (HTTP 402). Move the workspace to a paid plan; granting a scope will not help.";
   }
   if (error instanceof ThalovantAuthError) {
-    return "The API refused the token itself: it is unknown, expired or revoked (401), the account is locked (423), or it lacks clients:write (403 Insufficient scopes). Sign in again with thalovant_begin_device_login, or configure a token that carries clients:read and clients:write.";
+    return "The API refused the token itself: it is unknown, expired or revoked (401), the account is locked (423), or it lacks clients:write (403 Insufficient scopes). Sign in again (thalovant_begin_browser_login, which uses the browser on a local stdio server and a device login on a hosted one, or thalovant_begin_device_login), or configure a token that carries clients:read and clients:write.";
   }
   if (error instanceof ThalovantApiUnreachableError) {
     return "The Thalovant API could not be reached, which says nothing about the connection: it may be admitted, or created, all the same. Try again once the API answers; do not create another connection before checking.";
@@ -990,8 +1013,8 @@ async function createControlPlane(options: {
     credential?.control?.accessToken ??
     (canUseShared ? process.env.THALOVANT_API_TOKEN ?? process.env.THALOVANT_ACCESS_TOKEN : undefined);
   // With nothing configured, the token this principal signed in with through
-  // thalovant_begin_device_login / thalovant_poll_device_login, which exists
-  // only for the configured origin.
+  // thalovant_begin_device_login / thalovant_poll_device_login, or
+  // thalovant_begin_browser_login, which exists only for the configured origin.
   const signedIn = configuredToken || (email && password)
     ? undefined
     : deviceLogins.signedInOn(principal.id, originOf(configuredApiUrl) ?? "");
@@ -1030,7 +1053,7 @@ async function createControlPlane(options: {
 function ensureAuthenticated(api: ThalovantControlPlane) {
   if (!api.accessToken) {
     throw new Error(
-      "This tool requires Thalovant API auth. Configure THALOVANT_API_TOKEN (recommended: a scoped, revocable API token), THALOVANT_ACCESS_TOKEN, THALOVANT_EMAIL/THALOVANT_PASSWORD, or per-principal Thalovant credentials for this MCP principal.",
+      "This tool requires Thalovant API auth. Configure THALOVANT_API_TOKEN (recommended: a scoped, revocable API token), THALOVANT_ACCESS_TOKEN, THALOVANT_EMAIL/THALOVANT_PASSWORD, or per-principal Thalovant credentials for this MCP principal, or have a person sign in with thalovant_begin_browser_login (a device login on a hosted server) or thalovant_begin_device_login.",
     );
   }
 }
@@ -1038,21 +1061,89 @@ function ensureAuthenticated(api: ThalovantControlPlane) {
 type ControlPlaneAuthMode = "api-token" | "access-token" | "email-password" | "none";
 
 /**
- * A control plane for a device sign-in, on the configured API origin only.
+ * A control plane for a sign-in (device or browser), on the configured API
+ * origin only.
  *
  * It carries no credential: the sign-in is what mints one. The origin is fixed
- * because the verification URL the API answers with is shown to a person, and
- * the token it mints is kept here for later calls; a tool argument must not
- * send either somewhere else.
+ * because the verification URL or consent page the API names is shown to a
+ * person, and the token it mints is kept here for later calls; a tool argument
+ * must not send either somewhere else. `fetch` is what a browser sign-in
+ * watches the SDK through (see SignInWatch).
  */
-async function deviceLoginControlPlane(apiUrl: string | undefined): Promise<ThalovantControlPlane> {
+async function signInControlPlane(apiUrl: string | undefined, fetch?: typeof globalThis.fetch): Promise<ThalovantControlPlane> {
   const configuredApiUrl = await configuredControlApiUrl();
   const configured = originOf(configuredApiUrl);
   if (!configured) throw new Error("The configured control-plane API URL is invalid.");
   if (apiUrl !== undefined && originOf(apiUrl) !== configured) {
-    throw new Error("apiUrl must use the configured Thalovant API origin for a device sign-in.");
+    throw new Error("apiUrl must use the configured Thalovant API origin for a sign-in.");
   }
-  return new ThalovantControlPlane(apiUrl ?? configuredApiUrl, { userAgent: `thalovant-mcp/${VERSION}` });
+  return new ThalovantControlPlane(apiUrl ?? configuredApiUrl, { userAgent: `thalovant-mcp/${VERSION}`, ...(fetch ? { fetch } : {}) });
+}
+
+/**
+ * A sign-in that ended before anything was shown, as the tool reports it: the
+ * API's own words, the status when the message does not carry it, and what to
+ * do instead when the API does not offer browser sign-in.
+ */
+function signInError(error: unknown, method: LoginMethod): Error {
+  const said = apiErrorText(error, redactSecrets) ?? (error instanceof Error ? error.message : String(error));
+  const lines = [said];
+  if (error instanceof ThalovantApiError && error.statusCode !== undefined && !/HTTP \d{3}\b/.test(said)) {
+    lines.push(`status: HTTP ${error.statusCode}`);
+  }
+  if (error instanceof ThalovantApiError && error.statusCode === 404 && method === "browser") {
+    lines.push("", "This Thalovant API does not offer browser sign-in yet. Begin again with method auto, which signs in with a device login instead, or use thalovant_begin_device_login.");
+  }
+  return new Error(lines.join("\n"), { cause: error });
+}
+
+/** A device code's life as the person may use it: the code's own, or the shorter wait the sign-in was given. */
+function deviceExpiresIn(expiresIn: number, timeoutMs: number | undefined): number {
+  return timeoutMs === undefined ? expiresIn : Math.min(expiresIn, Math.ceil(timeoutMs / 1000));
+}
+
+/** Said with every device code a tool answers: unlike a browser sign-in's link, the code signs in whoever approves it. */
+const SHOW_CODE_ONLY_TO_SIGNER = "Show the code only to the person signing in: whoever approves it signs this server in as their account.";
+
+/**
+ * Said when a device login's wait ended on this server: the server stops
+ * polling, but the API knows nothing of that wait and keeps the code
+ * approvable until the code's own expiry.
+ */
+const DEVICE_WAIT_OVER = "this server no longer polls for it, so approving it now signs nothing in here, though the code may stay approvable at the API until its own expiry: ask the person not to approve it, and begin a new sign-in.";
+
+/** What thalovant_begin_browser_login answers for a sign-in it started, by what the person is shown. */
+function browserLoginStarted(loginId: string, shown: Shown, method: LoginMethod, timeoutMs: number | undefined): Record<string, unknown> {
+  if (shown.method === "browser") {
+    const waits = Math.round((timeoutMs ?? DEFAULT_SIGN_IN_TIMEOUT_MS.browser) / 1000);
+    return {
+      loginId,
+      method: "browser",
+      authorizationUrl: shown.authorizationUrl,
+      interval: BROWSER_POLL_INTERVAL_S,
+      expiresIn: waits,
+      next: `The server opened the browser on this computer at authorizationUrl. Ask the person to approve the sign-in there. If no browser opened, give them authorizationUrl to open in a browser on this same computer: the answer comes back to this server on 127.0.0.1, so a browser anywhere else cannot complete it. Then call thalovant_poll_browser_login with this loginId every ${BROWSER_POLL_INTERVAL_S} seconds until the outcome is no longer pending. The sign-in waits ${waits} seconds.`,
+    };
+  }
+  const why = method === "device"
+    ? "This is the device sign-in that was asked for."
+    : "This computer cannot show a browser to sign in with here (over SSH, in CI, or without a display), or the API does not offer browser sign-in yet, so this is a device sign-in.";
+  const expiresIn = deviceExpiresIn(shown.expiresIn, timeoutMs);
+  return {
+    loginId,
+    method: "device",
+    userCode: shown.userCode,
+    verificationUri: shown.verificationUri,
+    verificationUriComplete: shown.verificationUriComplete,
+    interval: shown.interval,
+    expiresIn,
+    next: `${why} Ask the person to open ${shown.verificationUri} and enter ${shown.userCode}, then call thalovant_poll_browser_login with this loginId every ${shown.interval} seconds until the outcome is no longer pending. The code expires in ${expiresIn} seconds. ${SHOW_CODE_ONLY_TO_SIGNER}`,
+  };
+}
+
+/** A member of a token answer, or null when it has none. */
+function tokenField(token: Record<string, unknown>, key: string): unknown {
+  return token[key] ?? null;
 }
 
 function controlPlaneAuthModeFromEnv(): ControlPlaneAuthMode {
@@ -1596,7 +1687,19 @@ async function createEventStore(config: HttpConfig): Promise<EventStore> {
   return config.eventStoreFile ? FileEventStore.create(config.eventStoreFile) : new InMemoryEventStore();
 }
 
-export function createServer(): McpServer {
+/** Options for {@link createServer}. */
+export interface CreateServerOptions {
+  /**
+   * The transport this instance answers on. Browser sign-in runs only over
+   * `stdio`, where the server is on the person's own computer; anything else
+   * signs in with a device login. Default `streamable-http`, the conservative
+   * choice for an embedder that does not say.
+   */
+  transport?: ServerTransport;
+}
+
+export function createServer(options: CreateServerOptions = {}): McpServer {
+  const transport: ServerTransport = options.transport ?? "streamable-http";
   const server = new McpServer({
     name: "thalovant",
     version: VERSION,
@@ -1617,6 +1720,8 @@ export function createServer(): McpServer {
       jsonContent({
         apiUrl: process.env.THALOVANT_API_URL ?? DEFAULT_CONTROL_API_URL,
         controlPlaneAuthMode: controlPlaneAuthModeFromEnv(),
+        transport,
+        browserLoginAvailable: transport === "stdio",
         deviceLoginSignedIn: Boolean(deviceLogins.signedInAs(currentPrincipal().id)),
         hasApiToken: Boolean(process.env.THALOVANT_API_TOKEN),
         hasAccessToken: Boolean(process.env.THALOVANT_ACCESS_TOKEN),
@@ -1865,11 +1970,160 @@ export function createServer(): McpServer {
   );
 
   registerThalovantTool(server,
+    "thalovant_begin_browser_login",
+    {
+      title: "Begin Browser Sign-In",
+      description:
+        "Sign a person in when no API token is configured, the way this server allows. Over stdio (the server runs on the person's computer) method auto, the default, opens the person's browser at Thalovant's consent page and waits for it to come back to this server on 127.0.0.1 (PKCE, RFC 8252). Only a browser that shares this server's 127.0.0.1 can complete it, so a link or code sent to someone on another computer delivers nothing to the sender; a stdio server started over SSH without forwarding the port, or inside a container, does not share the person's, so use method device there. When this computer cannot show a browser (over SSH, in CI, or without a display) or the API does not offer browser sign-in yet, auto starts a device login instead (method device in the answer, with userCode and verificationUri to show). Over Streamable HTTP this server's 127.0.0.1 is not the person's, so auto and device start a device login exactly as thalovant_begin_device_login does, and method browser is refused. Show the person what the answer names, then call the poll tool its next field names with loginId. What a browser sign-in promises does not hold for a device login: whoever approves its code signs this server in as their account, so show the code only to the person signing in. The verifier, the state, the device code and the token stay on this server; once approved, control-plane tools for this principal use the token. A Home Assistant link signs in as its registered app: use thalovant_begin_device_login with clientId for it.",
+      inputSchema: {
+        apiUrl: controlPlaneSchema.apiUrl,
+        method: z
+          .enum(["auto", "browser", "device"])
+          .default("auto")
+          .describe("auto (the default): the browser when this computer can show one and the API offers it, a device login otherwise. browser: the browser, or an error (never a device login); it completes only in a browser that shares this server's 127.0.0.1 (not over SSH without port forwarding, not inside a container), and it is refused over Streamable HTTP. device: a device login."),
+        scopes: z
+          .array(z.string().min(1).max(64))
+          .max(32)
+          .optional()
+          .describe("Scopes the token will carry. Omitted or empty asks for the API's default (hubs:read and clients:write for a browser sign-in). Any non-admin scope may be asked for; the API refuses admin or unknown ones when the person approves."),
+        deviceName: z
+          .string()
+          .max(MAX_DEVICE_NAME_LENGTH)
+          .optional()
+          .describe("What the consent page and the dashboard's token list show for this computer (a device login's client name). Default `thalovant-mcp on <hostname>` over stdio; an empty string sends no name, so the hostname stays off the consent page."),
+        timeoutMs: z
+          .number()
+          .int()
+          .min(1_000)
+          .max(900_000)
+          .optional()
+          .describe("How long the sign-in waits for the person, in milliseconds, on either transport. Past it the server stops polling for a device code even when the code itself lives longer at the API (expiresIn reports the shorter), so approving the code later signs nothing in here. Default each method's own: 300000 for the browser, 900000 for a device login."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ apiUrl, method, scopes, deviceName, timeoutMs }: { apiUrl?: string; method: LoginMethod; scopes?: string[]; deviceName?: string; timeoutMs?: number }) => {
+      const principal = currentPrincipal().id;
+      if (transport !== "stdio") {
+        if (method === "browser") throw new Error(BROWSER_LOGIN_NEEDS_STDIO);
+        // The person's browser cannot reach this server's 127.0.0.1, so the
+        // chooser's "can show a browser" is false: a device login, exactly as
+        // thalovant_begin_device_login starts one.
+        const api = await signInControlPlane(apiUrl);
+        const grant = await api.beginDeviceLogin({ scopes, clientName: deviceName });
+        // timeoutMs ends the wait before the code's own expiry, as it does over stdio.
+        const loginId = deviceLogins.start(principal, api, grant, timeoutMs);
+        const expiresIn = deviceExpiresIn(grant.expiresIn, timeoutMs);
+        return jsonContent({
+          loginId,
+          method: "device",
+          userCode: grant.userCode,
+          verificationUri: grant.verificationUri,
+          verificationUriComplete: grant.verificationUriComplete,
+          interval: grant.interval,
+          expiresIn,
+          next: `This server runs over Streamable HTTP, where a browser sign-in cannot come back to it, so this is a device sign-in. Ask the person to open ${grant.verificationUri} and enter ${grant.userCode}, then call thalovant_poll_device_login with this loginId every ${grant.interval} seconds until the outcome is no longer pending. The code expires in ${expiresIn} seconds. ${SHOW_CODE_ONLY_TO_SIGNER}`,
+        });
+      }
+      const watch = new SignInWatch();
+      const api = await signInControlPlane(apiUrl, watch.fetch);
+      let begun: Awaited<ReturnType<BrowserLogins["start"]>>;
+      try {
+        begun = await browserLogins.start(
+          principal,
+          api,
+          watch,
+          (signal) =>
+            api.interactiveLogin({
+              method,
+              scopes,
+              deviceName: deviceName ?? defaultDeviceName(),
+              timeoutMs,
+              signal,
+              openUrl: watch.openUrl,
+            }),
+          { timeoutMs, signal: requestContext.getStore()?.signal },
+        );
+      } catch (error) {
+        throw signInError(error, method);
+      }
+      return jsonContent(browserLoginStarted(begun.loginId, begun.shown, method, timeoutMs));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_poll_browser_login",
+    {
+      title: "Poll Browser Sign-In",
+      description:
+        "Ask once how a sign-in started with thalovant_begin_browser_login on this (stdio) server is going; it asks the API nothing, so polling every few seconds is fine. outcome is pending (poll again after `interval` seconds), approved (control-plane tools for this principal now use the token; tokenId, scopes and expiresAt describe it), denied (the person declined), expired (nobody approved it in time) or error (it did not complete: status, code and detail say why). method says whether it went through the browser or a device login. Every outcome but pending ends the sign-in: begin a new one to try again. The token itself is never returned.",
+      inputSchema: {
+        loginId: z.string().min(1).max(64).describe("loginId from thalovant_begin_browser_login."),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: true,
+      },
+    },
+    async ({ loginId }: { loginId: string }) => {
+      const principal = currentPrincipal().id;
+      const login = browserLogins.poll(loginId, principal);
+      if (!login) {
+        throw new Error("No browser sign-in in progress has this loginId: it expired, already ended, or was started by another principal. Begin a new one with thalovant_begin_browser_login. A sign-in begun over Streamable HTTP is a device sign-in: poll it with thalovant_poll_device_login.");
+      }
+      const method = login.shown.method;
+      const ended = login.outcome;
+      if (!ended) {
+        return jsonContent({ outcome: "pending", method, interval: login.shown.method === "browser" ? BROWSER_POLL_INTERVAL_S : login.shown.interval });
+      }
+      if (ended.outcome === "approved") {
+        return jsonContent({
+          outcome: "approved",
+          method,
+          tokenType: tokenField(ended.token, "token_type"),
+          scopes: tokenField(ended.token, "scopes"),
+          expiresAt: tokenField(ended.token, "expires_at"),
+          tokenId: tokenField(ended.token, "token_id"),
+          next: "Signed in. Control-plane tools for this principal now use this token until thalovant_revoke_device_login or a server restart.",
+        });
+      }
+      if (ended.outcome === "denied") {
+        return jsonContent({ outcome: "denied", method, status: ended.status, next: "The person declined the sign-in. Begin a new one if they want to try again." });
+      }
+      if (ended.outcome === "expired") {
+        return jsonContent({
+          outcome: "expired",
+          method,
+          status: ended.status,
+          next: method === "browser" ? "Nobody approved the sign-in in time. Begin a new one." : `Nobody approved the code in time: ${DEVICE_WAIT_OVER}`,
+        });
+      }
+      const error = ended.error;
+      const refused = error instanceof ThalovantApiError ? error : undefined;
+      return jsonContent({
+        outcome: "error",
+        method,
+        status: refused?.statusCode ?? null,
+        code: refused?.code ?? null,
+        detail: refused?.detail ?? null,
+        message: apiErrorText(error, redactSecrets) ?? (error instanceof Error ? error.message : String(error)),
+        next: "The sign-in did not complete. Begin a new one; a sign-in code is used once, so nothing is retried.",
+      });
+    },
+  );
+
+  registerThalovantTool(server,
     "thalovant_begin_device_login",
     {
       title: "Begin Device Sign-In",
       description:
-        "Start a device sign-in (RFC 8628) when no API token is configured: a person approves it in a browser. Show the person verificationUri and userCode (or verificationUriComplete, which carries the code), then call thalovant_poll_device_login with loginId every `interval` seconds. The device code stays on this server. Once approved, control-plane tools for this principal use the token it minted. A Home Assistant link asks for hubs:read, clients:read and clients:write, which is also all a Free plan can approve, and signs in as the registered app thalovant-home-assistant (clientId).",
+        "Start a device sign-in (RFC 8628) when no API token is configured: a person approves it in a browser, on any device. Whoever approves the code signs this server in as their account, so show it only to the person signing in. Show the person verificationUri and userCode (or verificationUriComplete, which carries the code), then call thalovant_poll_device_login with loginId every `interval` seconds. The device code stays on this server. Once approved, control-plane tools for this principal use the token it minted. On a stdio server whose 127.0.0.1 the person's browser shares, thalovant_begin_browser_login signs them in through that browser instead, where a link or code sent to someone on another computer delivers nothing to the sender; use this tool for a registered app's sign-in or a hosted server. A Home Assistant link asks for hubs:read, clients:read and clients:write, which is also all a Free plan can approve, and signs in as the registered app thalovant-home-assistant (clientId).",
       inputSchema: {
         apiUrl: controlPlaneSchema.apiUrl,
         scopes: z
@@ -1893,7 +2147,7 @@ export function createServer(): McpServer {
       },
     },
     async ({ apiUrl, scopes, clientName, clientId }) => {
-      const api = await deviceLoginControlPlane(apiUrl);
+      const api = await signInControlPlane(apiUrl);
       const grant = await api.beginDeviceLogin({ scopes, clientName, clientId });
       const loginId = deviceLogins.start(currentPrincipal().id, api, grant);
       return jsonContent({
@@ -1903,7 +2157,7 @@ export function createServer(): McpServer {
         verificationUriComplete: grant.verificationUriComplete,
         interval: grant.interval,
         expiresIn: grant.expiresIn,
-        next: `Ask the person to open ${grant.verificationUri} and enter ${grant.userCode}, then call thalovant_poll_device_login with this loginId every ${grant.interval} seconds until the outcome is no longer pending. The code expires in ${grant.expiresIn} seconds.`,
+        next: `Ask the person to open ${grant.verificationUri} and enter ${grant.userCode}, then call thalovant_poll_device_login with this loginId every ${grant.interval} seconds until the outcome is no longer pending. The code expires in ${grant.expiresIn} seconds. ${SHOW_CODE_ONLY_TO_SIGNER}`,
       });
     },
   );
@@ -1929,6 +2183,11 @@ export function createServer(): McpServer {
       const login = deviceLogins.find(loginId, principal);
       if (!login) {
         throw new Error("No device sign-in in progress has this loginId: it expired, already ended, or was started by another principal. Begin a new one with thalovant_begin_device_login.");
+      }
+      if (deviceLogins.timedOut(login)) {
+        // The wait it was given (timeoutMs) is over, though the code may still live: it is not polled again.
+        deviceLogins.finish(loginId);
+        return jsonContent({ outcome: "expired", status: null, next: `Nobody approved the sign-in within the time it was given: ${DEVICE_WAIT_OVER}` });
       }
       try {
         const token = await login.api.pollDeviceLogin(login.authorization);
@@ -1964,7 +2223,7 @@ export function createServer(): McpServer {
     {
       title: "Revoke Device Sign-In",
       description:
-        "Sign out: revoke the API token this principal signed in with through thalovant_poll_device_login, and stop using it. A token may always revoke itself, and one already revoked counts as revoked; signing out again answers alreadyRevoked without a request. Tokens configured on the server are never touched.",
+        "Sign out: revoke the API token this principal signed in with, through a device sign-in (thalovant_poll_device_login) or a browser sign-in (thalovant_poll_browser_login), and stop using it. A token may always revoke itself, and one already revoked counts as revoked; signing out again answers alreadyRevoked without a request. Tokens configured on the server are never touched.",
       inputSchema: {},
       annotations: {
         readOnlyHint: false,
@@ -1980,7 +2239,7 @@ export function createServer(): McpServer {
         // Signing out twice is signing out once: the token is already gone.
         const earlier = deviceLogins.revokedOf(principal);
         if (earlier !== undefined) return jsonContent({ revoked: true, tokenId: earlier, alreadyRevoked: true });
-        throw new Error("This principal has not signed in with a device sign-in, so there is no token of its own to revoke.");
+        throw new Error("This principal has not signed in with a device or browser sign-in, so there is no token of its own to revoke.");
       }
       const tokenId = signedIn.api.tokenId ?? null;
       // A token the API no longer accepts (401 on its own revoke) is already
@@ -3603,7 +3862,7 @@ export async function startHttpServer(config = getHttpConfig()): Promise<{ close
           return;
         }
 
-        const mcpServer = createServer();
+        const mcpServer = createServer({ transport: "streamable-http" });
         let transport!: StreamableHTTPServerTransport;
         transport = new StreamableHTTPServerTransport({
           sessionIdGenerator: () => randomUUID(),
@@ -3754,6 +4013,18 @@ function handleShutdown(close: () => Promise<void>): void {
   process.on("SIGINT", shutdown);
 }
 
+/**
+ * Over stdio, stdout is the protocol stream: anything else printed there is a
+ * line the client cannot read, and breaks the session. The SDK's interactive
+ * sign-in prints its prompt with `console.log`, as a command line wants, so
+ * the stdio entry point sends every console method to stderr, the server's
+ * log, where MCP clients show it. The prompt also reaches the model, in the
+ * tool's answer.
+ */
+function keepStdoutForProtocol(): void {
+  globalThis.console = new Console({ stdout: process.stderr, stderr: process.stderr });
+}
+
 export async function main() {
   const requestedTransport = process.argv.includes("--http")
     ? "http"
@@ -3767,8 +4038,9 @@ export async function main() {
     return;
   }
 
+  keepStdoutForProtocol();
   const transport = new StdioServerTransport();
-  const server = createServer();
+  const server = createServer({ transport: "stdio" });
   await server.connect(transport);
   handleShutdown(() => server.close());
 }

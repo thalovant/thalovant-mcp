@@ -1,4 +1,4 @@
-Last Edit: Codex - 2026-11-07 - Motive: Add the canonical Thalovant logo with light and dark theme support.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in over stdio (thalovant_begin_browser_login, @thalovant/sdk 0.11.0); device login stays the hosted transport's sign-in.
 
 <p align="center">
   <picture>
@@ -56,7 +56,22 @@ The server selects control-plane auth in this order:
 
 When a token is set, the server never calls the login endpoint. `thalovant_config_status` reports the active mode as `controlPlaneAuthMode` without revealing token values.
 
-With none of these configured, a person can sign the server in through the browser instead: see [Device Sign-In](#device-sign-in). The token that sign-in mints is used only when nothing above is configured.
+With none of these configured, a person can sign the server in instead: through the browser on their own computer when the server runs over stdio ([Browser Sign-In](#browser-sign-in)), or with a device code anywhere ([Device Sign-In](#device-sign-in)). The token a sign-in mints is used only when nothing above is configured.
+
+### Browser Sign-In
+
+Over stdio the server usually runs on the person's own computer, so it can sign them in through their browser, as `aws sso login` does: the authorization code grant with PKCE on a loopback redirect (RFC 8252), through `interactiveLogin()` of `@thalovant/sdk` 0.11.0. Only a browser that shares the server's `127.0.0.1` can complete it, so a link or code sent to someone on another computer delivers nothing to the sender. That promise is the browser path's alone: a device login's code signs this server in as whoever approves it, from any device, so it is shown only to the person signing in. A tool call cannot wait for a person, so it is two tools:
+
+1. `thalovant_begin_browser_login` with optional `method` (`auto`, the default; `browser`; `device`), `scopes`, `deviceName` (what the consent page and the token list show, default `thalovant-mcp on <hostname>`; an empty string sends no name) and `timeoutMs` (default 300000 for the browser, 900000 for a device login; on either transport the server stops polling for a device code past it, and `expiresIn` says the shorter of the two; the code itself stays approvable at the API until its own expiry, but approving it then signs nothing in here, so the poll's `expired` answer tells the person not to).
+   - `auto` signs in through the browser when this computer can show one and the API offers it: never with `CI`, `SSH_CONNECTION` or `SSH_TTY` set; on macOS and Windows yes; elsewhere only with `DISPLAY` or `WAYLAND_DISPLAY`. The server listens on `127.0.0.1` on a port the system picks, opens the browser at Thalovant's consent page (`open`, `xdg-open` or `rundll32 url.dll,FileProtocolHandler`), and answers `loginId`, `method: "browser"`, `authorizationUrl` (to give the person if no browser opened; it must be opened on this same computer), `interval` and `expiresIn`.
+   - Otherwise, and when the API does not offer browser sign-in yet (its `GET /v1/auth/native/config` answers 404), `auto` starts a device login: the answer has `method: "device"` with `userCode`, `verificationUri`, `verificationUriComplete`, `interval` and `expiresIn`, as `thalovant_begin_device_login`'s does. The server does not open that page; the person reads the code from the model.
+   - `browser` forces the browser and fails rather than become a device login; `device` forces a device login.
+   - The browser has to share the server's loopback interface. A stdio server started over SSH, or inside a container, has a `127.0.0.1` of its own: `auto` already picks a device login over SSH (`SSH_CONNECTION`, `SSH_TTY`) and without a display, but a forced `browser` there waits for an answer that never arrives unless the port is forwarded. Use `method: "device"` when the person's browser is not on the server's machine.
+2. `thalovant_poll_browser_login` with that `loginId` asks the server once, without a request to the API. `outcome` is `pending` (poll again after `interval` seconds), `approved` (with `tokenType`, `tokenId`, `scopes` and `expiresAt`), `denied`, `expired` or `error` (with the API's `status`, `code` and `detail`). An ended sign-in's outcome is kept for five minutes past its wait; after that, or once a device code has expired at the API, a poll answers a tool error saying the sign-in expired or ended. `method` says which way it went. Once the browser was opened, its outcome stands: a denial or a timeout never turns into a device login.
+
+The SDK prints the same prompt a command line shows (`Opening your browser to sign in to Thalovant. If it does not open, visit:` and the URL, or a device login's code). Over stdio, stdout is the MCP protocol stream, so the stdio server sends every console line to stderr, its log, which MCP clients show; the tool's answer carries the URL or code for the model. The PKCE verifier, the state, the device code and the token stay on the server, bound to the principal that began the sign-in; an approved token is used at once by every control-plane tool for that principal when nothing is configured, and `thalovant_revoke_device_login` signs it out like a device sign-in's token. A sign-in reaches only the configured API origin.
+
+Over Streamable HTTP a hosted server's `127.0.0.1` is not the person's computer, so a browser sign-in could never come back to it. There, `thalovant_begin_browser_login` with `method: "browser"` is refused before any request, and `auto` or `device` starts a device login exactly as `thalovant_begin_device_login` does (polled with `thalovant_poll_device_login`). Device sign-in below is unchanged on both transports, and it is the one for a registered app such as Home Assistant (`clientId`). `thalovant_config_status` reports `transport` and `browserLoginAvailable`, and `deviceLoginSignedIn` is true after either sign-in.
 
 ### Device Sign-In
 
@@ -69,7 +84,7 @@ The device code and the token never reach the model: the server keeps both, boun
 
 ### API Tokens (Recommended For AI Agents And CI)
 
-Scoped API tokens are the right credential for AI and automation use: they are minted from the Thalovant dashboard (or through the device flow), carry only the scopes you grant, can be revoked individually, and never involve your account password or MFA. Tokens start with `tvpat_`.
+Scoped API tokens are the right credential for AI and automation use: they are minted from the Thalovant dashboard (or through a browser or device sign-in), carry only the scopes you grant, can be revoked individually, and never involve your account password or MFA. Tokens start with `tvpat_`.
 
 ```bash
 export THALOVANT_API_TOKEN="tvpat_..."
@@ -412,8 +427,10 @@ Skill and runtime-group discovery (read-only):
 - `thalovant_get_runtime_group_config`
 - `thalovant_get_hub_runtime_capabilities`
 
-Sign-in (see [Device Sign-In](#device-sign-in)):
+Sign-in (see [Browser Sign-In](#browser-sign-in) and [Device Sign-In](#device-sign-in)):
 
+- `thalovant_begin_browser_login`
+- `thalovant_poll_browser_login`
 - `thalovant_begin_device_login`
 - `thalovant_poll_device_login`
 - `thalovant_revoke_device_login`
@@ -608,7 +625,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.7.2 requires `@thalovant/sdk` `^0.10.0` (0.10.0 through versions below 0.11.0), which carries the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
+Version 0.8.0 requires `@thalovant/sdk` `^0.11.0` (0.11.0 through versions below 0.12.0), which carries `browserLogin()` and `interactiveLogin()` for browser sign-in, as well as the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
@@ -688,7 +705,7 @@ one tool for every SDK conversation or event-listener method.
 
 ### Shared-runtime skill management
 
-The catalog has 59 default tools, 28 in read-only mode, and 63 with destructive tools enabled.
+The catalog has 61 default tools, 28 in read-only mode, and 65 with destructive tools enabled.
 
 Hub-addressed skill methods select the runtime group attached to the hub UUID.
 Every hub sharing that group sees the same skill changes and history. The API

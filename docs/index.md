@@ -1,13 +1,47 @@
-Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Index the chat apps tools added in 0.7.0.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Index the browser sign-in tools added in 0.8.0 (@thalovant/sdk 0.11.0).
 
 # MCP Documentation
 
 - [README](../README.md): installation, configuration, tools and runtime compatibility.
+- [Browser Sign-In](../README.md#browser-sign-in): signing a person in through the browser on their own computer over stdio, and why a hosted server uses a device login.
 - [Chat Apps](../README.md#chat-apps): the chat app tools, what each bridge's status means, and why tokens stay in the console.
 - [Security policy](../SECURITY.md): reporting vulnerabilities.
 - [Changelog](../CHANGELOG.md): release changes.
 - [Quick facts](../QUICK_FACTS.md) and [FAQ](../FAQ.md): package facts, tool counts, chat apps and the dependency patch.
 - [Audit](../AUDIT.md), [maintenance report](../MAINTENANCE_REPORT.md) and [follow-up](../SUGGESTIONS.md): evidence, boundaries and remaining publication gates.
+
+## Browser sign-in tools (0.8.0)
+
+`src/index.ts` registers both tools; `src/browser-login.ts` holds what runs
+between them. Over stdio they call `ThalovantControlPlane.interactiveLogin()` of
+`@thalovant/sdk` 0.11.0 ([thalovant-node-sdk: README "Sign in"]); over
+Streamable HTTP, `beginDeviceLogin()`, exactly as `thalovant_begin_device_login`.
+
+| Tool | stdio | Streamable HTTP |
+| --- | --- | --- |
+| `thalovant_begin_browser_login` | `interactiveLogin({ method, scopes, deviceName, timeoutMs, signal, openUrl })`, answered once the consent URL or a device code is known | `method: "browser"` refused; `auto` and `device`: `beginDeviceLogin({ scopes, clientName })` |
+| `thalovant_poll_browser_login` | reads the sign-in's outcome (no API request) | none to read: HTTP sign-ins are polled with `thalovant_poll_device_login` |
+
+In `src/browser-login.ts`:
+
+- `SignInWatch` learns what the person is shown: the consent URL through the
+  SDK's `openUrl` (then opened with `openInBrowser()`), or a device login's code
+  through the control plane's `fetch` (`DeviceAuthorization.fromGrant()`); that
+  page is not opened.
+- `BrowserLogins` keeps each sign-in behind an opaque `loginId` bound to the
+  principal (four per principal, 256 per server), hands an approved token to
+  the device-login store (`DeviceLogins.approve()` in `src/device-login.ts`)
+  at once, and forgets an outcome nobody polled once the wait plus five minutes
+  are over.
+- `browserCommand()` and `openInBrowser()` open a URL with `open`, `xdg-open`
+  or `rundll32 url.dll,FileProtocolHandler`, as one argument, with no stdio.
+- `defaultDeviceName()` is `thalovant-mcp on <hostname>`, cut to 120 code points.
+
+`keepStdoutForProtocol()` in `src/index.ts` sends every console method to stderr
+on the stdio entry point, since the SDK prints its prompt with `console.log`.
+The shared vectors (`test/browser-login-vectors.json`) run in
+`test/browser-login-vectors.test.ts`; see the Python reference's porting brief
+[thalovant-python-sdk: docs/browser-login-porting.md].
 
 ## Chat apps tools (0.7.0)
 

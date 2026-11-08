@@ -1,6 +1,118 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Close the HTTP tests' port race and the open CodeRabbit items on #29, #30, #82, #117, #120 and #122; add the 0.7.2 release evidence.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: CodeRabbit on d591ad3: a device login's wait is the server's, not the API's; what a poll answers once the sign-in is forgotten.
 
 # Maintenance Report
+
+## 2026-11-08 — CodeRabbit on d591ad3: the server's wait and the API's code
+
+One thread, two points, both right.
+
+**Changes**
+
+- A device login's `timeoutMs` is the server's wait: past it the server stops polling, but the API keeps the code approvable until its own expiry. The `timeoutMs` description and both `expired` answers for a timed-out device login (`thalovant_poll_device_login`, and `thalovant_poll_browser_login` for a device login on stdio) now say that approving the code then signs nothing in here, and ask the model to tell the person not to approve it and to begin a new sign-in (`DEVICE_WAIT_OVER` in `src/index.ts`). The API's own `expired_token` answer keeps its text.
+- What a poll answers once the sign-in is forgotten: README, FAQ and CHANGELOG say that `expired` lasts until the code's own expiry over Streamable HTTP and five minutes past the wait over stdio, and that a poll after that answers the tool error naming the sign-in as expired or ended. The behaviour is unchanged; only its description was missing.
+- Tests: the stdio and HTTP timeout tests in `test/browser-login.test.ts` check the warning. Hashes refreshed for `src/index.ts` (15 capabilities) and `test/browser-login.test.ts`.
+
+**Verification**
+
+- Clean `npm ci` (published `@thalovant/sdk` 0.11.0), audit 0, typecheck, build, `npm test` 561 passed in 22 files, smoke 2, http 10; conformance re-ran to the committed file; parity verified against Python 39e31d8 and `main`.
+
+## 2026-11-08 — Against the published `@thalovant/sdk` 0.11.0
+
+The lead published `@thalovant/sdk` 0.11.0 (tag v0.11.0, the merged thalovant-node-sdk#110) and asked for #125 to take it from the registry.
+
+**Changes**
+
+- `package-lock.json`: `npm install @thalovant/sdk@^0.11.0` adds the one line that was left out, the entry's `integrity` (`sha512-B7nsFEar…bEb6w==`, the registry's `dist.integrity`). A plain `npm install` had left the lock as it was. `package.json` and every other lock entry are unchanged.
+- CHANGELOG: the 0.8.0 entry is dated 2026-11-08 for the tag. AUDIT.md closes the release gate; FAQ.md, QUICK_FACTS.md and SUGGESTIONS.md follow. No source, test or parity evidence file changes, so `contracts/sdk-parity.json` is unchanged and the conformance record re-ran to the same file.
+
+**Verification**
+
+- Clean `npm ci` (published 0.11.0), `npm audit --audit-level=high` (0), `npm run typecheck`, `npm run build`, `npm test` (561 passed, 22 files), `npm run test:smoke` (2), `npm run test:http` (10), `npm pack --dry-run`, Node 22.23.1.
+- `THALOVANT_CONFORMANCE_OUT=contracts/conformance-results.json npm test`: the file is unchanged; all 119 browser-login cases equal the Python reference's (39e31d8).
+- `check-sdk-parity.py --consumer thalovant-mcp`: verified against Python 39e31d8 and against `main` 44b6e2b.
+- No merge, tag or release.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Installed the published SDK to record its integrity, ran the validation sequence from a clean install, dated the changelog and updated these records, pushed and watched CI.
+- **Oversight**: Run by an agent at the lead's request; the lead merges and releases.
+
+## 2026-11-08 — CodeRabbit's second review of #125
+
+Two new threads, both minor, on b8dd5f0.
+
+**Changes**
+
+- `timeoutMs` over Streamable HTTP (thread on QUICK_FACTS.md): it was accepted and ignored there. `DeviceLogins.start()` (`src/device-login.ts`) now takes it as a deadline beside the code's expiry, `DeviceLogins.timedOut()` reads it, and `thalovant_poll_device_login` answers `expired` without another request once it has passed; `expiresIn` in the begin answer is the shorter of the two, on stdio too (`deviceExpiresIn()` in `src/index.ts`). On stdio the SDK's own device timeout (`ThalovantTimeoutError`) now reads as `expired` (`outcomeOf()`, `src/browser-login.ts`) instead of `error`. `thalovant_begin_device_login` takes no timeout, so its sign-ins are unchanged.
+- The shared loopback (thread on README.md): the begin tool's description, its `method` description, the device tool's description, README and FAQ say a browser sign-in completes only in a browser that shares the server's `127.0.0.1`, which a stdio server over SSH without port forwarding, or in a container, does not, and to use `method: "device"` there.
+- What a device code allows (same thread): the browser path's promise is now scoped to the browser path in both descriptions, README and CHANGELOG, and every device answer (`thalovant_begin_browser_login` on both transports, `thalovant_begin_device_login`) says to show the code only to the person signing in, since whoever approves it signs the server in as their account.
+- Tests in `test/browser-login.test.ts`: the deadline in `DeviceLogins`, `outcomeOf()` for the SDK's timeout, a stdio device login and an HTTP one each given 1000 ms (`expiresIn: 1`, then `expired`, and over HTTP no token poll after the deadline), and the descriptions. With the HTTP deadline check taken out of `dist/index.js`, the HTTP test fails.
+- `contracts/sdk-parity.json`: hashes refreshed for the changed `src/browser-login.ts`, `src/device-login.ts`, `src/index.ts` and `test/browser-login.test.ts` (20 entries); the `device-login` reason says what changes for a timed device login. Reference digests unchanged.
+
+**Verification**
+
+- SDK packed from a7097d2, installed with `npm install --no-save`. `npm run typecheck`, `npm run build`, `npm test` (561 passed, 22 files), `npm run test:smoke` (2), `npm run test:http` (10), Node 22.23.1. Conformance re-recorded to a scratch file: identical to the committed results.
+- `check-sdk-parity.py --consumer thalovant-mcp`: verified against Python 39e31d8 and against `main` 44b6e2b.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Checked both findings against the code, added the device-login deadline, the consistent `expiresIn` and the timeout mapping, scoped the descriptions and docs, wrote the tests and a mutation check, refreshed the changed files' hashes, answered and resolved the threads.
+- **Oversight**: Run by an agent at the lead's request; nothing merged or published.
+
+## 2026-11-08 — Browser sign-in on the final contract; CodeRabbit on #125
+
+The lead declared the producer final (thalovant-python-sdk#113 at 39e31d8) and the Node SDK updated to it (thalovant-node-sdk#110 at a7097d2), and asked for #125 to follow.
+
+**Changes**
+
+- `test/browser-login-vectors.json`: re-vendored byte for byte from Python 39e31d8 (sha256 `b0c73f808c4f26328c27dd4d04eebfbbc3e7c0c81b8d63a666f63737d0259e73`, 119 cases: 21 new in `callbacks`, `config`, `sign_ins` and `chooser`). `test/browser-login-vectors.test.ts` counts 119.
+- `thalovant_begin_browser_login` accepts an empty `deviceName`, which sends no name (the consent page shows no hostname, and a device login sends no `client_name`), as the new vectors and the SDK's `deviceName ?? defaultDeviceName()` have it; omitted still means `thalovant-mcp on <hostname>`.
+- Wording: the tool descriptions, README and CHANGELOG say that a link or code sent to someone on another computer delivers nothing to the sender.
+- `contracts/sdk-parity.json`: the candidate `49744ee385bf…` is replaced by the final `6dfb3bb31ac7590591febef1c4d8372984ca6cdad4700381f869db30c38452df`, beside the current `57c7e71f6456…`. Hashes refreshed only for the files changed: `src/index.ts` (15 capabilities), `test/browser-login-vectors.json` and `test/browser-login-vectors.test.ts` (`browser-login`). `contracts/conformance-results.json` re-recorded.
+- CodeRabbit on #125 (556dcec): `rawStdio().answer()` and `onlyProtocol()` in `test/browser-login.test.ts` read only newline-terminated stdout lines, and `onlyProtocol()` requires stdout to end on one; that file's `browser-login` hash was refreshed. The dependency thread (0.11.0 not on npm, no `integrity`) is intentional: answered on the thread and resolved.
+- QUICK_FACTS, CHANGELOG, AUDIT and SUGGESTIONS name the final digest and 119 cases.
+
+**Verification**
+
+- Local SDK: `npm run build` and `npm pack` in the Node SDK clone at a7097d2, `npm install --no-save` of the tarball here; `package.json` and the lock left as committed.
+- `npm run typecheck`, `npm run build`, `npm test` (557 passed, 22 files), `npm run test:smoke` (2), `npm run test:http` (10), Node 22.23.1.
+- Conformance: 119 browser-login case digests equal the reference's; the 98 earlier cases record what they did before; the other vector files are unchanged.
+- `check-sdk-parity.py --workspace … --consumer thalovant-mcp`: verified against Python 39e31d8 and against `main` (44b6e2b; `browser-login` reported as not yet known there).
+- No merge, tag or release; CI stays red until `@thalovant/sdk` 0.11.0 is on npm.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Rebuilt and installed the Node SDK at a7097d2, re-vendored the vectors, let the begin tool take an empty device name, reworded three texts, fixed the raw-stdio line reading CodeRabbit found, re-recorded conformance, swapped the candidate digest and refreshed the changed files' hashes, answered and resolved both review threads, and updated these records.
+- **Oversight**: Run by an agent at the lead's request; the owner merges after the Node SDK is published and CI passes.
+
+## 2026-11-08 — Browser sign-in (0.8.0, unreleased)
+
+The lead asked for this server to adopt the Node SDK's browser sign-in (thalovant-node-sdk#110, 0.11.0) as a consumer of the cross-SDK `browser-login` capability (Python reference thalovant-python-sdk#113, e3999cb): `interactiveLogin({ method: "auto" })` over stdio, device login exactly as before over the hosted transport, and the prompt kept off the stdio protocol stream.
+
+**Changes**
+
+- `src/browser-login.ts` (new): `SignInWatch`, `BrowserLogins`, `browserCommand()`, `openInBrowser()`, `defaultDeviceName()`, `outcomeOf()`.
+- `src/index.ts`: `thalovant_begin_browser_login` and `thalovant_poll_browser_login`; `createServer({ transport })` (the CLI passes `stdio` or `streamable-http`; the default is `streamable-http`); `keepStdoutForProtocol()` on the stdio entry point; `signInControlPlane()` (was `deviceLoginControlPlane()`) takes the watch's `fetch`; `thalovant_config_status` adds `transport` and `browserLoginAvailable`; the device tool's and revoke tool's descriptions, the revoke refusal, the 401 connection hint and the unauthenticated-tool error name the browser sign-in.
+- Tests: `test/browser-login-vectors.test.ts`, `test/browser-login.test.ts`, `test/browser-login-harness.ts`, `test/platform-preload.mjs` (test-only `--import` preload setting `process.platform`), `test/browser-login-vectors.json` (vendored byte for byte, sha256 `9058adf2…`); `test/provisioning.test.ts` counts 61 and 65 tools.
+- `contracts/sdk-parity.json`: `reference_digests` adds the candidate `49744ee385bf…` beside the current `57c7e71f6456…`; `browser-login` is required, bound to `src/browser-login.ts`, `src/device-login.ts` and `src/index.ts` and to the test files above; the `src/index.ts` hash is refreshed in the 14 capabilities that name it, and `test/provisioning.test.ts` in `control`, because those files changed here. `contracts/conformance-results.json` is the suite's own record.
+- `package.json` (0.8.0, `@thalovant/sdk` ^0.11.0), `package-lock.json` (0.8.0; the SDK entry names the registry's 0.11.0 tarball without `integrity`), `server.json`, the `Dockerfile` label, README (Browser Sign-In, tool list, SDK line, counts), CHANGELOG (0.8.0, Unreleased, with the earlier unreleased entries under it), QUICK_FACTS, FAQ, docs/index.md, AGENTS.md (two rules), AUDIT.md, SUGGESTIONS.md.
+
+**Verification**
+
+- Local SDK: `npm run build` and `npm pack` in the Node SDK clone (5f0cc17), then `npm install --no-save thalovant-sdk-0.11.0.tgz` here; `package.json` and the lock were left as committed.
+- `npm run typecheck`, `npm run build`, `npm test` (532 passed, 22 files), `npm run test:smoke` (2), `npm run test:http` (10), `npm audit --audit-level=high` (0), `npm pack --dry-run`, Node 22.23.1. Baseline on `main` with 0.10.0: 387 passed in 20 files.
+- Conformance: all 98 `browser-login-vectors.json` case digests equal the reference's; parity check verified against the Python PR head and against `main`.
+- A clean `npm ci` from the committed lock fails with E404 until `@thalovant/sdk` 0.11.0 is on npm, so CI is red until then.
+- No merge, tag or release.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Read the contract, the Python porting brief and the Node SDK implementation; wrote `src/browser-login.ts`, the two tools and the stdio console redirect in `src/index.ts`, the vector runner and behaviour tests with their harness and platform preload; built and installed the unpublished Node SDK locally; recorded conformance results; updated the parity acceptance (new capability, candidate digest, hashes of the changed files only) and these documents; opened the pull request.
+- **Oversight**: Run by an agent at the lead's request. Nothing merged, tagged or published; the pull request waits for `@thalovant/sdk` 0.11.0 on npm and the normal CI gates, and the owner's merge.
 
 ## 2026-11-07 — HTTP test port race; CodeRabbit items on #29, #30, #82, #117, #120, #122
 
