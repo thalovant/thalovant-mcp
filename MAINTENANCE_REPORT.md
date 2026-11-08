@@ -1,6 +1,42 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Release 0.7.2 with the skill_unavailable_unpublished hint; log its verification and a test port race.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Close the HTTP tests' port race and the open CodeRabbit items on #29, #30, #82, #117, #120 and #122; add the 0.7.2 release evidence.
 
 # Maintenance Report
+
+## 2026-11-07 — HTTP test port race; CodeRabbit items on #29, #30, #82, #117, #120, #122
+
+The lead asked for every open CodeRabbit item on merged pull requests to be checked against `main` (7a10524), the ones still valid fixed, and the port race recorded at 0.7.2 fixed properly, test-only.
+
+**Changes**
+
+- `test/http.test.ts`: `startMcpHttpServer(envFor, pickPort = freePort)` replaces `freePort()` + `spawnHttpServer()` + `waitForHealth()` in all nine tests. `waitForOwnHealth()` accepts only a 200 whose body has `name: "thalovant"` and `transport: "streamable-http"`, from a child that has not exited, and waits 100 ms between every probe (the old loop retried a non-200 at once). A child that exits on `EADDRINUSE` is replaced on a fresh port, up to three tries; any other exit, or no healthy answer within 10 s, fails with the child's stderr. Tests whose environment names the port (JWT and introspection audiences) build it per port through `envFor`.
+- A new test, "moves to a fresh port when another loopback server takes the freed one": a fake API answering `{ ok: true, path }` holds the first port handed out; the session must land on another one, and the fake must see nothing but `/healthz`.
+- `contracts/sdk-parity.json`: the `test/http.test.ts` evidence hash (identity, chat-apps) is refreshed. Its assertions are unchanged; the new test asserts only the startup.
+- CHANGELOG: an Unreleased entry; the 0.7.1 entry's bullet for the 90 s budget of `test/runtime-noise.test.ts` moves to 0.7.2, since the `v0.7.1` tag (fa21749) has 30 s and 1bed882 is first in `v0.7.2` (CodeRabbit on #120).
+- AUDIT.md closes the port race and lists the four CodeRabbit items; SUGGESTIONS.md keeps the server-side alternative (`MCP_HTTP_PORT=0`) as optional; FAQ.md answers the failure a contributor would see; the 0.7.2 entry below gets its release evidence (CodeRabbit on #122).
+- No version change and no release: nothing in `dist/` changes; the corrected CHANGELOG ships with the next release.
+
+**CodeRabbit items**
+
+| PR | Item | Outcome |
+| :--- | :--- | :--- |
+| #29, #30 | Six review-body items (see 2026-11-03 below) | Still hold on 7a10524; the last two calls were fixed in 767261c (#117) |
+| #82 | Serialize the shared conformance publication | Fixed in 2e161cb (#92): one merge in the global teardown |
+| #117 | Verification scope should name the report files | Fixed before its merge (767261c) |
+| #120 | `test/runtime-noise.test.ts` evidence digest stale | Fixed before its merge (1bed882); the parity check verifies |
+| #120 | 0.7.1 entry lists a change the `v0.7.1` tag lacks | Fixed here |
+| #122 | Post-merge steps written as done | Fixed before its merge (356ec8f); evidence added here |
+
+**Verification**
+
+- `npm ci`, `npm run typecheck`, `npm run build`, `npm test` (387 passed, 20 files), `npm run test:smoke` (2 passed), `npm run test:http` (10 passed), Node 22.23.1.
+- The new test fails with the old readiness rule put back in a scratch copy (`expected 41361 not to be 41361`), and passes with the fix.
+- `thalovant-python-sdk/scripts/check-sdk-parity.py --workspace <ws> --consumer thalovant-mcp` against a fresh clone of the Python SDK's `main` (bd4061f): verified.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Read each CodeRabbit comment and the current code; wrote the startup helper, its regression test and these notes; refreshed one parity hash; opened the pull request and answered each thread.
+- **Oversight**: Run by an agent on the lead's request; the pull request goes through the normal CI gates before its merge.
 
 ## 2026-11-07 — Release 0.7.2
 
@@ -16,6 +52,7 @@ The owner asked for the merged `skill_unavailable_unpublished` hint (#121) to be
 
 - `npm ci`, `npm audit --audit-level=high` (0 vulnerabilities), `npm run typecheck`, `npm run build`, `npm test`, `npm run test:smoke`, `npm run test:http`, Node 22.23.1: all pass (386 tests in 20 files, smoke 2, http 9). `package.json`, both lockfile entries and the three `server.json` fields read 0.7.2.
 - Pending at the time of writing, and recorded on pull request #122 once done: the merge, the `v0.7.2` tag on the merge commit, which runs the Release workflow (npm through trusted publishing, GHCR, MCP Registry, GitHub release), and the published-artifacts smoke for 0.7.2.
+- Done after the merge (added 2026-11-07, from the evidence on #122): squash-merged as 356ec8f with CI and SDK parity green on it; the annotated tag `v0.7.2` on 356ec8f ran the Release workflow (parity, npm, GHCR, both transport smokes, MCP Registry, GitHub release with the tarball and CycloneDX SBOM), which passed; npm `@thalovant/mcp-server@0.7.2` is `latest`; the MCP Registry lists 0.7.2 as latest; the published-artifacts smoke for 0.7.2 passed (npm stdio, OCI Streamable HTTP, clean PID 1 shutdown, registry metadata).
 
 ### Transparency Report
 

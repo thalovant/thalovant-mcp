@@ -45,7 +45,7 @@
       "tests": {
         "test/chat-apps-output.test.ts": "b5765bbbeb89324ee85b71d9ec1879f3e7d707faeb4725c038dd3e9f50e9ed79",
         "test/chat-apps.test.ts": "b70516f6b7eddfa313b0a192e080cbb069227fb95d482e6ce5efaa6fd0707fbf",
-        "test/http.test.ts": "d99ae60f7a4aa9f4c12b31168b5bddfb5e0e26c7276971e0996b131dddf00765"
+        "test/http.test.ts": "c82601d6aba0d4464333f8e03ccc292e3195d9f858e93fbfce871dabee09d9df"
       }
     },
     "cli": {
@@ -146,7 +146,7 @@
       "reason": "Applicable public behavior is implemented and exercised by the named regression suites and shared fixtures. 0.9.5 reference (3f37b7453397): Python now reads a wss:// or ws:// default_master as the WSS endpoint when none is named. This server does not choose endpoints itself; it calls @thalovant/sdk, which has read the master that way since 0.2.x, and the lockfile now resolves the published 0.9.6. No code change; test/setup-link-identity.test.ts runs a setup-link identity (a wss:// master, no endpoints) through thalovant_identity_status on the server's default WSS transport, and shows an https:// master refused.",
       "status": "required",
       "tests": {
-        "test/http.test.ts": "d99ae60f7a4aa9f4c12b31168b5bddfb5e0e26c7276971e0996b131dddf00765",
+        "test/http.test.ts": "c82601d6aba0d4464333f8e03ccc292e3195d9f858e93fbfce871dabee09d9df",
         "test/runtime-cancellation.test.ts": "aba20f93ebfe9c03886c899f016eb2b79772714827593d51f7b1d4a26daec013",
         "test/setup-link-identity.test.ts": "64542e757806c63b9d612cf540d62dabab78c2e731e8d8182c8dbafc5337a7cb"
       }

@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-03 - Motive: Chat apps questions for 0.7.0; keep the Zod 4 answers.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Add the HTTP test startup question; keep the chat apps and Zod 4 answers.
 
 # FAQ
 
@@ -49,3 +49,9 @@ The patched bounded-container checks are in 4.6.6 and later. The installed MCP S
 ### Are tool schemas byte-for-byte unchanged?
 
 No. Record schemas are inlined and name string properties. Stripping objects no longer emit `additionalProperties: false`, but unknown properties are still stripped before handlers. UUIDs enforce standard version/variant bits (plus nil/max UUIDs), and the memory-list offset is limited to safe integers. Names, defaults and record value types remain intact.
+
+## Tests
+
+### Why do the HTTP tests start the server through `startMcpHttpServer()`?
+
+`test/http.test.ts` runs `dist/index.js --http` on a port it found free, and other test files run in parallel with loopback fake APIs that answer every path with 200. If one of them is given that port first, the server fails to bind (`EADDRINUSE`) and the fake answers `/healthz`; a test that trusted any 200 then spoke MCP to the fake and failed with a `ZodError` naming `ok` and `path`. `startMcpHttpServer()` waits for this server's own health body (`name: "thalovant"`, `transport: "streamable-http"`) from a child that is still running, and starts it again on a fresh port after `EADDRINUSE`. New HTTP tests should use it, passing an `envFor(port)` when their environment names the port.

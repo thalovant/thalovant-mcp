@@ -1,6 +1,18 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: The store refusal hints ship in 0.7.2; record the test/http.test.ts port race seen on main's Node 20 job.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Close the test/http.test.ts port race; record the CodeRabbit items on #29, #30, #82, #117, #120 and #122 checked against main.
 
 # Audit
+
+## CodeRabbit items on merged PRs #29, #30, #82, #117, #120 and #122 (2026-11-07)
+
+Checked against `main` (7a10524). The six review-body items on #29 and #30 still hold as MAINTENANCE_REPORT.md recorded them on 2026-11-03 (all fixed in 084bcd9, #58); the last of them, the two bare calls in "URL-encodes the skill name in the path", went through `callToolSuccessfully` in 767261c (#117).
+
+| PR | Item | Outcome |
+| :--- | :--- | :--- |
+| #82 | Serialize the shared conformance publication (`test/conformance-record.ts:96-123`, review body) | Fixed later, in 2e161cb (#92): workers only write their own shard (`record()`, named by process and thread), and `mergeShards()` runs once from the Vitest global setup's teardown (`test/conformance-global-setup.ts`) after every worker has finished, so no scan can miss a shard still being written. Nothing else calls it. |
+| #117 | Name the report and audit files in the verification scope (`MAINTENANCE_REPORT.md`, review body) | Fixed before the merge, in the PR's third commit (squash 767261c): the line reads "Test, contract and report files only (AUDIT.md, MAINTENANCE_REPORT.md)". |
+| #120 | Refresh the `test/runtime-noise.test.ts` evidence digest for `listing` and `runtime` | Fixed before the merge (squash 1bed882): both entries read `edf844cb...`, the file's hash; `check-sdk-parity.py --consumer thalovant-mcp` verifies. |
+| #120 | Do not list the 90 s budget under the published 0.7.1 (`CHANGELOG.md`) | Still valid until now: the `v0.7.1` tag peels to fa21749, whose `test/runtime-noise.test.ts` has 30 s, yet the 0.7.1 entry listed the budget. The tag was never moved. The bullet now sits under 0.7.2, the first tag that has it (`git merge-base --is-ancestor 1bed882 v0.7.2`). |
+| #122 | Record the merge, tag and artifact checks as pending, then add the evidence (`MAINTENANCE_REPORT.md`) | Fixed before the merge (squash 356ec8f): the entry says they were pending. The evidence was posted on #122 after the release and is now in the 0.7.2 entry of MAINTENANCE_REPORT.md. |
 
 ## Store refusals by code (2026-11-07, 0.7.2)
 
@@ -9,7 +21,8 @@ Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: The store refusal hints ship i
 
 ## Test port race in the HTTP shutdown tests (2026-11-07)
 
-- **Open, flaky test:** `freePort()` in `test/http.test.ts` binds port 0, reads the port and closes it before `spawnHttpServer` starts the server on it. Vitest runs files in parallel, and the fake control planes in `test/provisioning.test.ts` and `test/security-hardening.test.ts` also listen on port 0 and answer every path with `{ ok: true, path }`. When one of them takes the freed port first, `waitForHealth` sees a 200 from it and the MCP client talks to the fake API. Evidence: CI run 42420904832 (`main`, cacfb4a, Node 20) failed "closes an active MCP session and exits cleanly on SIGINT" with a `ZodError` naming the unrecognized keys `ok` and `path`; the same tree passed on the pull request and on Node 22 and 24. No product code is involved. See SUGGESTIONS.md.
+- **Closed (2026-11-07, Unreleased):** every test in `test/http.test.ts` now starts the server through `startMcpHttpServer()`, which accepts only the server's own health body (`name: "thalovant"`, `transport: "streamable-http"`) from a child that is still running, and starts a child that exited on `EADDRINUSE` again on a fresh port (three tries). Evidence: the new test "moves to a fresh port when another loopback server takes the freed one" hands the helper a port a fake API answering `{ ok: true, path }` already holds; it passes, and the fake sees only `/healthz` probes. With the old rule (any 200 is healthy) put back in a scratch copy, the same test fails (`expected 41361 not to be 41361`): the helper took the fake's port, as CI run 42420904832 did. `npm test` 387/387, `test:http` 10/10, `test:smoke` 2/2. The release workflow's `npm test` runs the same file, so a release run can no longer fail this way. `scripts/bench-http.mjs` keeps its own `freePort()`; it runs alone, not beside other servers.
+- **Was open, flaky test:** `freePort()` in `test/http.test.ts` binds port 0, reads the port and closes it before `spawnHttpServer` starts the server on it. Vitest runs files in parallel, and the fake control planes in `test/provisioning.test.ts` and `test/security-hardening.test.ts` also listen on port 0 and answer every path with `{ ok: true, path }`. When one of them takes the freed port first, `waitForHealth` sees a 200 from it and the MCP client talks to the fake API. Evidence: CI run 42420904832 (`main`, cacfb4a, Node 20) failed "closes an active MCP session and exits cleanly on SIGINT" with a `ZodError` naming the unrecognized keys `ok` and `path`; the same tree passed on the pull request and on Node 22 and 24. No product code is involved. See SUGGESTIONS.md.
 
 ## 0.7.0 chat apps tools (2026-11-03)
 
