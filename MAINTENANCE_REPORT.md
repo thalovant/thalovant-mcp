@@ -15,13 +15,13 @@ The owner asked for the merged `skill_unavailable_unpublished` hint (#121) to be
 **Verification**
 
 - `npm ci`, `npm audit --audit-level=high` (0 vulnerabilities), `npm run typecheck`, `npm run build`, `npm test`, `npm run test:smoke`, `npm run test:http`, Node 22.23.1: all pass (386 tests in 20 files, smoke 2, http 9). `package.json`, both lockfile entries and the three `server.json` fields read 0.7.2.
-- The tag `v0.7.2` on the merge commit runs the Release workflow (npm through trusted publishing, GHCR, MCP Registry, GitHub release); the published-artifacts smoke is run for 0.7.2 afterwards.
+- Pending at the time of writing, and recorded on pull request #122 once done: the merge, the `v0.7.2` tag on the merge commit, which runs the Release workflow (npm through trusted publishing, GHCR, MCP Registry, GitHub release), and the published-artifacts smoke for 0.7.2.
 
 ### Transparency Report
 
 - **AI Model**: Claude Opus 5.5.
-- **Actions Taken**: Bumped the aligned version files, dated the changelog entry, ran the validation sequence, opened and merged the version pull request, pushed the tag and checked npm, GHCR, the MCP Registry and the GitHub release.
-- **Oversight**: Run by an agent on the repository owner's request to publish the open fixes (2026-11-08Z); the pull request passed the normal CI gates before its merge.
+- **Actions Taken**: Bumped the aligned version files, dated the changelog entry, recorded the test port race, ran the validation sequence and opened the version pull request. The merge, the tag and the checks of npm, GHCR, the MCP Registry and the GitHub release come after this file was written; their results are on pull request #122.
+- **Oversight**: Run by an agent on the repository owner's request to publish the open fixes (2026-11-08Z); the pull request goes through the normal CI gates and the CodeRabbit review before its merge.
 
 ## 2026-11-07 — Hint for a skill with no published release (0.7.2)
 

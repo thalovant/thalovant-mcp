@@ -22,5 +22,5 @@ Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Propose a fix for the port rac
 ## Let the HTTP test server pick its own port
 
 - **Problem:** `freePort()` in `test/http.test.ts` frees a port and then starts the server on it, so a fake control plane from another test file can take it in between (see AUDIT.md, CI run 42420904832 on Node 20). `test/runtime-noise.test.ts` and the release workflow's own `npm test` can fail the same way.
-- **Proposal:** start the child on port 0 and read the bound port from its log line, or have `waitForHealth` require the MCP health body (`name: "thalovant"`, `transport: "streamable-http"`) rather than any 200, and retry on a fresh port when it is not.
+- **Proposal:** have `waitForHealth` require the MCP health body (`name: "thalovant"`, `transport: "streamable-http"`) rather than any 200, and have the test start the server again on a fresh port when it is not. That is test-only. Starting the child on port 0 is not, today: `getHttpConfig()` in `src/index.ts` reads `MCP_HTTP_PORT` with a minimum of 1, derives the default public URL and allowed hosts from that port, and the startup line names the configured URL, so it would also need the server to report the bound port and build those from it.
 - **Impact:** removes an intermittent red `main` and a possible failed release run. Small, test-only change.
