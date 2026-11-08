@@ -1,6 +1,28 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: CodeRabbit's second review of #125: timeoutMs on the hosted device login, the shared loopback a browser sign-in needs, and what a device code allows.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: #125 against the published @thalovant/sdk 0.11.0: the lock gets its integrity, the suite passes from a clean npm ci.
 
 # Maintenance Report
+
+## 2026-11-08 — Against the published `@thalovant/sdk` 0.11.0
+
+The lead published `@thalovant/sdk` 0.11.0 (tag v0.11.0, the merged thalovant-node-sdk#110) and asked for #125 to take it from the registry.
+
+**Changes**
+
+- `package-lock.json`: `npm install @thalovant/sdk@^0.11.0` adds the one line that was left out, the entry's `integrity` (`sha512-B7nsFEar…bEb6w==`, the registry's `dist.integrity`). A plain `npm install` had left the lock as it was. `package.json` and every other lock entry are unchanged.
+- CHANGELOG: the 0.8.0 entry is dated 2026-11-08 for the tag. AUDIT.md closes the release gate; FAQ.md, QUICK_FACTS.md and SUGGESTIONS.md follow. No source, test or parity evidence file changes, so `contracts/sdk-parity.json` is unchanged and the conformance record re-ran to the same file.
+
+**Verification**
+
+- Clean `npm ci` (published 0.11.0), `npm audit --audit-level=high` (0), `npm run typecheck`, `npm run build`, `npm test` (561 passed, 22 files), `npm run test:smoke` (2), `npm run test:http` (10), `npm pack --dry-run`, Node 22.23.1.
+- `THALOVANT_CONFORMANCE_OUT=contracts/conformance-results.json npm test`: the file is unchanged; all 119 browser-login cases equal the Python reference's (39e31d8).
+- `check-sdk-parity.py --consumer thalovant-mcp`: verified against Python 39e31d8 and against `main` 44b6e2b.
+- No merge, tag or release.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Installed the published SDK to record its integrity, ran the validation sequence from a clean install, dated the changelog and updated these records, pushed and watched CI.
+- **Oversight**: Run by an agent at the lead's request; the lead merges and releases.
 
 ## 2026-11-08 — CodeRabbit's second review of #125
 

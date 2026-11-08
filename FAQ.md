@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in: the shared loopback it needs, what a device code allows, and timeoutMs on both transports.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: @thalovant/sdk 0.11.0 is on npm: the CI question is answered for good.
 
 # FAQ
 
@@ -48,9 +48,9 @@ No. The sign-in runs inside the server (the SDK waits on the loopback port, or p
 
 `thalovant_revoke_device_login`. Both sign-ins keep their token in the same per-principal store, and the token revokes itself either way.
 
-### Why is CI red on the 0.8.0 pull request?
+### Why was CI red on the 0.8.0 pull request at first?
 
-`package.json` and the lockfile name `@thalovant/sdk` ^0.11.0 on the npm registry, and 0.11.0 was not published when the pull request opened, so `npm ci` answers 404. It passes once the Node SDK release is on npm; then refresh the lock's `integrity` for it with `npm install`.
+`package.json` and the lockfile named `@thalovant/sdk` ^0.11.0 on the npm registry before it was published, so `npm ci` answered 404. Once 0.11.0 was on npm (v0.11.0, 2026-11-08), `npm install @thalovant/sdk@^0.11.0` gave the lock entry its `integrity`, matching the registry's, and `npm ci` passes.
 
 ## Chat apps
 

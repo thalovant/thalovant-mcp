@@ -1,8 +1,8 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: 0.8.0 (unreleased) on the final browser-login contract: 119 vectors, candidate digest 6dfb3bb31ac7, an empty deviceName.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: 0.8.0 dated for the tag, against the published @thalovant/sdk 0.11.0.
 
 # Changelog
 
-## 0.8.0 - Unreleased
+## 0.8.0 - 2026-11-08
 
 A person can now sign the server in through the browser on their own computer: a link or code sent to someone on another computer delivers nothing to the sender. That holds for the browser path only; device sign-in is unchanged, and its code still signs the server in as whoever approves it.
 
@@ -12,7 +12,7 @@ A person can now sign the server in through the browser on their own computer: a
 - **One token store for both sign-ins.** An approved browser sign-in's token is kept server-side for the principal that began it, used at once by every control-plane tool when nothing is configured, and signed out with `thalovant_revoke_device_login`, whose description and refusal now name both sign-ins. `thalovant_config_status` adds `transport` and `browserLoginAvailable`; `deviceLoginSignedIn` is true after either sign-in.
 - Descriptions and hints that sent every sign-in to `thalovant_begin_device_login` now name the browser sign-in too: the device tool's description, the 401 hint after a refused connection call, and the error an unauthenticated control-plane tool raises.
 - The catalog has 61 default tools (28 in read-only mode, which registers neither new tool; 65 with destructive tools enabled).
-- Takes `@thalovant/sdk` ^0.11.0, which carries `browserLogin()`, `interactiveLogin()`, `canOpenBrowser()` and the browser sign-in vectors' behaviour.
+- Takes `@thalovant/sdk` ^0.11.0 (published 2026-11-08; the lock resolves 0.11.0 with its registry `integrity`), which carries `browserLogin()`, `interactiveLogin()`, `canOpenBrowser()` and the browser sign-in vectors' behaviour.
 - The parity contract declares `browser-login` as required, with `test/browser-login-vectors.json` (119 cases) vendored from the Python reference and run through the SDK and through the tools over stdio; it acknowledges the final candidate reference digest `6dfb3bb31ac7` beside the current `57c7e71f6456`, and refreshes the evidence hashes of `src/index.ts` (every capability that names it) and `test/provisioning.test.ts`.
 - `package.json`, `package-lock.json`, `server.json`, the OCI label, the README and this file move to 0.8.0 together.
 - **The HTTP transport tests no longer take another test's port.** `test/http.test.ts` found a free port, released it and started the server on it, and a loopback fake API from another test file, running in parallel, could be given that port in between: the server then failed to bind, the fake answered `/healthz` with 200, and the test talked MCP to it (a `ZodError` naming `ok` and `path`, seen once on `main`'s Node 20 job). The tests now start the server through `startMcpHttpServer()`, which counts only this server's own health body (`name: "thalovant"`, `transport: "streamable-http"`) from a child that is still running, and starts it again on a fresh port when the child lost its port (`EADDRINUSE`). A new test hands the helper a port another server holds first and checks that the session lands on a fresh one. Test-only; nothing the package ships changes.

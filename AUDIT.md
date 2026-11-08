@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in (0.8.0) on the final contract (Python 39e31d8, Node a7097d2): evidence, the release gate on @thalovant/sdk 0.11.0, and the debts it leaves.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in (0.8.0) against the published @thalovant/sdk 0.11.0: the release gate on it is closed.
 
 # Audit
 
@@ -6,7 +6,7 @@ Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in (0.8.0) on the
 
 ### Test evidence
 
-Run on Node 22.23.1 with `@thalovant/sdk` 0.11.0 built from the Node SDK's `feat/browser-sign-in` at a7097d2 (PR thalovant-node-sdk#110, on the final contract), packed with `npm pack` and installed over the lock with `npm install --no-save <tarball>`. The committed lock names the registry's 0.11.0, which is not published yet.
+Run on Node 22.23.1 with the published `@thalovant/sdk` 0.11.0 (tag v0.11.0, the merged thalovant-node-sdk#110), installed by a clean `npm ci` from the committed lock (integrity `sha512-B7nsFEar…bEb6w==`, as the registry gives it). Earlier rounds ran the same suite against the Node SDK's branch heads a7097d2, 4240239 and c438195, packed and installed with `npm install --no-save`.
 
 | Step | Result |
 | --- | --- |
@@ -18,7 +18,7 @@ Run on Node 22.23.1 with `@thalovant/sdk` 0.11.0 built from the Node SDK's `feat
 | `THALOVANT_CONFORMANCE_OUT=contracts/conformance-results.json npm test` | `browser-login-vectors.json` (sha256 `b0c73f80…9e73`, Python 39e31d8): 119 cases, every digest equal to the reference's `contracts/conformance-results.json`; the 98 cases of the first copy record unchanged results; the six other vector files unchanged |
 | `check-sdk-parity.py --consumer thalovant-mcp`, Python PR head 39e31d8 (final candidate `6dfb3bb31ac7`) | verified |
 | the same, Python `main` 44b6e2b | verified; reports `browser-login` as a capability the reference does not know yet (a rollout state) |
-| clean `npm ci` from the committed lock | **fails, E404** on `sdk-0.11.0.tgz` until the Node SDK release is on npm |
+| clean `npm ci` from the committed lock | passes against the published 0.11.0; `npm audit --audit-level=high` 0 vulnerabilities |
 
 - `test/browser-login-vectors.test.ts` runs `sign_ins` and `chooser` through the SDK and through the tools over stdio and records both under the same names; `record()` (`test/conformance-record.ts`) refuses a case recorded twice with different outputs, so the tools produced exactly what the SDK did.
 - `test/browser-login.test.ts` "prints the browser prompt on stderr, never on the protocol stream…" and "prints a device login's prompt on stderr too…" drive the built server with raw JSON-RPC lines and parse every stdout line. With `keepStdoutForProtocol()` (`src/index.ts:4002`) made a no-op in `dist/index.js`, both fail; restored, both pass.
@@ -31,7 +31,7 @@ Run on Node 22.23.1 with `@thalovant/sdk` 0.11.0 built from the Node SDK's `feat
 
 ### Open
 
-- **Release gate:** `package.json` and `package-lock.json` take `@thalovant/sdk` ^0.11.0 from the registry, and 0.11.0 is unpublished, so CI (`npm ci`) is red until it is. The lock entry carries no `integrity` (the published tarball's hash is not known yet); `npm install` after the publish fills it in. Do not tag 0.8.0 before then.
+- **Release gate, closed 2026-11-08:** `@thalovant/sdk` 0.11.0 is on npm, the lock entry carries its `integrity`, and a clean `npm ci` passes. Still open for the release itself: the tag, the published-artifacts smoke and the docs.thalovant.com pages (RELEASING.md).
 - **Design debt, `SignInWatch` (`src/browser-login.ts:152`):** `InteractiveLoginOptions` has no `prompt` (Python's `interactive_login` has none either), so the server learns what was shown from the two places the SDK lets a caller in: the consent URL from `openUrl` (`:173`), and a device login's code from the device authorization answer through the control plane's `fetch` (`:180`), read with `DeviceAuthorization.fromGrant()`. It depends on the SDK passing the consent page to `openUrl` (it does while `openBrowser` is true, which the server never changes) and on the device answer arriving before that page is handed over (it must: the page is in the answer). See SUGGESTIONS.md.
 - **Own opener (`browserCommand()`, `src/browser-login.ts:96`):** passing `openUrl` replaces the SDK's opener, which `@thalovant/sdk` does not export, so the server carries a copy of its rule (`open --`, `rundll32 url.dll,FileProtocolHandler`, `xdg-open`; one argument; http(s) without credentials or whitespace). macOS and Windows are checked only through the platform preload (`test/platform-preload.mjs`) and stand-in scripts on Linux.
 - **Minor:** a browser sign-in that is approved but never polled is used at once (`BrowserLogins.start`, `:250`, calls the approval hook when the SDK resolves), because its token is already minted; its outcome is forgotten after the wait plus 5 minutes (`OUTCOME_GRACE_MS`, `:71`). Device sign-ins keep their behaviour (approved on the poll).

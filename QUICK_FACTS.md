@@ -1,11 +1,11 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in on the final contract: 119 vectors, candidate digest 6dfb3bb31ac7; empty deviceName sends none.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Version 0.8.0 prepared against the published @thalovant/sdk 0.11.0.
 
 # Quick Facts
 
 | Fact | Value |
 | --- | --- |
 | Package | `@thalovant/mcp-server` (npm), `ghcr.io/thalovant/thalovant-mcp` (OCI), `io.github.thalovant/thalovant-mcp` (MCP Registry) |
-| Version | 0.8.0 (unreleased; needs `@thalovant/sdk` 0.11.0 on npm first; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
+| Version | 0.8.0 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
 | Entry point | `thalovant-mcp` bin, `dist/index.js`: stdio by default, Streamable HTTP with `--http` |
 | Thalovant SDK | `@thalovant/sdk` ^0.11.0 (`browserLogin()`, `interactiveLogin()`, chat app methods, `ThalovantApiError.fields`) |
 | Tools | 61 by default, 28 with `THALOVANT_MCP_READONLY`, 65 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` |
