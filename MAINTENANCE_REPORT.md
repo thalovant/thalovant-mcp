@@ -1,8 +1,8 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Close the HTTP tests' port race and the open CodeRabbit items on #117, #120 and #122; add the 0.7.2 release evidence.
+Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Close the HTTP tests' port race and the open CodeRabbit items on #29, #30, #82, #117, #120 and #122; add the 0.7.2 release evidence.
 
 # Maintenance Report
 
-## 2026-11-07 — HTTP test port race; CodeRabbit items on #117, #120, #122
+## 2026-11-07 — HTTP test port race; CodeRabbit items on #29, #30, #82, #117, #120, #122
 
 The lead asked for every open CodeRabbit item on merged pull requests to be checked against `main` (7a10524), the ones still valid fixed, and the port race recorded at 0.7.2 fixed properly, test-only.
 
@@ -19,6 +19,8 @@ The lead asked for every open CodeRabbit item on merged pull requests to be chec
 
 | PR | Item | Outcome |
 | :--- | :--- | :--- |
+| #29, #30 | Six review-body items (see 2026-11-03 below) | Still hold on 7a10524; the last two calls were fixed in 767261c (#117) |
+| #82 | Serialize the shared conformance publication | Fixed in 2e161cb (#92): one merge in the global teardown |
 | #117 | Verification scope should name the report files | Fixed before its merge (767261c) |
 | #120 | `test/runtime-noise.test.ts` evidence digest stale | Fixed before its merge (1bed882); the parity check verifies |
 | #120 | 0.7.1 entry lists a change the `v0.7.1` tag lacks | Fixed here |
