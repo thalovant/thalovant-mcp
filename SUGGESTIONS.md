@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in follow-ups: a structured prompt and an exported opener in the Node SDK, the digest cleanup and the lock refresh.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in follow-ups; the digest to wait for is the final candidate 6dfb3bb31ac7.
 
 # Follow-up
 
@@ -17,7 +17,7 @@ Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in follow-ups: a 
 ## After the rollout
 
 - Once `@thalovant/sdk` 0.11.0 is on npm: run `npm install` to give the lock's SDK entry its `integrity`, re-run the suite against the published package, then tag 0.8.0 per RELEASING.md and update the docs.thalovant.com MCP setup and tool pages.
-- Once the Python reference's `main` carries `49744ee385bf…`: drop the older digests from `reference_digests` in a separate change.
+- Once the Python reference's `main` carries `6dfb3bb31ac7…`: drop the older digests from `reference_digests` in a separate change.
 
 ## Split `src/index.ts` by tool family
 

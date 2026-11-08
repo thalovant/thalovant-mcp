@@ -1958,7 +1958,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     {
       title: "Begin Browser Sign-In",
       description:
-        "Sign a person in when no API token is configured, the way this server allows. Over stdio (the server runs on the person's computer) method auto, the default, opens the person's browser at Thalovant's consent page and waits for it to come back to this server on 127.0.0.1 (PKCE, RFC 8252): only the browser on this computer can complete it, so a link sent to somebody else signs nobody in. When this computer cannot show a browser (over SSH, in CI, or without a display) or the API does not offer browser sign-in yet, auto starts a device login instead (method device in the answer, with userCode and verificationUri to show). Over Streamable HTTP this server's 127.0.0.1 is not the person's, so auto and device start a device login exactly as thalovant_begin_device_login does, and method browser is refused. Show the person what the answer names, then call the poll tool its next field names with loginId. The verifier, the state, the device code and the token stay on this server; once approved, control-plane tools for this principal use the token. A Home Assistant link signs in as its registered app: use thalovant_begin_device_login with clientId for it.",
+        "Sign a person in when no API token is configured, the way this server allows. Over stdio (the server runs on the person's computer) method auto, the default, opens the person's browser at Thalovant's consent page and waits for it to come back to this server on 127.0.0.1 (PKCE, RFC 8252): only the browser on this computer can complete it, and a link or code sent to someone on another computer delivers nothing to the sender. When this computer cannot show a browser (over SSH, in CI, or without a display) or the API does not offer browser sign-in yet, auto starts a device login instead (method device in the answer, with userCode and verificationUri to show). Over Streamable HTTP this server's 127.0.0.1 is not the person's, so auto and device start a device login exactly as thalovant_begin_device_login does, and method browser is refused. Show the person what the answer names, then call the poll tool its next field names with loginId. The verifier, the state, the device code and the token stay on this server; once approved, control-plane tools for this principal use the token. A Home Assistant link signs in as its registered app: use thalovant_begin_device_login with clientId for it.",
       inputSchema: {
         apiUrl: controlPlaneSchema.apiUrl,
         method: z
@@ -1972,10 +1972,9 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           .describe("Scopes the token will carry. Omitted or empty asks for the API's default (hubs:read and clients:write for a browser sign-in). Any non-admin scope may be asked for; the API refuses admin or unknown ones when the person approves."),
         deviceName: z
           .string()
-          .min(1)
           .max(MAX_DEVICE_NAME_LENGTH)
           .optional()
-          .describe("What the consent page and the dashboard's token list show for this computer (a device login's client name). Default `thalovant-mcp on <hostname>` over stdio."),
+          .describe("What the consent page and the dashboard's token list show for this computer (a device login's client name). Default `thalovant-mcp on <hostname>` over stdio; an empty string sends no name, so the hostname stays off the consent page."),
         timeoutMs: z
           .number()
           .int()
@@ -2106,7 +2105,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     {
       title: "Begin Device Sign-In",
       description:
-        "Start a device sign-in (RFC 8628) when no API token is configured: a person approves it in a browser, on any device. Show the person verificationUri and userCode (or verificationUriComplete, which carries the code), then call thalovant_poll_device_login with loginId every `interval` seconds. The device code stays on this server. Once approved, control-plane tools for this principal use the token it minted. On a stdio server, thalovant_begin_browser_login signs the person in through the browser on their own computer instead, which a code relayed to somebody else cannot do; use this tool for a registered app's sign-in or a hosted server. A Home Assistant link asks for hubs:read, clients:read and clients:write, which is also all a Free plan can approve, and signs in as the registered app thalovant-home-assistant (clientId).",
+        "Start a device sign-in (RFC 8628) when no API token is configured: a person approves it in a browser, on any device. Show the person verificationUri and userCode (or verificationUriComplete, which carries the code), then call thalovant_poll_device_login with loginId every `interval` seconds. The device code stays on this server. Once approved, control-plane tools for this principal use the token it minted. On a stdio server, thalovant_begin_browser_login signs the person in through the browser on their own computer instead, where a link or code sent to someone on another computer delivers nothing to the sender; use this tool for a registered app's sign-in or a hosted server. A Home Assistant link asks for hubs:read, clients:read and clients:write, which is also all a Free plan can approve, and signs in as the registered app thalovant-home-assistant (clientId).",
       inputSchema: {
         apiUrl: controlPlaneSchema.apiUrl,
         scopes: z

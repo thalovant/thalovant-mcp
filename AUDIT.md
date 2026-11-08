@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in (0.8.0): evidence from the test run, the release gate on @thalovant/sdk 0.11.0, and the debts it leaves.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in (0.8.0) on the final contract (Python 39e31d8, Node a7097d2): evidence, the release gate on @thalovant/sdk 0.11.0, and the debts it leaves.
 
 # Audit
 
@@ -6,17 +6,17 @@ Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in (0.8.0): evide
 
 ### Test evidence
 
-Run on Node 22.23.1 with `@thalovant/sdk` 0.11.0 built from the Node SDK's `feat/browser-sign-in` (5f0cc17, PR thalovant-node-sdk#110), packed with `npm pack` and installed over the lock with `npm install --no-save <tarball>`. The committed lock names the registry's 0.11.0, which is not published yet.
+Run on Node 22.23.1 with `@thalovant/sdk` 0.11.0 built from the Node SDK's `feat/browser-sign-in` at a7097d2 (PR thalovant-node-sdk#110, on the final contract), packed with `npm pack` and installed over the lock with `npm install --no-save <tarball>`. The committed lock names the registry's 0.11.0, which is not published yet.
 
 | Step | Result |
 | --- | --- |
 | `npm run typecheck`, `npm run build` | passed |
-| `npm test` | 532 passed in 22 files (`main` with 0.10.0: 387 in 20) |
+| `npm test` | 557 passed in 22 files (`main` with 0.10.0: 387 in 20) |
 | `npm run test:smoke` / `npm run test:http` | 2 / 10 passed |
 | `npm audit --audit-level=high` | 0 vulnerabilities |
 | `npm pack --dry-run` | 26 files, `dist/browser-login.js` included, no test file |
-| `THALOVANT_CONFORMANCE_OUT=contracts/conformance-results.json npm test` | `browser-login-vectors.json`: 98 cases, every digest equal to the Python reference's (`contracts/conformance-results.json` on e3999cb); the six other vector files unchanged |
-| `check-sdk-parity.py --consumer thalovant-mcp`, Python PR head e3999cb | verified |
+| `THALOVANT_CONFORMANCE_OUT=contracts/conformance-results.json npm test` | `browser-login-vectors.json` (sha256 `b0c73f80…9e73`, Python 39e31d8): 119 cases, every digest equal to the reference's `contracts/conformance-results.json`; the 98 cases of the first copy record unchanged results; the six other vector files unchanged |
+| `check-sdk-parity.py --consumer thalovant-mcp`, Python PR head 39e31d8 (final candidate `6dfb3bb31ac7`) | verified |
 | the same, Python `main` 44b6e2b | verified; reports `browser-login` as a capability the reference does not know yet (a rollout state) |
 | clean `npm ci` from the committed lock | **fails, E404** on `sdk-0.11.0.tgz` until the Node SDK release is on npm |
 

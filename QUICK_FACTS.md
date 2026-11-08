@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Version 0.8.0 (unreleased): browser sign-in over stdio, @thalovant/sdk ^0.11.0, 61 tools.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in on the final contract: 119 vectors, candidate digest 6dfb3bb31ac7; empty deviceName sends none.
 
 # Quick Facts
 
@@ -21,13 +21,13 @@ Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Version 0.8.0 (unreleased): br
 | Methods | `auto` (default), `browser`, `device` |
 | stdio | `auto`: the browser when `canOpenBrowser()` and `GET /v1/auth/native/config` is usable, else a device login |
 | Streamable HTTP | `browser` refused; `auto`/`device` = `beginDeviceLogin()`, polled with `thalovant_poll_device_login` |
-| Defaults | `deviceName` `thalovant-mcp on <hostname>`; `timeoutMs` 300000 (browser), 900000 (device) |
+| Defaults | `deviceName` `thalovant-mcp on <hostname>` (an empty string sends none); `timeoutMs` 300000 (browser), 900000 (device) |
 | Prompt | SDK's `console.log` goes to stderr on stdio (`keepStdoutForProtocol()`); URL or code in the tool answer |
 | Opener | `open` / `xdg-open` / `rundll32 url.dll,FileProtocolHandler` (`browserCommand()` in `src/browser-login.ts`) |
 | Token | Kept server-side per principal in `DeviceLogins`; revoked with `thalovant_revoke_device_login` |
 | `thalovant_config_status` | `transport`, `browserLoginAvailable`, `deviceLoginSignedIn` (either sign-in) |
-| Parity | capability `browser-login`, required; vectors `test/browser-login-vectors.json` (98 cases) |
-| Reference digests | current `57c7e71f6456`, candidate `49744ee385bf` |
+| Parity | capability `browser-login`, required; vectors `test/browser-login-vectors.json` (119 cases, from Python 39e31d8) |
+| Reference digests | current `57c7e71f6456`, final candidate `6dfb3bb31ac7` |
 
 ## Chat apps tools (0.7.0)
 

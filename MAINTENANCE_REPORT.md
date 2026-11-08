@@ -1,6 +1,33 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in over stdio (0.8.0, unreleased) through @thalovant/sdk 0.11.0, with the browser-login parity acceptance.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in moves to the final contract (Python #113 at 39e31d8, Node #110 at a7097d2); CodeRabbit's two items on #125.
 
 # Maintenance Report
+
+## 2026-11-08 — Browser sign-in on the final contract; CodeRabbit on #125
+
+The lead declared the producer final (thalovant-python-sdk#113 at 39e31d8) and the Node SDK updated to it (thalovant-node-sdk#110 at a7097d2), and asked for #125 to follow.
+
+**Changes**
+
+- `test/browser-login-vectors.json`: re-vendored byte for byte from Python 39e31d8 (sha256 `b0c73f808c4f26328c27dd4d04eebfbbc3e7c0c81b8d63a666f63737d0259e73`, 119 cases: 21 new in `callbacks`, `config`, `sign_ins` and `chooser`). `test/browser-login-vectors.test.ts` counts 119.
+- `thalovant_begin_browser_login` accepts an empty `deviceName`, which sends no name (the consent page shows no hostname, and a device login sends no `client_name`), as the new vectors and the SDK's `deviceName ?? defaultDeviceName()` have it; omitted still means `thalovant-mcp on <hostname>`.
+- Wording: the tool descriptions, README and CHANGELOG say that a link or code sent to someone on another computer delivers nothing to the sender.
+- `contracts/sdk-parity.json`: the candidate `49744ee385bf…` is replaced by the final `6dfb3bb31ac7590591febef1c4d8372984ca6cdad4700381f869db30c38452df`, beside the current `57c7e71f6456…`. Hashes refreshed only for the files changed: `src/index.ts` (15 capabilities), `test/browser-login-vectors.json` and `test/browser-login-vectors.test.ts` (`browser-login`). `contracts/conformance-results.json` re-recorded.
+- CodeRabbit on #125 (556dcec): `rawStdio().answer()` and `onlyProtocol()` in `test/browser-login.test.ts` read only newline-terminated stdout lines, and `onlyProtocol()` requires stdout to end on one; that file's `browser-login` hash was refreshed. The dependency thread (0.11.0 not on npm, no `integrity`) is intentional: answered on the thread and resolved.
+- QUICK_FACTS, CHANGELOG, AUDIT and SUGGESTIONS name the final digest and 119 cases.
+
+**Verification**
+
+- Local SDK: `npm run build` and `npm pack` in the Node SDK clone at a7097d2, `npm install --no-save` of the tarball here; `package.json` and the lock left as committed.
+- `npm run typecheck`, `npm run build`, `npm test` (557 passed, 22 files), `npm run test:smoke` (2), `npm run test:http` (10), Node 22.23.1.
+- Conformance: 119 browser-login case digests equal the reference's; the 98 earlier cases record what they did before; the other vector files are unchanged.
+- `check-sdk-parity.py --workspace … --consumer thalovant-mcp`: verified against Python 39e31d8 and against `main` (44b6e2b; `browser-login` reported as not yet known there).
+- No merge, tag or release; CI stays red until `@thalovant/sdk` 0.11.0 is on npm.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Rebuilt and installed the Node SDK at a7097d2, re-vendored the vectors, let the begin tool take an empty device name, reworded three texts, fixed the raw-stdio line reading CodeRabbit found, re-recorded conformance, swapped the candidate digest and refreshed the changed files' hashes, answered and resolved both review threads, and updated these records.
+- **Oversight**: Run by an agent at the lead's request; the owner merges after the Node SDK is published and CI passes.
 
 ## 2026-11-08 — Browser sign-in (0.8.0, unreleased)
 
