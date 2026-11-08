@@ -1,6 +1,44 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Add the HTTP test startup question; keep the chat apps and Zod 4 answers.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Add the browser sign-in questions (0.8.0); keep the chat apps, Zod 4 and HTTP test answers.
 
 # FAQ
+
+## Browser sign-in
+
+### Which sign-in tool should an agent use?
+
+`thalovant_begin_browser_login` with the default `method: "auto"`. Over stdio it signs the person in through the browser on their computer when it can, and starts a device login when it cannot; over Streamable HTTP it starts a device login. Either way the answer's `next` names the poll tool. `thalovant_begin_device_login` stays for a registered app's sign-in (Home Assistant's `clientId`), which the browser sign-in does not take.
+
+### Why does a hosted (Streamable HTTP) server never sign in through the browser?
+
+The browser hands the sign-in code to `http://127.0.0.1:<port>/callback`, which is the computer the browser runs on. A hosted server's `127.0.0.1` is the server's, not the person's, so the answer could never arrive. `method: "browser"` is refused there before any request, and `auto` is a device login, exactly as before 0.8.0.
+
+### Why did it start a device login on my laptop?
+
+`auto` uses the browser only when this computer can show one and the API offers browser sign-in. It never does with `CI`, `SSH_CONNECTION` or `SSH_TTY` set (the browser would open somewhere else, or nowhere); on Linux and the BSDs it needs `DISPLAY` or `WAYLAND_DISPLAY`. An API that answers `GET /v1/auth/native/config` with 404 (before thalovant-api #501 is deployed) or with a configuration the SDK cannot use also means a device login. Nothing was opened by then, so this is not a downgrade. `method: "browser"` forces the browser and fails instead.
+
+### The browser did not open. What now?
+
+Opening is best-effort (`open`, `xdg-open` or `rundll32`, never waited for). Give the person `authorizationUrl` from the begin answer; it must be opened in a browser on the same computer as the server. The prompt is also on the server's stderr log.
+
+### Where does the "Opening your browser…" line go?
+
+To stderr. `@thalovant/sdk` prints its prompt with `console.log`, which writes to stdout, and over stdio stdout is the MCP protocol stream: a printed line between JSON-RPC messages breaks the session. So the stdio entry point (`keepStdoutForProtocol()` in `src/index.ts`) sends every console method to stderr. The model gets the URL, or the device code, in the tool's answer.
+
+### Does a denied or timed-out browser sign-in fall back to a device login?
+
+No. Once the browser has been sent to the consent page, its outcome stands, as the shared contract says; begin a new sign-in to try again.
+
+### Does the poll tool call the API?
+
+No. The sign-in runs inside the server (the SDK waits on the loopback port, or polls the device token itself); `thalovant_poll_browser_login` reads how it is going, so polling every few seconds costs nothing.
+
+### How do I sign out after a browser sign-in?
+
+`thalovant_revoke_device_login`. Both sign-ins keep their token in the same per-principal store, and the token revokes itself either way.
+
+### Why is CI red on the 0.8.0 pull request?
+
+`package.json` and the lockfile name `@thalovant/sdk` ^0.11.0 on the npm registry, and 0.11.0 was not published when the pull request opened, so `npm ci` answers 404. It passes once the Node SDK release is on npm; then refresh the lock's `integrity` for it with `npm install`.
 
 ## Chat apps
 

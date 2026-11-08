@@ -1,6 +1,32 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Close the HTTP tests' port race and the open CodeRabbit items on #29, #30, #82, #117, #120 and #122; add the 0.7.2 release evidence.
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in over stdio (0.8.0, unreleased) through @thalovant/sdk 0.11.0, with the browser-login parity acceptance.
 
 # Maintenance Report
+
+## 2026-11-08 — Browser sign-in (0.8.0, unreleased)
+
+The lead asked for this server to adopt the Node SDK's browser sign-in (thalovant-node-sdk#110, 0.11.0) as a consumer of the cross-SDK `browser-login` capability (Python reference thalovant-python-sdk#113, e3999cb): `interactiveLogin({ method: "auto" })` over stdio, device login exactly as before over the hosted transport, and the prompt kept off the stdio protocol stream.
+
+**Changes**
+
+- `src/browser-login.ts` (new): `SignInWatch`, `BrowserLogins`, `browserCommand()`, `openInBrowser()`, `defaultDeviceName()`, `outcomeOf()`.
+- `src/index.ts`: `thalovant_begin_browser_login` and `thalovant_poll_browser_login`; `createServer({ transport })` (the CLI passes `stdio` or `streamable-http`; the default is `streamable-http`); `keepStdoutForProtocol()` on the stdio entry point; `signInControlPlane()` (was `deviceLoginControlPlane()`) takes the watch's `fetch`; `thalovant_config_status` adds `transport` and `browserLoginAvailable`; the device tool's and revoke tool's descriptions, the revoke refusal, the 401 connection hint and the unauthenticated-tool error name the browser sign-in.
+- Tests: `test/browser-login-vectors.test.ts`, `test/browser-login.test.ts`, `test/browser-login-harness.ts`, `test/platform-preload.mjs` (test-only `--import` preload setting `process.platform`), `test/browser-login-vectors.json` (vendored byte for byte, sha256 `9058adf2…`); `test/provisioning.test.ts` counts 61 and 65 tools.
+- `contracts/sdk-parity.json`: `reference_digests` adds the candidate `49744ee385bf…` beside the current `57c7e71f6456…`; `browser-login` is required, bound to `src/browser-login.ts`, `src/device-login.ts` and `src/index.ts` and to the test files above; the `src/index.ts` hash is refreshed in the 14 capabilities that name it, and `test/provisioning.test.ts` in `control`, because those files changed here. `contracts/conformance-results.json` is the suite's own record.
+- `package.json` (0.8.0, `@thalovant/sdk` ^0.11.0), `package-lock.json` (0.8.0; the SDK entry names the registry's 0.11.0 tarball without `integrity`), `server.json`, the `Dockerfile` label, README (Browser Sign-In, tool list, SDK line, counts), CHANGELOG (0.8.0, Unreleased, with the earlier unreleased entries under it), QUICK_FACTS, FAQ, docs/index.md, AGENTS.md (two rules), AUDIT.md, SUGGESTIONS.md.
+
+**Verification**
+
+- Local SDK: `npm run build` and `npm pack` in the Node SDK clone (5f0cc17), then `npm install --no-save thalovant-sdk-0.11.0.tgz` here; `package.json` and the lock were left as committed.
+- `npm run typecheck`, `npm run build`, `npm test` (532 passed, 22 files), `npm run test:smoke` (2), `npm run test:http` (10), `npm audit --audit-level=high` (0), `npm pack --dry-run`, Node 22.23.1. Baseline on `main` with 0.10.0: 387 passed in 20 files.
+- Conformance: all 98 `browser-login-vectors.json` case digests equal the reference's; parity check verified against the Python PR head and against `main`.
+- A clean `npm ci` from the committed lock fails with E404 until `@thalovant/sdk` 0.11.0 is on npm, so CI is red until then.
+- No merge, tag or release.
+
+### Transparency Report
+
+- **AI Model**: Claude Opus 5.5.
+- **Actions Taken**: Read the contract, the Python porting brief and the Node SDK implementation; wrote `src/browser-login.ts`, the two tools and the stdio console redirect in `src/index.ts`, the vector runner and behaviour tests with their harness and platform preload; built and installed the unpublished Node SDK locally; recorded conformance results; updated the parity acceptance (new capability, candidate digest, hashes of the changed files only) and these documents; opened the pull request.
+- **Oversight**: Run by an agent at the lead's request. Nothing merged, tagged or published; the pull request waits for `@thalovant/sdk` 0.11.0 on npm and the normal CI gates, and the owner's merge.
 
 ## 2026-11-07 — HTTP test port race; CodeRabbit items on #29, #30, #82, #117, #120, #122
 

@@ -1,16 +1,33 @@
-Last Edit: Claude Opus 5.5 - 2026-11-07 - Motive: Version 0.7.2, which carries the skill_unavailable_unpublished hint (thalovant-api#495).
+Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Version 0.8.0 (unreleased): browser sign-in over stdio, @thalovant/sdk ^0.11.0, 61 tools.
 
 # Quick Facts
 
 | Fact | Value |
 | --- | --- |
 | Package | `@thalovant/mcp-server` (npm), `ghcr.io/thalovant/thalovant-mcp` (OCI), `io.github.thalovant/thalovant-mcp` (MCP Registry) |
-| Version | 0.7.2 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
+| Version | 0.8.0 (unreleased; needs `@thalovant/sdk` 0.11.0 on npm first; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
 | Entry point | `thalovant-mcp` bin, `dist/index.js`: stdio by default, Streamable HTTP with `--http` |
-| Thalovant SDK | `@thalovant/sdk` ^0.10.0 (chat app methods, `ThalovantApiError.fields`) |
-| Tools | 59 by default, 28 with `THALOVANT_MCP_READONLY`, 63 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` |
+| Thalovant SDK | `@thalovant/sdk` ^0.11.0 (`browserLogin()`, `interactiveLogin()`, chat app methods, `ThalovantApiError.fields`) |
+| Tools | 61 by default, 28 with `THALOVANT_MCP_READONLY`, 65 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` |
 | Validation | `npm ci`, `npm run typecheck`, `npm run build`, `npm test`, `npm run test:smoke`, `npm run test:http` |
 | Refusal hints by code (409) | `skill_unavailable_licensing`, `skill_unavailable_unpublished` (0.7.2), any other `skill_unavailable_*`, `memory_limit`, `skill_version_already_installed` (generic), in `controlPlaneErrorHint` (`src/index.ts`) |
+
+## Browser sign-in (0.8.0)
+
+| Fact | Value |
+| --- | --- |
+| Tools | `thalovant_begin_browser_login`, `thalovant_poll_browser_login` (not in read-only mode) |
+| Grant | Authorization code with PKCE (S256) on `http://127.0.0.1:<port>/callback` (RFC 8252), through `interactiveLogin()` of `@thalovant/sdk` |
+| Methods | `auto` (default), `browser`, `device` |
+| stdio | `auto`: the browser when `canOpenBrowser()` and `GET /v1/auth/native/config` is usable, else a device login |
+| Streamable HTTP | `browser` refused; `auto`/`device` = `beginDeviceLogin()`, polled with `thalovant_poll_device_login` |
+| Defaults | `deviceName` `thalovant-mcp on <hostname>`; `timeoutMs` 300000 (browser), 900000 (device) |
+| Prompt | SDK's `console.log` goes to stderr on stdio (`keepStdoutForProtocol()`); URL or code in the tool answer |
+| Opener | `open` / `xdg-open` / `rundll32 url.dll,FileProtocolHandler` (`browserCommand()` in `src/browser-login.ts`) |
+| Token | Kept server-side per principal in `DeviceLogins`; revoked with `thalovant_revoke_device_login` |
+| `thalovant_config_status` | `transport`, `browserLoginAvailable`, `deviceLoginSignedIn` (either sign-in) |
+| Parity | capability `browser-login`, required; vectors `test/browser-login-vectors.json` (98 cases) |
+| Reference digests | current `57c7e71f6456`, candidate `49744ee385bf` |
 
 ## Chat apps tools (0.7.0)
 
