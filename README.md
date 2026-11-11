@@ -1,4 +1,4 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in over stdio (thalovant_begin_browser_login, @thalovant/sdk 0.11.0); device login stays the hosted transport's sign-in.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
 
 <p align="center">
   <picture>
@@ -25,6 +25,7 @@ It uses the official Thalovant Node.js SDK and the production MCP TypeScript SDK
 - JWT/JWKS and OAuth token introspection for production remote deployments.
 - Per-principal Thalovant credentials and tool policy.
 - Chat app tools: connectors, bridges and their status in words, pause and resume, chats, test messages and the plan's allowance. Bot tokens stay in the console.
+- Intercom tools: list the speakers of a hub, read an announcement, and (opt-in) say a short text aloud in a home. Not a safety system; the text is never stored.
 - Host/origin validation, CORS, rate limiting, body limits, secure headers, and session binding.
 - Optional resumability event storage and JSONL audit logs.
 - Docker, Compose, Kubernetes, CI, npm package metadata, and MCP registry `server.json`.
@@ -100,6 +101,8 @@ Minimum scopes for the full control-plane tool surface:
 | `hubs:read` | `thalovant_list_hubs`, `thalovant_get_hub`, `thalovant_get_analytics_overview`, `thalovant_list_marketplace_skills`, `thalovant_list_runtime_groups`, `thalovant_get_runtime_group`, `thalovant_get_runtime_group_config`, the guarded merge read in `thalovant_update_runtime_group_config`, the hub lookup inside `thalovant_create_client_identity`, and the chat app reads (`thalovant_list_chat_app_connectors`, `thalovant_get_bridge_networks`, `thalovant_list_bridges`, `thalovant_get_bridge`) |
 | `hubs:inspect` | `thalovant_get_hub_runtime_capabilities`, `thalovant_list_runtime_group_marketplace`, `thalovant_list_runtime_group_inventory`, `thalovant_list_hub_skills`, `thalovant_list_hub_skill_history` |
 | `hubs:write` | All hub and runtime-group provisioning: `thalovant_create_hub`, `thalovant_update_hub`, `thalovant_release_hub`, `thalovant_create_runtime_group`, `thalovant_update_runtime_group`, `thalovant_update_runtime_group_config`, `thalovant_release_runtime_group`, `thalovant_install_runtime_group_skill`, `thalovant_uninstall_runtime_group_skill`, the per-hub `thalovant_install_hub_skill`, `thalovant_update_hub_skill`, `thalovant_remove_hub_skill`, the hub rating tools, the chat app writes (`thalovant_pause_bridge`, `thalovant_resume_bridge`, `thalovant_update_bridge`, `thalovant_send_bridge_test_message`), `thalovant_list_bridge_chats` (it changes nothing but asks the chat network, so the API serves it only to `hubs:write` and a paid plan), and the opt-in delete tools |
+| `intercom:read` | `thalovant_intercom_list_speakers`, `thalovant_intercom_get_announcement` (a plan with Intercom) |
+| `intercom:send` | `thalovant_intercom_announce` (opt-in tool; a plan with Intercom, Intercom switched on for the hub). Managing speakers and the hub's switch needs `hubs:write`, which no tool of this server uses for Intercom |
 | `clients:write` | `thalovant_create_client_identity` (`POST /v1/clients`) and the opt-in `thalovant_delete_client` |
 | `memory:read` | `thalovant_list_memory_items`, `thalovant_get_memory_summary`, `thalovant_get_memory_item` |
 | `memory:write` | `thalovant_create_memory_item`, `thalovant_update_memory_item`, `thalovant_delete_memory_item` |
@@ -193,6 +196,51 @@ The platform's own diagnostic sentence and condition (`status.message`, `status.
 The write tools take an optional `etag` (the bridge's `etag` field; there is no ETag header), sent as `If-Match`: a stale one fails `412` and changes nothing. Telegram lists chats only while its bridge is paused (`409 bridge_running`), so the flow is pause, send `/start@<bot>` in the new group, list, update `allowed`, resume. A refusal keeps the API's code, sentence and fields (see [Tool Errors](#tool-errors)) and adds a hint by code: the settings a `bridge_settings_invalid` or `bridge_url_*` refusal names (names only), the plan's allowance after `402` or `403 plan_limit`, the wait after `429`, and the console for anything about a token.
 
 Reads need `hubs:read`, except `thalovant_list_bridge_chats`: it changes nothing, but it asks the chat network on the bot's behalf, so it needs `hubs:write`, the hub's owner or a workspace manager, and a paid plan, like the writes. Writes need the same, except pausing and deleting, which always work on any plan. `THALOVANT_MCP_READONLY` keeps the four reads a `hubs:read` token can call and leaves `thalovant_list_bridge_chats` out.
+
+## Intercom
+
+Intercom lets an agent say a short sentence aloud on the speakers of a hub, in a home: "dinner is ready", "the delivery is at the door". It is announce-only: no two-way audio, no listening. Each speaker (a client of the hub) says the text with its own text-to-speech.
+
+**Intercom is not a certified safety system.** It does not replace smoke or CO alarms, medical alert devices or emergency services, and an announcement can fail (offline speaker, do-not-disturb, no one in the room). Never use it, or tell anyone to rely on it, for an emergency.
+
+It is off at every level, and each level is the household's to turn on:
+
+| Level | Default | Who changes it |
+| --- | --- | --- |
+| The hub's Intercom feature | off; never available on kid or public hubs; plan gate (paid plans that own hubs) | the hub's owner or an admin (console, or `PUT /v1/hubs/{hub_id}/intercom/settings`; no tool of this server does it) |
+| Each speaker's `receive` | `false`: a speaker with `receive` false is never spoken to, urgent or not | the same, per speaker |
+| Do-not-disturb (quiet hours) | off; skips normal announcements only | the same, per speaker |
+| This server's announce tool | not registered | the operator sets `THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1` |
+
+| Tool | Route | Scope | Kind |
+| --- | --- | --- | --- |
+| `thalovant_intercom_list_speakers` | `GET /v1/hubs/{hub_id}/intercom/speakers` | `intercom:read` | read-only |
+| `thalovant_intercom_get_announcement` | `GET /v1/hubs/{hub_id}/intercom/announcements/{id}` | `intercom:read` | read-only |
+| `thalovant_intercom_announce` | `POST /v1/hubs/{hub_id}/intercom/announce` | `intercom:send` | write, only with `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` |
+
+`thalovant_intercom_announce` checks everything it can before any request, and no check or error repeats the text:
+
+- `text`: 1 to 280 characters after trimming, plain: control characters, line breaks, text-direction marks and `<` `>` (a speech engine may read them as SSML) are refused.
+- Explicit targets, one kind per call: `speakers` (client ids or slugs, at most 50), `rooms`, or `groups`. Speaking on every speaker needs `allowAll: true` and no other target; naming nothing is refused, never read as everyone.
+- `priority: "urgent"` repeats until someone says they heard it, ignores do-not-disturb and answers `sending` (HTTP 202); it needs `confirmUrgent: true`, which the model sets only after the person confirmed. `repeatTimes` (1-10) and `repeatIntervalSeconds` (5-120, default 30) are urgent only.
+- It sends once, with an `Idempotency-Key` (generated, or `idempotencyKey`). If the API cannot be reached the announcement may already have been spoken, so it is **not** retried: the error says so, gives the key, and says to read the announcement first (`thalovant_intercom_get_announcement`) or ask the household. Resend only with the same key.
+- The platform limits a hub to 20 normal announcements a minute and 10 urgent an hour (`429`).
+- The tool's description says the text is spoken aloud in a home and carries the not-a-safety-system notice, and so does every answer.
+
+**The text is never stored.** The platform keeps only its length, SHA-256, targets and per-speaker results; this server writes a record `mcp.intercom.announce` to the audit log with `textLen`, `textSha256`, `targets`, `priority`, `hubId`, the idempotency key and the outcome, **even when `MCP_AUDIT_INCLUDE_ARGS` is off**, and when it is on the generic entry shows `text` as `[omitted: N characters]`. Outputs are whitelisted (`src/intercom-output.ts`): the answer carries each speaker's result (`delivered`, `acked`, `offline`, `skipped_dnd`, `skipped_not_receiving`, `failed`), `acked_by` and a summary in words, never any text.
+
+**The opt-in is one door among several.** `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` reach a hub as a client identity and can send it any event, including one the hub's intercom skill answers. Leaving `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` unset does not close that route. An operator for whom the Intercom opt-in must be the only way to speak in a home also denies those tools:
+
+```bash
+export THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1
+export MCP_TOOL_DENYLIST="thalovant_emit_event,thalovant_send_action"   # add thalovant_ask and thalovant_query for an agent that must not talk to the hub at all
+```
+
+`thalovant_config_status` reports `intercomAnnounceEnabled` and, when the opt-in is on and one of those tools is still allowed, an `intercomGateNote` naming them. The same applies to a hub's own routines and skills: they speak through the hub's intercom skill under the hub's own per-speaker settings, which this server does not change.
+
+`THALOVANT_MCP_READONLY` keeps the two reads and leaves the announce tool out, even with the opt-in. See [Intercom in the docs](https://docs.thalovant.com/concepts/intercom/).
+
+> **Dependency note.** The Node SDK's intercom methods (`announce`, `getAnnouncement`, `listIntercomSpeakers`, ...) are not published yet. Until they are, `src/intercom-sdk.ts` calls the same routes directly (same origin, HTTPS and no-redirect rules as the SDK, no retry). Swap its three functions for the SDK's when `@thalovant/sdk` ships them; nothing else changes.
 
 ## Local Stdio
 
@@ -317,6 +365,8 @@ export MCP_TOOL_DENYLIST="thalovant_delete_memory_item"
 ```
 
 Per-principal credential files may also include `allowedTools` and `deniedTools`.
+
+The runtime tools `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` can reach a hub as a client identity and send it any event. Deny `thalovant_emit_event` (and the others, as your policy requires) wherever an opt-in such as `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` is meant to be the only way to do what the event would do; see [Intercom](#intercom).
 
 Both are call-time filters, and an empty allowlist means "allow everything". They cannot make a tool default-off or hide it from `tools/list`, which is why the two destructive control-plane tools are gated separately by `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`. See [Destructive Tools](#destructive-tools).
 
@@ -625,7 +675,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.8.0 requires `@thalovant/sdk` `^0.11.0` (0.11.0 through versions below 0.12.0), which carries `browserLogin()` and `interactiveLogin()` for browser sign-in, as well as the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
+Version 0.9.0 requires `@thalovant/sdk` `^0.11.0` (0.11.0 through versions below 0.12.0), which carries `browserLogin()` and `interactiveLogin()` for browser sign-in, as well as the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`
@@ -705,7 +755,7 @@ one tool for every SDK conversation or event-listener method.
 
 ### Shared-runtime skill management
 
-The catalog has 61 default tools, 28 in read-only mode, and 65 with destructive tools enabled.
+The catalog has 63 default tools, 30 in read-only mode, and 67 with destructive tools enabled; `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` adds one.
 
 Hub-addressed skill methods select the runtime group attached to the hub UUID.
 Every hub sharing that group sees the same skill changes and history. The API

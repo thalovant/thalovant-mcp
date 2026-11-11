@@ -1,6 +1,19 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: 0.8.0 dated for the tag, against the published @thalovant/sdk 0.11.0.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
 
 # Changelog
+
+## 0.9.0 - 2026-11-11
+
+Intercom: an agent can see a hub's speakers, follow an announcement, and, when the operator opts in, say a short text aloud in a home. Intercom is not a certified safety system.
+
+- **`thalovant_intercom_list_speakers`** and **`thalovant_intercom_get_announcement`** (read-only, `intercom:read`): speakers with `online`, `receive`, `room`, `groups` and do-not-disturb; an announcement's status and each speaker's result in words. Output is whitelisted; no text.
+- **`thalovant_intercom_announce`**, registered only with `THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1` (`intercom:send`). Text 1-280 plain characters (no control characters, line breaks, text-direction marks or `<` `>`); explicit targets (`speakers`, `rooms` or `groups`, one kind per call; `allowAll: true` for every speaker and nothing else); `priority: "urgent"` needs `confirmUrgent: true` and may repeat (`repeatTimes` 1-10, `repeatIntervalSeconds` 5-120); an `Idempotency-Key` is generated (or `idempotencyKey`); never retried after an unreachable API, with a hint to read the announcement first and resend only with the same key. The description says the text is spoken aloud in a home and carries the not-a-safety-system notice.
+- **The text is never stored or audited.** `mcp.intercom.announce` records `textLen`, `textSha256`, `targets`, `priority` and the outcome even when `MCP_AUDIT_INCLUDE_ARGS` is off; with it on, the generic entry shows `text` as `[omitted: N characters]`.
+- **Guardrail note.** `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` reach a hub as a client identity, so the opt-in alone does not stop a hub speaking: deny `thalovant_emit_event` (and `thalovant_send_action`) with `MCP_TOOL_DENYLIST`. `thalovant_config_status` gains `intercomAnnounceEnabled` and `intercomGateNote`.
+- Read-only mode registers the two reads and never the announce tool.
+- The catalog has 63 default tools (30 in read-only mode, 67 with destructive tools enabled; one more with the Intercom opt-in).
+- **Dependency, unreleased:** the Intercom routes are called through `src/intercom-sdk.ts` until `@thalovant/sdk` publishes its intercom methods; the lock is unchanged.
+- `package.json`, `package-lock.json`, `server.json`, the OCI label, the README and this file move to 0.9.0 together. The parity contract refreshes the evidence hashes of `src/index.ts` and `test/provisioning.test.ts`.
 
 ## 0.8.0 - 2026-11-08
 

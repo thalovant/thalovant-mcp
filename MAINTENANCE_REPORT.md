@@ -1,6 +1,23 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: CodeRabbit on d591ad3: a device login's wait is the server's, not the API's; what a poll answers once the sign-in is forgotten.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
 
 # Maintenance Report
+
+## 2026-11-11 - Intercom tools (0.9.0, unreleased)
+
+**Changes**
+
+- New tools `thalovant_intercom_list_speakers`, `thalovant_intercom_get_announcement` and, behind `THALOVANT_ENABLE_INTERCOM_ANNOUNCE`, `thalovant_intercom_announce` (`src/index.ts`, `src/intercom-output.ts`, `src/intercom-sdk.ts`).
+- `thalovant_config_status`: `intercomAnnounceEnabled`, `intercomGateNote`. Audit: `mcp.intercom.announce` record and text-free `auditArgs()`.
+- Tool counts: 63 default, 30 read-only, 67 destructive, +1 with the Intercom opt-in. Version 0.9.0 in `package.json`, `package-lock.json`, `server.json`, Dockerfile label, README.
+- README, QUICK_FACTS, FAQ, CHANGELOG, AUDIT, SUGGESTIONS, docs/index.md, `.env.example` updated. Parity evidence hashes of `src/index.ts` and `test/provisioning.test.ts` refreshed (the Python reference was mid-change locally, so the parity script could not be run to completion).
+
+**Verification:** typecheck, build, `npm test` 579 passed in 24 files.
+
+**Transparency Report**
+
+- AI Model: Claude Sonnet 5.5.
+- Actions Taken: designed and wrote the three tools, the adapter, the output module, the tests and the documentation listed above, from the Intercom contract v1.
+- Oversight: none yet beyond the agent's own test runs; a human review of the tool descriptions, the denylist guidance and the adapter is required before release.
 
 ## 2026-11-08 — CodeRabbit on d591ad3: the server's wait and the API's code
 

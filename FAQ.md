@@ -1,6 +1,29 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: @thalovant/sdk 0.11.0 is on npm: the CI question is answered for good.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
 
 # FAQ
+
+## Intercom
+
+### Why is there no `thalovant_intercom_announce` in my tool list?
+
+It is registered only when the operator sets `THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1`, because it makes speakers in a home talk. The two reads (`thalovant_intercom_list_speakers`, `thalovant_intercom_get_announcement`) are always there, and read-only mode never registers the announce tool.
+
+### Does the opt-in mean an agent cannot make a hub speak without it?
+
+No. `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` reach a hub as a client identity. Deny `thalovant_emit_event` (and `thalovant_send_action`) with `MCP_TOOL_DENYLIST` if the opt-in is meant to be the only way. `thalovant_config_status` names the tools still allowed in `intercomGateNote`.
+
+### An announcement failed with "could not reach the Thalovant API". Should I resend it?
+
+No: it may already have been spoken. The error gives the idempotency key; read the announcement with `thalovant_intercom_get_announcement` if you have its id, or ask the household, and resend only with that same `idempotencyKey`.
+
+### Is the text kept anywhere?
+
+No. The platform stores its length and SHA-256; this server's audit log records the same (`mcp.intercom.announce`), even with `MCP_AUDIT_INCLUDE_ARGS` on. Tool answers never carry it.
+
+### Is Intercom a safety system?
+
+No. It does not replace smoke or CO alarms, medical alert devices or emergency services.
+
 
 ## Browser sign-in
 

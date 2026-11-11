@@ -15,6 +15,19 @@ import { BrowserLogins, DEFAULT_SIGN_IN_TIMEOUT_MS, SignInWatch, defaultDeviceNa
 import type { Shown } from "./browser-login.js";
 import { DeviceLogins } from "./device-login.js";
 import { inventoryPresentation } from "./inventory-output.js";
+import type { IntercomAnnounceBody } from "./intercom-sdk.js";
+import { announce as intercomAnnounce, getAnnouncement as intercomGetAnnouncement, listIntercomSpeakers } from "./intercom-sdk.js";
+import {
+  INTERCOM_MAX_SPEAKERS,
+  INTERCOM_MAX_TEXT,
+  INTERCOM_NOTICE,
+  announcementDigest,
+  announcementOutput,
+  auditTargets,
+  checkAnnouncementText,
+  resolveTargets,
+  speakersOutput,
+} from "./intercom-output.js";
 import { runtimeReplyContent } from "./reply-output.js";
 import { throwIfRuntimeCancelled, withRuntimeLease } from "./runtime-lease.js";
 
@@ -260,6 +273,35 @@ function gitSkillSourcesEnabled(): boolean {
   return parseBool(process.env.THALOVANT_ENABLE_GIT_SKILL_SOURCES, false);
 }
 
+/**
+ * Intercom announcements are opt-in.
+ *
+ * thalovant_intercom_announce makes speakers in a home say a sentence aloud, so
+ * it is not registered unless the operator sets THALOVANT_ENABLE_INTERCOM_ANNOUNCE.
+ * The reads (speakers, one announcement) are always registered. Registration is
+ * the only gate on this tool: the runtime tools thalovant_emit_event,
+ * thalovant_ask, thalovant_query and thalovant_send_action reach a hub as a
+ * client identity and can send it any event, which an intercom skill on the hub
+ * may answer, so an operator who relies on this gate must also deny
+ * thalovant_emit_event (and the others, as policy requires) with
+ * MCP_TOOL_DENYLIST. See README "Intercom".
+ */
+function intercomAnnounceEnabled(): boolean {
+  return parseBool(process.env.THALOVANT_ENABLE_INTERCOM_ANNOUNCE, false);
+}
+
+/**
+ * The runtime tools that can reach a hub's bus as a client identity, whatever
+ * the intercom gate says, and that the server's own tool policy still allows.
+ */
+function intercomBypassTools(): string[] {
+  const deny = toolListFromEnv("MCP_TOOL_DENYLIST", "THALOVANT_MCP_TOOL_DENYLIST");
+  const allow = toolListFromEnv("MCP_TOOL_ALLOWLIST", "THALOVANT_MCP_TOOL_ALLOWLIST");
+  return ["thalovant_emit_event", "thalovant_send_action", "thalovant_ask", "thalovant_query"].filter(
+    (name) => listAllowsTool(allow, name) && !listDeniesTool(deny, name),
+  );
+}
+
 /** The default install source is the vetted marketplace catalog. */
 function isCatalogSource(sourceType: string | undefined): boolean {
   return !sourceType || sourceType.trim().toLowerCase() === "catalog";
@@ -485,6 +527,29 @@ function withConnectionHint(error: unknown, connectionType?: string): never {
 /** Rethrow a refused chat app call with its guidance (see chat-apps-output.ts), when it has any. */
 function withBridgeHint(error: unknown): never {
   const hint = bridgeErrorHint(error);
+  if (!hint) throw error;
+  const said = apiErrorText(error, redactSecrets) ?? (error instanceof Error ? error.message : String(error));
+  throw new Error(`${said}\n\n${hint}`, { cause: error });
+}
+
+/** Rethrow a refused Intercom call with its guidance, when it has any. */
+function withIntercomHint(error: unknown, extra?: string): never {
+  const status = error instanceof ThalovantApiError ? error.statusCode : undefined;
+  const code = error instanceof ThalovantApiError ? error.code : undefined;
+  let hint: string | undefined;
+  if (error instanceof ThalovantApiUnreachableError) {
+    hint = `${extra ?? ""} Nothing is known about whether the announcement was spoken. Do NOT send it again: ask the people in the home, or read it first with thalovant_intercom_get_announcement when you have its id.`.trim();
+  } else if (code === "intercom_disabled") {
+    hint = "Intercom is off for this hub. It is switched on by the hub's owner or an admin in the console (hub > Intercom) or with PUT /v1/hubs/{hub_id}/intercom/settings; no tool of this server does it.";
+  } else if (status === 429) {
+    hint = "Intercom is rate-limited per hub (20 normal announcements a minute, 10 urgent an hour). Wait for the Retry-After above before trying again.";
+  } else if (code === "plan_limit" || status === 402) {
+    hint = "The plan does not include Intercom. Moving the workspace to a paid plan that owns hubs adds it; granting a scope will not help.";
+  } else if (status === 403) {
+    hint = "The token needs the intercom:send scope to announce and intercom:read to read, on a hub the account owns or administers (a hub-restricted token must include this hub).";
+  } else if (status === 502 || code === "hub_unreachable") {
+    hint = "The hub did not answer, so nothing is known to have been spoken. Check the hub is online before trying again.";
+  }
   if (!hint) throw error;
   const said = apiErrorText(error, redactSecrets) ?? (error instanceof Error ? error.message : String(error));
   throw new Error(`${said}\n\n${hint}`, { cause: error });
@@ -905,6 +970,18 @@ async function auditLog(event: Record<string, unknown>): Promise<void> {
   }
 }
 
+/**
+ * What the audit log may record of a call's arguments when MCP_AUDIT_INCLUDE_ARGS
+ * is on. An announcement's text is spoken in a home and is never stored, so it
+ * is replaced by its length here, as everywhere else.
+ */
+function auditArgs(toolName: string, args: any): unknown {
+  if (toolName === "thalovant_intercom_announce" && args && typeof args === "object") {
+    return { ...args, text: typeof args.text === "string" ? `[omitted: ${[...args.text].length} characters]` : undefined };
+  }
+  return args;
+}
+
 function registerThalovantTool(
   server: McpServer,
   name: string,
@@ -933,7 +1010,7 @@ function registerThalovantTool(
         clientId: principal.clientId,
         status: "ok",
         durationMs: Date.now() - start,
-        args: parseBool(process.env.MCP_AUDIT_INCLUDE_ARGS, false) ? args : undefined,
+        args: parseBool(process.env.MCP_AUDIT_INCLUDE_ARGS, false) ? auditArgs(name, args) : undefined,
       });
       return result as any;
     } catch (error) {
@@ -1732,6 +1809,10 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         destructiveToolsEnabled: destructiveToolsEnabled(),
         destructiveTools: destructiveToolsEnabled() ? [...DESTRUCTIVE_TOOLS] : [],
         gitSkillSourcesEnabled: gitSkillSourcesEnabled(),
+        intercomAnnounceEnabled: intercomAnnounceEnabled(),
+        intercomGateNote: intercomAnnounceEnabled() && intercomBypassTools().length > 0
+          ? `thalovant_intercom_announce is enabled, but ${intercomBypassTools().join(", ")} can still send events to a hub as a client identity. Deny thalovant_emit_event (at least) with MCP_TOOL_DENYLIST if the intercom opt-in is meant to be the only way to speak in a home.`
+          : undefined,
         readOnly: readOnlyModeEnabled(),
         identityDir: identityBaseDir(),
         secretHandling:
@@ -3460,6 +3541,110 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
       return jsonContent(redactSecrets({ ...result, operation: result.operation ?? null }));
     },
   );
+
+  // Intercom (/v1/hubs/{hub_id}/intercom): announce-only, text spoken by each
+  // speaker's own TTS. The two reads are always registered; the announce tool
+  // only with THALOVANT_ENABLE_INTERCOM_ANNOUNCE. The text is never stored or
+  // audited: see intercom-output.ts. The HTTP calls go through intercom-sdk.ts
+  // until the published SDK carries them.
+  registerThalovantTool(server,
+    "thalovant_intercom_list_speakers",
+    {
+      title: "List Intercom Speakers",
+      description:
+        "List the speakers of a hub's Intercom (GET /v1/hubs/{hub_id}/intercom/speakers): each client of the hub with online, last_seen_at and its intercom settings: receive (false unless the owner switched it on: a speaker with receive false is never spoken to), room, groups and do-not-disturb with quiet hours. Use it to choose targets for thalovant_intercom_announce: rooms and groups are the room and groups values listed here. Requires the intercom:read scope and a plan that includes Intercom. Reads only.",
+      inputSchema: { ...controlPlaneSchema, hubId: z.string().uuid().describe("Hub UUID (not the slug).") },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ hubId, ...auth }, extra) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(speakersOutput(await listIntercomSpeakers(api, hubId, extra?.signal).catch((error: unknown) => withIntercomHint(error)), redactSecrets));
+    },
+  );
+
+  registerThalovantTool(server,
+    "thalovant_intercom_get_announcement",
+    {
+      title: "Get Intercom Announcement",
+      description:
+        "Read one Intercom announcement (GET /v1/hubs/{hub_id}/intercom/announcements/{id}): its status (completed, partial, failed, or sending while an urgent one repeats), priority, created_at, the result for each speaker (delivered, acked, offline, skipped_dnd, skipped_not_receiving, failed) and acked_by. The text is never returned: the platform does not store it. Poll an urgent announcement with this until it is no longer sending. Requires the intercom:read scope. Reads only.",
+      inputSchema: {
+        ...controlPlaneSchema,
+        hubId: z.string().uuid().describe("Hub UUID (not the slug)."),
+        announcementId: z.string().min(1).max(128).describe("The id thalovant_intercom_announce returned."),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    async ({ hubId, announcementId, ...auth }, extra) => {
+      const api = await createControlPlane(auth);
+      ensureAuthenticated(api);
+      return jsonContent(
+        announcementOutput(await intercomGetAnnouncement(api, hubId, announcementId, extra?.signal).catch((error: unknown) => withIntercomHint(error)), redactSecrets),
+      );
+    },
+  );
+
+  if (intercomAnnounceEnabled()) {
+    registerThalovantTool(server,
+      "thalovant_intercom_announce",
+      {
+        title: "Announce On Intercom",
+        description:
+          `Say a short sentence ALOUD on speakers in a real home (POST /v1/hubs/{hub_id}/intercom/announce). The text is spoken by each speaker's own text-to-speech, to whoever is in the room, so send only what the household would want to hear and never anything private, secret or alarming that the person did not ask for. ${INTERCOM_NOTICE} Do not use it for emergencies: call the emergency services instead. The text is at most ${INTERCOM_MAX_TEXT} characters of plain text (no control characters, line breaks or < > markup) and is NOT stored by the platform or this server (only its length and a hash are audited). Name explicit targets: speakers (client ids or slugs, at most ${INTERCOM_MAX_SPEAKERS}), OR rooms, OR groups (read them with thalovant_intercom_list_speakers). Speaking on every speaker needs allowAll: true and nothing else. Only speakers whose owner switched receive on are spoken to; others come back skipped_not_receiving, and normal announcements skip do-not-disturb. priority urgent repeats (repeatTimes 1-10, repeatIntervalSeconds 5-120) until someone says they heard it, bypasses do-not-disturb, answers status sending (HTTP 202) and needs confirmUrgent: true, which you set only after the person confirmed an urgent announcement. Rate limits per hub: 20 normal a minute, 10 urgent an hour (429). It is sent once, with an idempotency key: if the API cannot be reached the announcement may already have been spoken, so it is NOT retried; read it first (thalovant_intercom_get_announcement) or ask the household, and only resend with the same idempotencyKey. Requires the intercom:send scope, a plan with Intercom, and Intercom switched on for the hub by its owner. This tool exists only when the operator sets THALOVANT_ENABLE_INTERCOM_ANNOUNCE.`,
+        inputSchema: {
+          ...controlPlaneSchema,
+          hubId: z.string().uuid().describe("Hub UUID (not the slug)."),
+          text: z.string().min(1).max(1_000).describe(`What to say aloud, at most ${INTERCOM_MAX_TEXT} characters after trimming, plain text.`),
+          speakers: z.array(z.string().min(1).max(128)).min(1).max(INTERCOM_MAX_SPEAKERS).optional().describe("Client ids or slugs to speak on. Use only one of speakers, rooms, groups, allowAll."),
+          rooms: z.array(z.string().min(1).max(64)).min(1).max(INTERCOM_MAX_SPEAKERS).optional().describe("Room names, as thalovant_intercom_list_speakers shows them."),
+          groups: z.array(z.string().min(1).max(32)).min(1).max(INTERCOM_MAX_SPEAKERS).optional().describe("Group names, as thalovant_intercom_list_speakers shows them."),
+          allowAll: z.boolean().optional().describe("true to speak on every speaker of the hub that receives announcements. Never set it unless the person asked for everyone."),
+          priority: z.enum(["normal", "urgent"]).default("normal").describe("normal, or urgent: repeats until acknowledged and ignores do-not-disturb."),
+          confirmUrgent: z.boolean().optional().describe("Required true for urgent: set it only after the person confirmed an urgent announcement."),
+          repeatTimes: z.number().int().min(1).max(10).optional().describe("Urgent only: how many times to say it, 1-10."),
+          repeatIntervalSeconds: z.number().int().min(5).max(120).optional().describe("Urgent only: seconds between repeats, 5-120. Defaults to 30 when repeatTimes is set."),
+          lang: z.string().min(2).max(16).optional().describe("Language tag of the text, for example en-US or fr-FR."),
+          idempotencyKey: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/).optional().describe("Reuse the key of an earlier try to resend safely after an unreachable-API error. Generated when omitted."),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+      },
+      async ({ hubId, text, speakers, rooms, groups, allowAll, priority, confirmUrgent, repeatTimes, repeatIntervalSeconds, lang, idempotencyKey, ...auth }, extra) => {
+        // Checks first, before any credential or request; none repeats the text.
+        const clean = checkAnnouncementText(text);
+        const targets = resolveTargets({ speakers, rooms, groups, allowAll });
+        if (priority === "urgent" && confirmUrgent !== true) {
+          throw new Error("An urgent announcement repeats until someone acknowledges it and ignores do-not-disturb. Ask the person to confirm, then set confirmUrgent to true.");
+        }
+        if (priority !== "urgent" && (repeatTimes !== undefined || repeatIntervalSeconds !== undefined)) {
+          throw new Error("repeatTimes and repeatIntervalSeconds apply to urgent announcements only.");
+        }
+        const body: IntercomAnnounceBody = { text: clean, targets, priority };
+        if (priority === "urgent" && repeatTimes !== undefined) {
+          body.repeat = { times: repeatTimes, interval_seconds: repeatIntervalSeconds ?? 30 };
+        }
+        if (lang) body.lang = lang;
+        const key = idempotencyKey ?? randomUUID();
+        const record = { event: "mcp.intercom.announce", hubId, ...announcementDigest(clean), targets: auditTargets(targets), priority, idempotencyKey: key };
+        const principal = currentPrincipal();
+        const audit = (outcome: Record<string, unknown>) =>
+          auditLog({ ts: new Date().toISOString(), principalId: principal.id, clientId: principal.clientId, ...record, ...outcome });
+        try {
+          const api = await createControlPlane(auth);
+          ensureAuthenticated(api);
+          const result = await intercomAnnounce(api, hubId, body, { idempotencyKey: key, signal: extra?.signal }).catch((error: unknown) =>
+            withIntercomHint(error, `Idempotency key ${key}: resend only with this key.`),
+          );
+          const output = announcementOutput(result, redactSecrets) as Record<string, unknown>;
+          await audit({ status: "sent", announcementId: output.id, announcementStatus: output.status });
+          return jsonContent({ ...output, notice: INTERCOM_NOTICE });
+        } catch (error) {
+          await audit({ status: "error", error: error instanceof Error ? error.message.split("\n")[0] : "error" });
+          throw error;
+        }
+      },
+    );
+  }
 
   // Chat apps (/v1/bridges): a hub answering in Telegram, Discord and the
   // other chat networks. Creating a bridge and replacing its token or secrets

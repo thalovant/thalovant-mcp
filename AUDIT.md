@@ -1,6 +1,15 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Browser sign-in (0.8.0) against the published @thalovant/sdk 0.11.0: the release gate on it is closed.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
 
 # Audit
+
+## Intercom (2026-11-11, 0.9.0, unreleased)
+
+- `npm run typecheck`, `npm run build`, `npm test`: 24 files, 579 tests passed (includes `test/intercom.test.ts` and `test/intercom-output.test.ts`, 18 tests).
+- Boundary: the announce tool is registered by `intercomAnnounceEnabled()` in `src/index.ts` only; `THALOVANT_MCP_READONLY` drops it even with the opt-in (`test/intercom.test.ts`, "registration").
+- Known gap, documented not fixed: the runtime tools `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` (`src/index.ts`) can reach a hub's bus as a client identity and so can trigger the hub's intercom skill without this opt-in or its checks (280 characters, explicit targets, urgent confirmation). Mitigation: deny them (`MCP_TOOL_DENYLIST`); `thalovant_config_status` reports `intercomGateNote` (`intercomBypassTools()`).
+- Technical debt: `src/intercom-sdk.ts` duplicates the SDK transport rules until the SDK publishes its intercom methods (SUGGESTIONS.md).
+- Privacy: the text never reaches the audit log, an error or an output (`auditArgs()`, `checkAnnouncementText()`, `announcementOutput()`; tested with `MCP_AUDIT_INCLUDE_ARGS` on and off and with a 422 that echoes the text). The text is in memory, in the request to the API, and in the MCP client's own transcript, which this server cannot control.
+- Not verified: against a real API and hub. The routes exist only in the contract (`/tmp/rt/intercom/CONTRACT.md`) and in the API branch under development; the tests use a loopback fake.
 
 ## Browser sign-in (2026-11-08, 0.8.0, unreleased)
 

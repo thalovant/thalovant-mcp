@@ -1,6 +1,18 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: @thalovant/sdk 0.11.0 is on npm and in the lock; what is left after the rollout.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
 
 # Follow-up
+
+## Intercom: take the SDK's methods and add the list tool (0.9.0)
+
+- **Problem:** `src/intercom-sdk.ts` calls the Intercom routes directly because `@thalovant/sdk` has not published its intercom methods. A second copy of request and error handling is a drift risk. Also, after an unreachable API an agent has no way to find an announcement whose id it never received.
+- **Proposal:** when the SDK ships `announce`, `getAnnouncement` and `listIntercomSpeakers`, replace the three functions of `src/intercom-sdk.ts` and delete its fetch code. Add `thalovant_intercom_list_announcements` (`GET /announcements?limit&cursor`, `intercom:read`, read-only) so the "read it first" hint can be followed without an id.
+- **Impact:** small; one file and one read tool (63 -> 64 default tools, 30 -> 31 read-only).
+
+## A denylist profile for hubs that speak
+
+- **Problem:** `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` is only meaningful with `thalovant_emit_event` denied; operators must know to do both.
+- **Proposal:** a documented preset or a single `THALOVANT_MCP_PROFILE=household` that registers the announce tool and denies the raw runtime event tools together.
+- **Impact:** small; one env switch, one test per tool.
 
 ## Give `interactiveLogin()` a structured prompt (Node SDK)
 

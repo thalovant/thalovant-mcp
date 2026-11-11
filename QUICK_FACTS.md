@@ -1,14 +1,14 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Version 0.8.0 prepared against the published @thalovant/sdk 0.11.0.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
 
 # Quick Facts
 
 | Fact | Value |
 | --- | --- |
 | Package | `@thalovant/mcp-server` (npm), `ghcr.io/thalovant/thalovant-mcp` (OCI), `io.github.thalovant/thalovant-mcp` (MCP Registry) |
-| Version | 0.8.0 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
+| Version | 0.9.0 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
 | Entry point | `thalovant-mcp` bin, `dist/index.js`: stdio by default, Streamable HTTP with `--http` |
 | Thalovant SDK | `@thalovant/sdk` ^0.11.0 (`browserLogin()`, `interactiveLogin()`, chat app methods, `ThalovantApiError.fields`) |
-| Tools | 61 by default, 28 with `THALOVANT_MCP_READONLY`, 65 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` |
+| Tools | 63 by default, 30 with `THALOVANT_MCP_READONLY`, 67 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`; `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` adds 1 |
 | Validation | `npm ci`, `npm run typecheck`, `npm run build`, `npm test`, `npm run test:smoke`, `npm run test:http` |
 | Refusal hints by code (409) | `skill_unavailable_licensing`, `skill_unavailable_unpublished` (0.7.2), any other `skill_unavailable_*`, `memory_limit`, `skill_version_already_installed` (generic), in `controlPlaneErrorHint` (`src/index.ts`) |
 
@@ -28,6 +28,20 @@ Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Version 0.8.0 prepared against
 | `thalovant_config_status` | `transport`, `browserLoginAvailable`, `deviceLoginSignedIn` (either sign-in) |
 | Parity | capability `browser-login`, required; vectors `test/browser-login-vectors.json` (119 cases, from Python 39e31d8) |
 | Reference digests | current `57c7e71f6456`, final candidate `6dfb3bb31ac7` |
+
+## Intercom tools (0.9.0)
+
+| Tool | Route | Scope | Kind |
+| --- | --- | --- | --- |
+| `thalovant_intercom_list_speakers` | `GET /v1/hubs/{hub_id}/intercom/speakers` | `intercom:read` | read-only |
+| `thalovant_intercom_get_announcement` | `GET /v1/hubs/{hub_id}/intercom/announcements/{id}` | `intercom:read` | read-only |
+| `thalovant_intercom_announce` | `POST /v1/hubs/{hub_id}/intercom/announce` | `intercom:send` | write; registered only with `THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1` |
+
+- Not a certified safety system. Off by default at every level (hub feature, each speaker's `receive`, this tool).
+- Text 1-280 plain characters (no control characters, `<` `>`); explicit targets (`speakers` | `rooms` | `groups`, or `allowAll: true`); urgent needs `confirmUrgent: true`; auto `Idempotency-Key`; never retried after an unreachable API.
+- The text is never stored or audited: audit record `mcp.intercom.announce` has `textLen`, `textSha256`, `targets`, `priority`, even with `MCP_AUDIT_INCLUDE_ARGS` off. Output whitelist: `src/intercom-output.ts`.
+- Other doors: `thalovant_emit_event`, `thalovant_ask`, `thalovant_query`, `thalovant_send_action` reach a hub as a client identity; deny `thalovant_emit_event` for the gate to be meaningful. `thalovant_config_status`: `intercomAnnounceEnabled`, `intercomGateNote`.
+- Dependency: `src/intercom-sdk.ts` calls the routes directly until `@thalovant/sdk` publishes its intercom methods.
 
 ## Chat apps tools (0.7.0)
 
