@@ -1,10 +1,11 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Index the browser sign-in tools added in 0.8.0 (@thalovant/sdk 0.11.0).
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform security review): intercom:urgent check, new problem codes in tool errors, kind/can_play/policy_synced, replayed, the API's text rule; parity capability intercom recorded.
 
 # MCP Documentation
 
 - [README](../README.md): installation, configuration, tools and runtime compatibility.
 - [Browser Sign-In](../README.md#browser-sign-in): signing a person in through the browser on their own computer over stdio, and why a hosted server uses a device login.
 - [Chat Apps](../README.md#chat-apps): the chat app tools, what each bridge's status means, and why tokens stay in the console.
+- [Intercom](../README.md#intercom): the speaker, announcement and cancel tools (kind, can_play, policy_synced, replayed, the intercom:urgent scope and the API's problem codes), the opt-in, the person's confirmation for urgent and every-speaker announcements, the hub allowlist and rate cap, the message types the generic runtime tools refuse, and the not-a-safety-system notice.
 - [Security policy](../SECURITY.md): reporting vulnerabilities.
 - [Changelog](../CHANGELOG.md): release changes.
 - [Quick facts](../QUICK_FACTS.md) and [FAQ](../FAQ.md): package facts, tool counts, chat apps and the dependency patch.

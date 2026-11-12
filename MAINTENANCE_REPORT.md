@@ -1,6 +1,96 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: CodeRabbit on d591ad3: a device login's wait is the server's, not the API's; what a poll answers once the sign-in is forgotten.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: CodeRabbit round 3 on PR 128: malformed 2xx announcement/cancel/read answers, cancelled with no hub_confirmed, pending delivery results, strict rate-limit integers, audit never hides a sent announcement, the confirmation prompt is not written to the event-store file, 24-hour key wording, FAQ/README wording.
 
 # Maintenance Report
+
+## 2026-11-12 - CodeRabbit round 3 on PR 128 (Intercom)
+
+Eighteen new inline comments (c46e4d1 and earlier): ten are CodeRabbit's own "thanks, verified" replies in already resolved threads (nothing to do), three are older findings of 5929de4 that are now stale or still open, eight are new. Plus one out-of-diff finding in the review body of 5929de4. Fixed: all valid ones; declined: none (the gate-note one is already obsolete, see AUDIT.md).
+
+**Changes**
+
+- `src/intercom-sdk.ts`: a 2xx POST body that is not a JSON object is an uncertain outcome (`ThalovantApiUnreachableError`), so the announce handler gives the key and the do-not-resend guidance; `getAnnouncement` requires `id` and `status`; `cancelAnnouncement` reports the same as an unknown outcome.
+- `src/intercom-output.ts`: "Stopped" only for `hub_confirmed: true`, an unknown message when it is absent; `sending` with no results reads "delivery results pending".
+- `src/intercom-policy.ts`: `positiveInt` accepts only a whole decimal integer; the confirmation prompt's last line is exact about storage.
+- `src/index.ts`: hints (the local urgent cap counts a refused attempt; the 502 without id; the 24-hour key limit), the tool description's storage sentence, `FileEventStore.storeEvent` skips `elicitation/create`, `auditLogBestEffort` for the announce and cancel tools.
+- README, FAQ, QUICK_FACTS, CHANGELOG, AUDIT, SUGGESTIONS (two new proposals: release a refused attempt's rate slot; write the audit intent before sending), `.env.example`.
+- Tests: `test/intercom.test.ts` +11 (non-object 2xx, four on reading an announcement that is malformed, cancelled without `hub_confirmed` or pending, a malformed cancel answer, busy counts against the cap, the 24-hour wording, three audit-failure cases; the 502-without-id test extended), `test/intercom-output.test.ts` +1, `test/intercom-policy.test.ts` +1, `test/http.test.ts` asserts the event-store file holds no prompt. Each new test fails on the previous source.
+- `contracts/sdk-parity.json`: evidence hashes refreshed for the files this round changed; `reference_digests` untouched (the SDK agent maintains it).
+
+**Verification:** `npm run typecheck`, `npm run build`, `npm test` 723 passed in 26 files (710 before), `npm run test:smoke` 2, `npm run test:http` 12. Not run against a real API or hub.
+
+**Transparency Report**
+
+- AI Model: Claude Sonnet 5.5.
+- Actions Taken: read CodeRabbit's comments and the API notes (`CONSOLE_API_NOTES.md` sections 2, 3 and 9, `CONTRACT.md` sections I and J, `SECURITY_REVIEW_CLIENTS.md`), checked each finding against the current code, changed the code, tests and docs above, ran the suites (and the new tests against the previous source), refreshed the parity evidence hashes, committed and answered the review threads.
+- Oversight: none beyond the agent's own test runs; a human review of the best-effort audit and the event-store skip is still required before release.
+
+## 2026-11-12: Intercom final API (platform security review)
+
+Aligned the MCP server with the final Intercom API. **Code**: `src/intercom-output.ts` (the API's text rule, speaker `kind`/`can_play`/`policy_synced`, list `policy_synced`/`unavailable_reason`, delivery `detail`, `delivery_note`, `replayed`); `src/intercom-sdk.ts` (`announce` returns `{ result, replayed }` from `Idempotency-Replayed`); `src/index.ts` (hints for `urgent_scope_required`, `intercom_urgent_busy`, `skill_not_installed`, `not_a_speaker`, `too_many_targets`, `hub_locked`, `impersonation_not_allowed`, `intercom_unavailable`, `intercom_disabled_platform`, `intercom_not_configured`, `managed_client`, `reserved_name`, `not_cancellable` with the current status; the `intercom:urgent` check against the granted scopes of a sign-in; `lang` as a language tag; tool descriptions); `src/device-login.ts`, `src/browser-login.ts` (the granted scopes are kept with a sign-in); `src/intercom-policy.ts` (`urgent_scope_missing`). **Parity**: `contracts/sdk-parity.json` records the `intercom` capability (required) with evidence, and acknowledges the Python reference digest `69badc4fb072703e675ce50ae3a09765bf49cbf65efcc2fef5befb46f2b32a8c`.
+
+Verification: `npm run typecheck`, `npm run build` clean; `npm test` 26 files, 710 tests passed (34 new: `test/intercom.test.ts`, `test/intercom-output.test.ts`); `scripts/check-sdk-parity.py --workspace /tmp/ic-work --consumer thalovant-mcp` passes. Not run against a real API or hub.
+
+Transparency Report: AI model Claude Sonnet 5.5; actions: aligned the MCP server with the final Intercom API (code, tests, docs, parity record); oversight: none yet, review pending.
+
+## 2026-11-12 - Intercom Amendment 2 (MCP items of contract section J), 0.9.0, unreleased
+
+Binding input: `/tmp/rt/intercom/CONTRACT.md` section J and the MCP findings of `/tmp/rt/intercom/SECURITY_REVIEW_CLIENTS.md` (H1, M1, M6, M7 and the lows that touch this repository).
+
+**Changes**
+
+- `src/bus-guard.ts` (new): `refusedBusType`, `assertBusTypeAllowed`, `busTypesOfFrame`, `guardRuntimeClient`. `thalovant_emit_event` refuses `thalovant.intercom.*`, `speak` and `ovos.utterance.speak` before connecting; every runtime client is built guarded, so `thalovant_ask`, `thalovant_query`, `thalovant_send_action` and `thalovant_send_code` cannot carry them either.
+- `src/intercom-policy.ts` (new): `requireConfirmation` (MCP elicitation, refusing when unsupported, declined, failed or in HTTP JSON-response mode), `IntercomRateCap` and `intercomRateLimits`, `intercomHubAllowlist` and `assertIntercomHubAllowed`, `IntercomRefusal`.
+- `src/intercom-output.ts`: `cleanLabel` / `stripUnsafeText` on every label and on the API's words in errors; the household-labels note; `hub_confirmed` and the cancelled wording; the audit digest is an HMAC-SHA256.
+- `src/intercom-sdk.ts`: `cancelAnnouncement`, and dot-segment ids refused.
+- `src/index.ts`: `thalovant_intercom_announce` (`destructiveHint: true`, confirmation, allowlist, rate cap, UUID-only keys, 502 `announcement_id` guidance, `refused` audit outcomes), new `thalovant_intercom_cancel_announcement`, allowlist on the reads, `thalovant_config_status` reports `intercomGuardrails` instead of `intercomGateNote`.
+- Tool counts: 64 default, 30 read-only, 68 destructive, +1 with the Intercom opt-in (`test/provisioning.test.ts`).
+- Tests: `test/intercom.test.ts` 53, `test/intercom-output.test.ts` 12, `test/intercom-policy.test.ts` 14, `test/bus-guard.test.ts` 34 (new), `test/http.test.ts` +2 (confirmation over Streamable HTTP, JSON-response mode). The announce tests that send urgent or `allowAll` now answer an elicitation prompt, and the idempotency-key tests use UUIDs.
+- README, QUICK_FACTS, FAQ, CHANGELOG, AUDIT, SUGGESTIONS, docs/index.md and `.env.example` follow; wording per section J item 7. `contracts/sdk-parity.json`: evidence hashes of `src/index.ts`, `test/http.test.ts` and `test/provisioning.test.ts` refreshed in the capabilities that cite them; `reference_digests` untouched (the SDK agent supplies the Python digest).
+
+**Verification:** `npm run typecheck`, `npm run build`, `npm test` 676 passed in 26 files (584 before), `npm run test:smoke` 2, `npm run test:http` 12.
+
+**Transparency Report**
+
+- AI Model: Claude Sonnet 5.5.
+- Actions Taken: read the contract and the review, designed and wrote the guard, policy and output changes, the cancel tool and their tests, updated the documentation and the parity evidence hashes, and ran the suites.
+- Oversight: none beyond the agent's own test runs; a human review of the confirmation wording, the guard's reach into the SDK client's `transport`, and a manual try in a real MCP client UI are still required before release.
+
+## 2026-11-11 - CodeRabbit on 5179dbf (PR 128): Intercom
+
+Seven inline comments and one out-of-diff note, all valid; none declined.
+
+**Changes**
+
+- `src/intercom-sdk.ts`: `response.text()` now sits in the `try` with `fetch`, so a stalled or broken body is an unreachable API (uncertain delivery, key shown), explicit cancellation unchanged; `announce()` requires a string `id` and `status` on a success, else the same unreachable-API error.
+- `src/index.ts`: `withIntercomHint()` passes the idempotency key to the `502` / `hub_unreachable` hint and, for the announce call only, to any other 5xx; `repeatIntervalSeconds` without `repeatTimes` is refused before any request; `intercomGateNote` and the tool descriptions say all four runtime tools, and that `confirmUrgent` is the caller's assertion.
+- README, FAQ, QUICK_FACTS, CHANGELOG, `.env.example`, AUDIT, SUGGESTIONS: all-four denylist example everywhere, "never stored" scoped to the platform and this server, `confirmUrgent` worded as an assertion.
+- `test/intercom.test.ts`: +5 tests (502 and 5xx keys, truncated body, missing id/status in six shapes, interval without count) and the config-status and refusal tests extended; the new tests fail on the previous source.
+- `contracts/sdk-parity.json`: the evidence hash of `src/index.ts` refreshed in all 15 capabilities that cite it. `check-sdk-parity.py --consumer thalovant-mcp` reports only the Python reference's unreviewed change (`src/thalovant/control.py`, `src/thalovant/intercom.py`), which is the coordinator's reference-digest step; every evidence hash in the file matches its file on disk.
+
+**Verification:** typecheck, build, `npm test` 584 passed in 24 files, `npm run test:smoke` 2, `npm run test:http` 10.
+
+**Transparency Report**
+
+- AI Model: Claude Sonnet 5.5.
+- Actions Taken: read CodeRabbit's review of PR 128, checked each finding against the code, fixed the code and docs above, wrote the tests, and ran them, including against the previous source to confirm the new tests fail without the fix.
+- Oversight: none beyond the agent's own test runs; a human review of the error-handling change in `src/intercom-sdk.ts` and the hint wording is still required before release.
+
+## 2026-11-11 - Intercom tools (0.9.0, unreleased)
+
+**Changes**
+
+- New tools `thalovant_intercom_list_speakers`, `thalovant_intercom_get_announcement` and, behind `THALOVANT_ENABLE_INTERCOM_ANNOUNCE`, `thalovant_intercom_announce` (`src/index.ts`, `src/intercom-output.ts`, `src/intercom-sdk.ts`).
+- `thalovant_config_status`: `intercomAnnounceEnabled`, `intercomGateNote`. Audit: `mcp.intercom.announce` record and text-free `auditArgs()`.
+- Tool counts: 63 default, 30 read-only, 67 destructive, +1 with the Intercom opt-in. Version 0.9.0 in `package.json`, `package-lock.json`, `server.json`, Dockerfile label, README.
+- README, QUICK_FACTS, FAQ, CHANGELOG, AUDIT, SUGGESTIONS, docs/index.md, `.env.example` updated. Parity evidence hashes of `src/index.ts` and `test/provisioning.test.ts` refreshed (the Python reference was mid-change locally, so the parity script could not be run to completion).
+
+**Verification:** typecheck, build, `npm test` 579 passed in 24 files.
+
+**Transparency Report**
+
+- AI Model: Claude Sonnet 5.5.
+- Actions Taken: designed and wrote the three tools, the adapter, the output module, the tests and the documentation listed above, from the Intercom contract v1.
+- Oversight: none yet beyond the agent's own test runs; a human review of the tool descriptions, the denylist guidance and the adapter is required before release.
 
 ## 2026-11-08 — CodeRabbit on d591ad3: the server's wait and the API's code
 

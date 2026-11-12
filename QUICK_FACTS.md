@@ -1,14 +1,14 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Version 0.8.0 prepared against the published @thalovant/sdk 0.11.0.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: CodeRabbit round 3 on PR 128: malformed 2xx announcement/cancel/read answers, cancelled with no hub_confirmed, pending delivery results, strict rate-limit integers, audit never hides a sent announcement, the confirmation prompt is not written to the event-store file, 24-hour key wording, FAQ/README wording.
 
 # Quick Facts
 
 | Fact | Value |
 | --- | --- |
 | Package | `@thalovant/mcp-server` (npm), `ghcr.io/thalovant/thalovant-mcp` (OCI), `io.github.thalovant/thalovant-mcp` (MCP Registry) |
-| Version | 0.8.0 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
+| Version | 0.9.0 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
 | Entry point | `thalovant-mcp` bin, `dist/index.js`: stdio by default, Streamable HTTP with `--http` |
 | Thalovant SDK | `@thalovant/sdk` ^0.11.0 (`browserLogin()`, `interactiveLogin()`, chat app methods, `ThalovantApiError.fields`) |
-| Tools | 61 by default, 28 with `THALOVANT_MCP_READONLY`, 65 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS` |
+| Tools | 64 by default, 30 with `THALOVANT_MCP_READONLY`, 68 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`; `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` adds 1 |
 | Validation | `npm ci`, `npm run typecheck`, `npm run build`, `npm test`, `npm run test:smoke`, `npm run test:http` |
 | Refusal hints by code (409) | `skill_unavailable_licensing`, `skill_unavailable_unpublished` (0.7.2), any other `skill_unavailable_*`, `memory_limit`, `skill_version_already_installed` (generic), in `controlPlaneErrorHint` (`src/index.ts`) |
 
@@ -28,6 +28,33 @@ Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Version 0.8.0 prepared against
 | `thalovant_config_status` | `transport`, `browserLoginAvailable`, `deviceLoginSignedIn` (either sign-in) |
 | Parity | capability `browser-login`, required; vectors `test/browser-login-vectors.json` (119 cases, from Python 39e31d8) |
 | Reference digests | current `57c7e71f6456`, final candidate `6dfb3bb31ac7` |
+
+## Intercom tools (0.9.0)
+
+| Tool | Route | Scope | Kind |
+| --- | --- | --- | --- |
+| `thalovant_intercom_list_speakers` | `GET /v1/hubs/{hub_id}/intercom/speakers` | `intercom:read` | read-only |
+| `thalovant_intercom_get_announcement` | `GET /v1/hubs/{hub_id}/intercom/announcements/{id}` | `intercom:read` | read-only |
+| `thalovant_intercom_cancel_announcement` | `POST /v1/hubs/{hub_id}/intercom/announcements/{id}/cancel` | `intercom:send` | write, idempotent (`destructiveHint: false`); registered unless read-only mode, with or without the announce opt-in |
+| `thalovant_intercom_announce` | `POST /v1/hubs/{hub_id}/intercom/announce` | `intercom:send` | write, `destructiveHint: true`; registered only with `THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1` |
+
+| Setting | Value |
+| --- | --- |
+| `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` | registers the announce tool (default off) |
+| `THALOVANT_INTERCOM_ALLOWED_HUBS` | comma-separated hub UUIDs for all four tools; unset = any hub the token reaches; no valid UUID = nothing allowed |
+| `THALOVANT_INTERCOM_RATE_NORMAL_PER_MINUTE` / `THALOVANT_INTERCOM_RATE_URGENT_PER_HOUR` | per-principal caps on announce, defaults 20 and 5 (each a whole positive integer: `200oops`, `2.5` or a value below 1 keeps the default; 10 000 ceiling; a refused attempt still counts) |
+| `THALOVANT_INTERCOM_AUDIT_HMAC_KEY` | key of the audit digest `textSha256` (HMAC-SHA256); unset = random per process |
+
+- Not a certified safety system. Off by default at every level (hub feature, each speaker's `receive`, this tool).
+- Text: the API's rule (NFC, trimmed, 1-280 characters, no `<` `>`, control, text-direction or other format characters, lone surrogates, private use or separators; the two joiners allowed); `lang` a language tag; urgent needs the scope `intercom:urgent` as well as `intercom:send` (refused before the prompt when a sign-in's granted scopes are known and lack it, else by the API's `403 urgent_scope_required`); explicit targets (`speakers` | `rooms` | `groups`, or `allowAll: true`); `repeatIntervalSeconds` needs `repeatTimes`.
+- **Confirmation:** urgent and `allowAll` need the person's confirmation through MCP elicitation (`src/intercom-policy.ts` `requireConfirmation`), showing hub, targets, priority and text; refused when the client has no elicitation, the person declines, the client errors, or HTTP runs in JSON-response mode. `confirmUrgent: true` and `allowAll: true` remain as extra checks (the model's own assertions).
+- **Hard block:** `thalovant_emit_event`, `thalovant_send_action`, `thalovant_ask`, `thalovant_query` (and `thalovant_send_code`) refuse message types starting `thalovant.intercom.` and `speak` / `ovos.utterance.speak` (`src/bus-guard.ts`), whatever `MCP_TOOL_DENYLIST` says. `thalovant_config_status`: `intercomAnnounceEnabled`, `intercomGuardrails` (no more `intercomGateNote`).
+- **Idempotency:** a fresh UUID per call (a caller-supplied key must be a UUID); a replay never speaks again, but only while the API remembers the key (24 h); never retried; a 2xx with no `id`/`status` or a body that is not a JSON object is an uncertain delivery (key shown); after a 502 `hub_unreachable` the error carries `announcement_id` (none: no stored announcement is known): read it before any resend.
+- Speakers: `kind`, `can_play` (false = listed, never spoken to), `policy_synced` and `unavailable_reason` (`platform`...) on the list; deliveries carry `detail`; `delivered` is not heard (`delivery_note`); `replayed: true` = the stored answer for the key. Errors with hints: `urgent_scope_required`, `intercom_urgent_busy`, `skill_not_installed`, `not_a_speaker`, `too_many_targets`, `hub_locked`, `impersonation_not_allowed`, `intercom_unavailable`, `intercom_disabled_platform`, `intercom_not_configured`, `managed_client`, `reserved_name`, `not_cancellable` (current status), `hub_unreachable`.
+- Output: labels (names, rooms, groups, `acked_by`) cleaned and cut at 80 characters, with a note that they are data (`cleanLabel` in `src/intercom-output.ts`); whitelist; no text.
+- Audit (`MCP_AUDIT_LOG`, off by default): `mcp.intercom.announce` (`textLen`, `textSha256` HMAC, `targets`, `priority`, outcome or `refused` + `reason`) and `mcp.intercom.cancel`; never the text, and a write that fails is reported on stderr (`mcp.audit_failed`) without replacing the answer. The confirmation prompt is never written to the `MCP_EVENT_STORE_FILE`. The MCP client that sent it may keep it in its own history, which this server cannot control.
+- Dependency: `src/intercom-sdk.ts` calls the routes directly until `@thalovant/sdk` publishes its intercom methods.
+- Parity: capability `intercom`, required, against the Python reference digest `69badc4fb072` (`contracts/sdk-parity.json`).
 
 ## Chat apps tools (0.7.0)
 

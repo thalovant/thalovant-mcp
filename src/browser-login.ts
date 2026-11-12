@@ -240,7 +240,7 @@ export class BrowserLogins {
    * token is used from then on whether or not anybody polls.
    */
   constructor(
-    private readonly approved: (principal: string, api: ThalovantControlPlane) => void,
+    private readonly approved: (principal: string, api: ThalovantControlPlane, scopes?: readonly string[]) => void,
     private readonly now: () => number = () => Date.now(),
   ) {}
 
@@ -311,7 +311,7 @@ export class BrowserLogins {
       if ("token" in ended) {
         login.outcome = { outcome: "approved", token: ended.token };
         // A sign-in stopped to make room was never approved by anyone waiting for it.
-        if (!abort.signal.aborted) this.approved(principal, api);
+        if (!abort.signal.aborted) this.approved(principal, api, scopesOfToken(ended.token));
       } else {
         login.outcome = outcomeOf(ended.error);
       }
@@ -340,4 +340,14 @@ export class BrowserLogins {
       this.running.delete(loginId);
     }
   }
+}
+
+/**
+ * The scopes a token answer grants: `scopes` as a list, or `scope` as the
+ * space-separated string OAuth uses; undefined when it says neither.
+ */
+function scopesOfToken(token: Record<string, unknown>): string[] | undefined {
+  if (Array.isArray(token.scopes) && token.scopes.every((scope) => typeof scope === "string")) return [...token.scopes] as string[];
+  if (typeof token.scope === "string") return token.scope.split(/\s+/u).filter(Boolean);
+  return undefined;
 }

@@ -29,6 +29,12 @@ interface PendingLogin {
 export interface SignedIn {
   readonly api: ThalovantControlPlane;
   readonly origin: string;
+  /**
+   * The scopes the sign-in was granted, when the API said. A token configured
+   * through the environment or a credential has none recorded: this server
+   * cannot see what it was given.
+   */
+  readonly scopes?: readonly string[];
 }
 
 /** Sign-ins one principal may have pending at once; its own oldest is dropped first. */
@@ -100,8 +106,8 @@ export class DeviceLogins {
   }
 
   /** Keep the token an approved sign-in minted, as `principal`'s. */
-  approve(principal: string, api: ThalovantControlPlane): void {
-    this.signedIn.set(principal, { api, origin: new URL(api.apiUrl).origin });
+  approve(principal: string, api: ThalovantControlPlane, scopes?: readonly string[]): void {
+    this.signedIn.set(principal, { api, origin: new URL(api.apiUrl).origin, ...(scopes ? { scopes: [...scopes] } : {}) });
     this.revoked.delete(principal);
   }
 
