@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendment 2), MCP items: person confirmation by elicitation, hard-blocked intercom/speak types, hub allowlist, per-principal rate cap, sanitised labels, cancel tool, 502 handling.
 
 # FAQ
 
@@ -6,23 +6,51 @@ Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 12
 
 ### Why is there no `thalovant_intercom_announce` in my tool list?
 
-It is registered only when the operator sets `THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1`, because it makes speakers in a home talk. The two reads (`thalovant_intercom_list_speakers`, `thalovant_intercom_get_announcement`) are always there, and read-only mode never registers the announce tool.
+It is registered only when the operator sets `THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1`, because it makes speakers in a home talk. The two reads (`thalovant_intercom_list_speakers`, `thalovant_intercom_get_announcement`) and `thalovant_intercom_cancel_announcement` are always there, except that read-only mode leaves out the announce and cancel tools.
 
 ### Does the opt-in mean an agent cannot make a hub speak without it?
 
-No. `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` reach a hub as a client identity. Deny all four with `MCP_TOOL_DENYLIST=thalovant_emit_event,thalovant_send_action,thalovant_ask,thalovant_query` if the opt-in is meant to be the only way. `thalovant_config_status` names the tools still allowed in `intercomGateNote`.
+Yes, for the tools of this server. `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` reach a hub as a client identity, but they now refuse every message type that starts with `thalovant.intercom.` and `speak` / `ovos.utterance.speak`, whatever `MCP_TOOL_DENYLIST` says (`src/bus-guard.ts`). You no longer need to deny them for this. A hub's own routines and skills are not tools of this server: they speak through the hub's intercom skill under the hub's per-speaker settings.
+
+### Why was my urgent (or allowAll) announcement refused?
+
+An urgent announcement, and one to every speaker (`allowAll`), is sent only after the person confirms in a prompt this server shows through MCP elicitation (hub, targets, priority, text). It is refused when the MCP client does not support elicitation, when the person declines or cancels, when the client fails to answer, and when the HTTP server runs with `MCP_HTTP_ENABLE_JSON_RESPONSE=true`, which cannot carry a question. `confirmUrgent: true` and `allowAll: true` are only the model's own assertions, so they never replace the prompt. A normal announcement to named speakers, rooms or groups needs no prompt.
+
+### How do I stop an urgent announcement that is repeating?
+
+Call `thalovant_intercom_cancel_announcement` with the hub and announcement ids: the hub stops repeating at once. It works only while the announcement is `sending` (otherwise `409 not_cancellable`). `hub_confirmed: false` in the answer means the hub could not confirm, so tell the people in the home; the hub's Intercom switch, the platform's kill switch and a spoken acknowledgement at any speaker also stop it. The tool is there without the announce opt-in and is left out of read-only mode.
 
 ### An announcement failed with "could not reach the Thalovant API". Should I resend it?
 
-No: it may already have been spoken. That also holds when the answer was cut off before its body arrived, and when a success came back without the announcement's `id` and `status`. The error gives the idempotency key; read the announcement with `thalovant_intercom_get_announcement` if you have its id, or ask the household, and resend only with that same `idempotencyKey`. A `502` (the hub did not answer) and any other server error (5xx) of the announce call give the key too: once the hub is back online, resend only with it.
+Not with a new key: it may already have been spoken. That also holds when the answer was cut off before its body arrived, when a success came back without the announcement's `id` and `status`, and after a 5xx. The error gives the idempotency key; read the announcement with `thalovant_intercom_get_announcement` if you have its id, or ask the household. Repeating with exactly the same key is safe: the API returns the stored announcement and never speaks it twice. A new key would speak it again.
+
+### I got a 502 `hub_unreachable`. What now?
+
+The error carries `announcement_id`. Read that announcement with `thalovant_intercom_get_announcement` before anything else, and never retry automatically. Resending with the same key speaks nothing: the API returns the stored `failed` announcement (a failed replay is not retried). To say it again on purpose, only after the person asks and you checked nothing was spoken, call the tool again without `idempotencyKey` so a new key is generated.
+
+### Can I limit which hubs an agent may announce on?
+
+Yes: `THALOVANT_INTERCOM_ALLOWED_HUBS=<uuid>,<uuid>` limits all four intercom tools to those hubs; every other hub is refused before any request. Unset, any hub the token reaches is allowed. A list with no valid UUID allows nothing. A per-principal rate cap also applies to announce (20 normal a minute, 5 urgent an hour; `THALOVANT_INTERCOM_RATE_NORMAL_PER_MINUTE`, `THALOVANT_INTERCOM_RATE_URGENT_PER_HOUR`).
+
+### Why are speaker names cut or changed in the list?
+
+They are typed by the household, so every name, room, group and `acked_by` is stripped of control, text-direction and zero-width characters and cut at 80 characters, and the answer says they are data, never instructions. The id and slug are what to pass as targets.
+
+### Why must `idempotencyKey` be a UUID?
+
+A replayed key never speaks again for 24 hours, so a constant such as `dinner-2026-11-11` would swallow the next "dinner is ready". Leave it out and a fresh UUID is generated for every call; supply one only to repeat the same announcement after an unreachable-API error.
 
 ### Is the text kept anywhere?
 
-Not by the platform or by this server. The platform stores its length and SHA-256; this server's audit log records the same (`mcp.intercom.announce`), even with `MCP_AUDIT_INCLUDE_ARGS` on. Tool answers never carry it. The MCP client that sent the announcement can keep the text in its own conversation or tool-call history, and this server cannot control that.
+Not by the platform or by this server. The platform stores its length and a keyed hash; when the audit log is on (`MCP_AUDIT_LOG`, off by default), this server records `mcp.intercom.announce` with the length and an HMAC-SHA256 (`textSha256`), even with `MCP_AUDIT_INCLUDE_ARGS` on. Tool answers never carry the text; the confirmation prompt shows it to the person only. The MCP client that sent the announcement can keep the text in its own conversation or tool-call history, and this server cannot control that.
 
 ### Is Intercom a safety system?
 
 No. It does not replace smoke or CO alarms, medical alert devices or emergency services.
+
+### Does Intercom listen?
+
+It does not record or store speech. While an urgent alert sounds, it only checks whether a reply the hub already hears is an acknowledgement ("I heard it", "I'm okay"). There is no two-way audio.
 
 
 ## Browser sign-in

@@ -1,18 +1,24 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendment 2), MCP items: person confirmation by elicitation, hard-blocked intercom/speak types, hub allowlist, per-principal rate cap, sanitised labels, cancel tool, 502 handling.
 
 # Follow-up
 
 ## Intercom: take the SDK's methods and add the list tool (0.9.0)
 
-- **Problem:** `src/intercom-sdk.ts` calls the Intercom routes directly because `@thalovant/sdk` has not published its intercom methods. A second copy of request and error handling is a drift risk. Also, after an unreachable API an agent has no way to find an announcement whose id it never received.
-- **Proposal:** when the SDK ships `announce`, `getAnnouncement` and `listIntercomSpeakers`, replace the three functions of `src/intercom-sdk.ts` and delete its fetch code. Add `thalovant_intercom_list_announcements` (`GET /announcements?limit&cursor`, `intercom:read`, read-only) so the "read it first" hint can be followed without an id.
-- **Impact:** small; one file and one read tool (63 -> 64 default tools, 30 -> 31 read-only).
+- **Problem:** `src/intercom-sdk.ts` calls the Intercom routes directly (four functions: speakers, one announcement, announce, cancel) because `@thalovant/sdk` has not published its intercom methods. A second copy of request and error handling is a drift risk. Also, after an unreachable API an agent has no way to find an announcement whose id it never received.
+- **Proposal:** when the SDK ships `announce`, `getAnnouncement`, `cancelAnnouncement` and `listIntercomSpeakers`, replace the four functions and delete the fetch code (check the SDK's `announce` sends one request, no retry, and rejects dot-segment ids). Add `thalovant_intercom_list_announcements` (`GET /announcements?limit&cursor`, `intercom:read`, read-only) so the "read it first" advice can be followed without an id.
+- **Impact:** small; one file and one read tool (64 -> 65 default tools, 30 -> 31 read-only).
 
-## A denylist profile for hubs that speak
+## Intercom: require a hub allowlist when the announce opt-in is on
 
-- **Problem:** `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` is only meaningful with `thalovant_emit_event`, `thalovant_send_action`, `thalovant_ask` and `thalovant_query` denied; operators must know to do both.
-- **Proposal:** a documented preset or a single `THALOVANT_MCP_PROFILE=household` that registers the announce tool and denies the raw runtime event tools together.
-- **Impact:** small; one env switch, one test per tool.
+- **Problem:** the review (M6) asked for `THALOVANT_INTERCOM_ALLOWED_HUBS` to be required when `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` is on and to fail closed when empty. Contract section J keeps it optional (unset = any hub the token reaches), so a token with several hubs (family, rental) can still be steered to another hub by an injected instruction, short of the person's confirmation for urgent and `allowAll`.
+- **Proposal:** a stricter mode, for example `THALOVANT_INTERCOM_REQUIRE_HUB_ALLOWLIST=1`, or a startup warning in `thalovant_config_status` when the opt-in is on and the list is unset.
+- **Impact:** small; one env switch and one test; a product decision for the contract owner.
+
+## Intercom: show the confirmation text only on request
+
+- **Problem:** the confirmation prompt shows the person the announcement text so they can see what will be said. It goes to the MCP client's UI, which already holds the tool call, but it is one more place the text appears.
+- **Proposal:** keep it (the person cannot judge an announcement without the words); revisit only if a client is found to log elicitation prompts.
+- **Impact:** none today; noted for the privacy review.
 
 ## Give `interactiveLogin()` a structured prompt (Node SDK)
 

@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendment 2), MCP items: person confirmation by elicitation, hard-blocked intercom/speak types, hub allowlist, per-principal rate cap, sanitised labels, cancel tool, 502 handling.
 
 # Quick Facts
 
@@ -8,7 +8,7 @@ Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 12
 | Version | 0.9.0 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
 | Entry point | `thalovant-mcp` bin, `dist/index.js`: stdio by default, Streamable HTTP with `--http` |
 | Thalovant SDK | `@thalovant/sdk` ^0.11.0 (`browserLogin()`, `interactiveLogin()`, chat app methods, `ThalovantApiError.fields`) |
-| Tools | 63 by default, 30 with `THALOVANT_MCP_READONLY`, 67 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`; `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` adds 1 |
+| Tools | 64 by default, 30 with `THALOVANT_MCP_READONLY`, 68 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`; `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` adds 1 |
 | Validation | `npm ci`, `npm run typecheck`, `npm run build`, `npm test`, `npm run test:smoke`, `npm run test:http` |
 | Refusal hints by code (409) | `skill_unavailable_licensing`, `skill_unavailable_unpublished` (0.7.2), any other `skill_unavailable_*`, `memory_limit`, `skill_version_already_installed` (generic), in `controlPlaneErrorHint` (`src/index.ts`) |
 
@@ -35,12 +35,23 @@ Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 12
 | --- | --- | --- | --- |
 | `thalovant_intercom_list_speakers` | `GET /v1/hubs/{hub_id}/intercom/speakers` | `intercom:read` | read-only |
 | `thalovant_intercom_get_announcement` | `GET /v1/hubs/{hub_id}/intercom/announcements/{id}` | `intercom:read` | read-only |
-| `thalovant_intercom_announce` | `POST /v1/hubs/{hub_id}/intercom/announce` | `intercom:send` | write; registered only with `THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1` |
+| `thalovant_intercom_cancel_announcement` | `POST /v1/hubs/{hub_id}/intercom/announcements/{id}/cancel` | `intercom:send` | write, idempotent (`destructiveHint: false`); registered unless read-only mode, with or without the announce opt-in |
+| `thalovant_intercom_announce` | `POST /v1/hubs/{hub_id}/intercom/announce` | `intercom:send` | write, `destructiveHint: true`; registered only with `THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1` |
+
+| Setting | Value |
+| --- | --- |
+| `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` | registers the announce tool (default off) |
+| `THALOVANT_INTERCOM_ALLOWED_HUBS` | comma-separated hub UUIDs for all four tools; unset = any hub the token reaches; no valid UUID = nothing allowed |
+| `THALOVANT_INTERCOM_RATE_NORMAL_PER_MINUTE` / `THALOVANT_INTERCOM_RATE_URGENT_PER_HOUR` | per-principal caps on announce, defaults 20 and 5 (values below 1 keep the default) |
+| `THALOVANT_INTERCOM_AUDIT_HMAC_KEY` | key of the audit digest `textSha256` (HMAC-SHA256); unset = random per process |
 
 - Not a certified safety system. Off by default at every level (hub feature, each speaker's `receive`, this tool).
-- Text 1-280 plain characters (no control characters, `<` `>`); explicit targets (`speakers` | `rooms` | `groups`, or `allowAll: true`); urgent needs `confirmUrgent: true` (the caller's assertion, not verified) and `repeatIntervalSeconds` needs `repeatTimes`; auto `Idempotency-Key`; never retried after an unreachable API, a cut-off answer body, or a success without `id` and `status`; a 5xx names the key too.
-- The platform and this server never store or audit the text: audit record `mcp.intercom.announce` has `textLen`, `textSha256`, `targets`, `priority`, even with `MCP_AUDIT_INCLUDE_ARGS` off. Output whitelist: `src/intercom-output.ts`. The MCP client that sent it may keep it in its own history, which this server cannot control.
-- Other doors: `thalovant_emit_event`, `thalovant_ask`, `thalovant_query`, `thalovant_send_action` reach a hub as a client identity; deny all four (`MCP_TOOL_DENYLIST=thalovant_emit_event,thalovant_send_action,thalovant_ask,thalovant_query`) for the gate to be meaningful. `thalovant_config_status`: `intercomAnnounceEnabled`, `intercomGateNote`.
+- Text 1-280 plain characters (no control characters, `<` `>`); explicit targets (`speakers` | `rooms` | `groups`, or `allowAll: true`); `repeatIntervalSeconds` needs `repeatTimes`.
+- **Confirmation:** urgent and `allowAll` need the person's confirmation through MCP elicitation (`src/intercom-policy.ts` `requireConfirmation`), showing hub, targets, priority and text; refused when the client has no elicitation, the person declines, the client errors, or HTTP runs in JSON-response mode. `confirmUrgent: true` and `allowAll: true` remain as extra checks (the model's own assertions).
+- **Hard block:** `thalovant_emit_event`, `thalovant_send_action`, `thalovant_ask`, `thalovant_query` (and `thalovant_send_code`) refuse message types starting `thalovant.intercom.` and `speak` / `ovos.utterance.speak` (`src/bus-guard.ts`), whatever `MCP_TOOL_DENYLIST` says. `thalovant_config_status`: `intercomAnnounceEnabled`, `intercomGuardrails` (no more `intercomGateNote`).
+- **Idempotency:** a fresh UUID per call (a caller-supplied key must be a UUID); a replay never speaks again (24 h); never retried; after a 502 `hub_unreachable` the error carries `announcement_id`: read it before any resend.
+- Output: labels (names, rooms, groups, `acked_by`) cleaned and cut at 80 characters, with a note that they are data (`cleanLabel` in `src/intercom-output.ts`); whitelist; no text.
+- Audit (`MCP_AUDIT_LOG`, off by default): `mcp.intercom.announce` (`textLen`, `textSha256` HMAC, `targets`, `priority`, outcome or `refused` + `reason`) and `mcp.intercom.cancel`; never the text. The MCP client that sent it may keep it in its own history, which this server cannot control.
 - Dependency: `src/intercom-sdk.ts` calls the routes directly until `@thalovant/sdk` publishes its intercom methods.
 
 ## Chat apps tools (0.7.0)

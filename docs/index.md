@@ -1,11 +1,11 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendment 2), MCP items: person confirmation by elicitation, hard-blocked intercom/speak types, hub allowlist, per-principal rate cap, sanitised labels, cancel tool, 502 handling.
 
 # MCP Documentation
 
 - [README](../README.md): installation, configuration, tools and runtime compatibility.
 - [Browser Sign-In](../README.md#browser-sign-in): signing a person in through the browser on their own computer over stdio, and why a hosted server uses a device login.
 - [Chat Apps](../README.md#chat-apps): the chat app tools, what each bridge's status means, and why tokens stay in the console.
-- [Intercom](../README.md#intercom): the speaker and announcement tools, the opt-in, the not-a-safety-system notice, and why the four runtime tools that reach a hub (`thalovant_emit_event`, `thalovant_send_action`, `thalovant_ask`, `thalovant_query`) should be denied beside it.
+- [Intercom](../README.md#intercom): the speaker, announcement and cancel tools, the opt-in, the person's confirmation for urgent and every-speaker announcements, the hub allowlist and rate cap, the message types the generic runtime tools refuse, and the not-a-safety-system notice.
 - [Security policy](../SECURITY.md): reporting vulnerabilities.
 - [Changelog](../CHANGELOG.md): release changes.
 - [Quick facts](../QUICK_FACTS.md) and [FAQ](../FAQ.md): package facts, tool counts, chat apps and the dependency patch.

@@ -169,9 +169,9 @@ const ENABLED_TOOLS = [
 ];
 
 // Registered tool counts per mode. README and CHANGELOG quote these numbers.
-const DEFAULT_TOOL_COUNT = 63;
+const DEFAULT_TOOL_COUNT = 64;
 const READ_ONLY_TOOL_COUNT = 30;
-const DESTRUCTIVE_ENABLED_TOOL_COUNT = 67;
+const DESTRUCTIVE_ENABLED_TOOL_COUNT = 68;
 
 describe("provisioning and discovery tool registration", () => {
   it("registers every non-destructive provisioning and discovery tool by default", async () => {
@@ -198,7 +198,7 @@ describe("provisioning and discovery tool registration", () => {
     const destructive = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_ENABLE_DESTRUCTIVE_TOOLS: "true" });
     expect(await toolNames(destructive)).toHaveLength(DESTRUCTIVE_ENABLED_TOOL_COUNT);
 
-    // Intercom announcements are one more tool, and only on the opt-in.
+    // The cancel tool is in the default count; the announce tool is one more, and only on the opt-in.
     const intercom = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_ENABLE_INTERCOM_ANNOUNCE: "1" });
     expect(await toolNames(intercom)).toHaveLength(DEFAULT_TOOL_COUNT + 1);
   }, 45_000);

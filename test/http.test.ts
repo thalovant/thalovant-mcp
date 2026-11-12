@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -403,6 +404,124 @@ describe("streamable HTTP MCP server", () => {
       await rm(dir, { recursive: true, force: true });
     }
   }, 20_000);
+
+  it("asks the person to confirm an urgent announcement over Streamable HTTP, and refuses a client that cannot ask", async () => {
+    const hubId = "7a2b3c4d-5e6f-4a1b-9c2d-3e4f5a6b7c8d";
+    const seen: Array<{ method?: string; path: string; body: string }> = [];
+    const api = await startTestHttpServer(async (req, res) => {
+      const body = await readRequestText(req);
+      seen.push({ method: req.method, path: new URL(req.url ?? "/", "http://127.0.0.1").pathname, body });
+      sendJsonResponse(res, 202, {
+        id: "11111111-2222-4333-8444-555555555555", status: "sending", priority: "urgent", created_at: "2026-11-11T10:00:00Z", deliveries: [], acked_by: null,
+      });
+    });
+    const dir = await mkdtemp(join(tmpdir(), "thalovant-mcp-intercom-"));
+    const principalId = sha256("intercom-fixture-token").slice(0, 32);
+    await writeFile(join(dir, `${sha256(principalId)}.json`), JSON.stringify({
+      control: { apiUrl: api.url, accessToken: "synthetic-intercom-principal-token" },
+    }), { mode: 0o600 });
+    let child: ChildProcessWithoutNullStreams | undefined;
+    const clients: Client[] = [];
+    try {
+      const started = await startMcpHttpServer(() => ({
+        MCP_HTTP_AUTH_TOKENS: "intercom-fixture-token",
+        THALOVANT_PRINCIPAL_CREDENTIALS_DIR: dir,
+        THALOVANT_ENABLE_INTERCOM_ANNOUNCE: "1",
+      }));
+      child = started.child;
+      const text = (result: Awaited<ReturnType<Client["callTool"]>>) => (result.content as Array<{ text?: string }>)[0]?.text ?? "";
+      const connect = async (answer?: () => { action: "accept" | "decline"; content?: Record<string, unknown> }, shown: string[] = []) => {
+        const client = new Client({ name: "thalovant-intercom-http-test", version: "0.0.0" }, { capabilities: answer ? { elicitation: { form: {} } } : {} });
+        if (answer) {
+          client.setRequestHandler(ElicitRequestSchema, async (request) => {
+            shown.push((request.params as { message: string }).message);
+            return answer();
+          });
+        }
+        clients.push(client);
+        await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl(started.port)), {
+          requestInit: { headers: { Authorization: "Bearer intercom-fixture-token" } },
+        }));
+        return client;
+      };
+      const args = { hubId, text: "Dinner is ready", rooms: ["kitchen"], priority: "urgent", confirmUrgent: true, repeatTimes: 2, repeatIntervalSeconds: 30 };
+
+      // A client that confirms: the prompt travels back on the call's own stream and the announcement goes out.
+      const shown: string[] = [];
+      const confirming = await connect(() => ({ action: "accept", content: { confirm: true } }), shown);
+      const sent = await confirming.callTool({ name: "thalovant_intercom_announce", arguments: args });
+      expect(sent.isError ?? false, text(sent)).toBe(false);
+      expect(shown).toHaveLength(1);
+      expect(shown[0]).toContain(`Hub: ${hubId}`);
+      expect(shown[0]).toContain("Priority: URGENT");
+      expect(seen.map((row) => `${row.method} ${row.path}`)).toEqual([`POST /v1/hubs/${hubId}/intercom/announce`]);
+
+      // A person who declines: nothing more is sent.
+      const declining = await connect(() => ({ action: "decline" }));
+      const declined = await declining.callTool({ name: "thalovant_intercom_announce", arguments: args });
+      expect(declined.isError).toBe(true);
+      expect(text(declined)).toContain("did not confirm");
+
+      // A client without elicitation: refused, whatever confirmUrgent says.
+      const mute = await connect();
+      const refused = await mute.callTool({ name: "thalovant_intercom_announce", arguments: args });
+      expect(refused.isError).toBe(true);
+      expect(text(refused)).toContain("does not support elicitation");
+      expect(seen).toHaveLength(1);
+    } finally {
+      await Promise.all(clients.map((client) => client.close()));
+      if (child) await stopChild(child);
+      await api.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("refuses urgent and allowAll at once, instead of hanging, when the HTTP server answers in JSON-response mode", async () => {
+    const hubId = "7a2b3c4d-5e6f-4a1b-9c2d-3e4f5a6b7c8d";
+    const seen: string[] = [];
+    const api = await startTestHttpServer(async (req, res) => {
+      await readRequestText(req);
+      seen.push(`${req.method} ${req.url}`);
+      sendJsonResponse(res, 202, { id: "11111111-2222-4333-8444-555555555555", status: "sending", priority: "urgent", deliveries: [] });
+    });
+    const dir = await mkdtemp(join(tmpdir(), "thalovant-mcp-intercom-"));
+    const principalId = sha256("intercom-json-token").slice(0, 32);
+    await writeFile(join(dir, `${sha256(principalId)}.json`), JSON.stringify({
+      control: { apiUrl: api.url, accessToken: "synthetic-intercom-principal-token" },
+    }), { mode: 0o600 });
+    let child: ChildProcessWithoutNullStreams | undefined;
+    let client: Client | undefined;
+    try {
+      const started = await startMcpHttpServer(() => ({
+        MCP_HTTP_AUTH_TOKENS: "intercom-json-token",
+        MCP_HTTP_ENABLE_JSON_RESPONSE: "true",
+        THALOVANT_PRINCIPAL_CREDENTIALS_DIR: dir,
+        THALOVANT_ENABLE_INTERCOM_ANNOUNCE: "1",
+      }));
+      child = started.child;
+      client = new Client({ name: "thalovant-intercom-json-test", version: "0.0.0" }, { capabilities: { elicitation: { form: {} } } });
+      let asked = 0;
+      client.setRequestHandler(ElicitRequestSchema, async () => { asked += 1; return { action: "accept", content: { confirm: true } }; });
+      await client.connect(new StreamableHTTPClientTransport(new URL(mcpUrl(started.port)), {
+        requestInit: { headers: { Authorization: "Bearer intercom-json-token" } },
+      }));
+      const urgent = await client.callTool({ name: "thalovant_intercom_announce", arguments: { hubId, text: "Dinner is ready", rooms: ["kitchen"], priority: "urgent", confirmUrgent: true } });
+      expect(urgent.isError).toBe(true);
+      expect((urgent.content as Array<{ text?: string }>)[0]?.text).toContain("JSON-response mode");
+      const everyone = await client.callTool({ name: "thalovant_intercom_announce", arguments: { hubId, text: "Dinner is ready", allowAll: true } });
+      expect(everyone.isError).toBe(true);
+      // A normal announcement to a named room still goes out: it asks nobody.
+      const normal = await client.callTool({ name: "thalovant_intercom_announce", arguments: { hubId, text: "Dinner is ready", rooms: ["kitchen"] } });
+      expect(normal.isError ?? false).toBe(false);
+      expect(asked).toBe(0);
+      expect(seen).toHaveLength(1);
+    } finally {
+      await client?.close();
+      if (child) await stopChild(child);
+      await api.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 
   it("moves to a fresh port when another loopback server takes the freed one", async () => {
     // What a fake control plane from another test file does when it is given the port

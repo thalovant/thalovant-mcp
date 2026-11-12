@@ -1,15 +1,16 @@
 /**
  * DEPENDENCY NOTE (Intercom, contract v1, section B): a local adapter.
  *
- * The Node SDK is gaining `announce`, `getAnnouncement`, `listAnnouncements`,
- * `listIntercomSpeakers`, `updateIntercomSpeaker`, `getIntercomSettings` and
- * `setIntercomSettings` on `ThalovantControlPlane` (branch feature/intercom-v1
- * of thalovant-node-sdk). Until a release carrying them is published and this
- * package depends on it, the three calls the tools need go through the
- * functions below, which speak the same HTTP routes directly. When the SDK
- * ships, replace the bodies with the SDK methods (keep these three signatures
- * and `src/intercom-output.ts` unchanged) and delete the fetch code. Nothing
- * else in this package depends on how the routes are reached.
+ * The Node SDK is gaining `announce`, `getAnnouncement`, `cancelAnnouncement`,
+ * `listAnnouncements`, `listIntercomSpeakers`, `updateIntercomSpeaker`,
+ * `getIntercomSettings` and `setIntercomSettings` on `ThalovantControlPlane`
+ * (branch feature/intercom-v1 of thalovant-node-sdk). Until a release carrying
+ * them is published and this package depends on it, the four calls the tools
+ * need go through the functions below, which speak the same HTTP routes
+ * directly. When the SDK ships, replace the bodies with the SDK methods (keep
+ * these four signatures and `src/intercom-output.ts` unchanged) and delete the
+ * fetch code. Nothing else in this package depends on how the routes are
+ * reached.
  *
  * Rules kept from the SDK's own transport: the bearer token goes only to the
  * API's origin, over HTTPS (or explicit loopback HTTP), redirects are never
@@ -106,16 +107,43 @@ async function intercomRequest(
   return record;
 }
 
-const hubPath = (hubId: string): string => `/v1/hubs/${encodeURIComponent(hubId)}/intercom`;
+/**
+ * One path segment: percent-encoded, and never empty, `.` or `..`. A dot
+ * segment survives encoding and a URL parser resolves it, which would move the
+ * request off the route the tool means (`/v1/hubs/../intercom/announce`).
+ */
+function segment(value: string, what: string): string {
+  const trimmed = value.trim();
+  if (trimmed === "" || trimmed === "." || trimmed === "..") {
+    throw new ThalovantApiError(`The ${what} is not a valid id.`);
+  }
+  return encodeURIComponent(trimmed);
+}
+
+const hubPath = (hubId: string): string => `/v1/hubs/${segment(hubId, "hub id")}/intercom`;
 
 /** GET /v1/hubs/{hubId}/intercom/speakers (scope intercom:read). */
-export function listIntercomSpeakers(api: ThalovantControlPlane, hubId: string, signal?: AbortSignal): Promise<Json> {
+export async function listIntercomSpeakers(api: ThalovantControlPlane, hubId: string, signal?: AbortSignal): Promise<Json> {
   return intercomRequest(api, "GET", `${hubPath(hubId)}/speakers`, { timeoutMs: READ_TIMEOUT_MS, signal });
 }
 
 /** GET /v1/hubs/{hubId}/intercom/announcements/{id} (scope intercom:read). */
-export function getAnnouncement(api: ThalovantControlPlane, hubId: string, announcementId: string, signal?: AbortSignal): Promise<Json> {
-  return intercomRequest(api, "GET", `${hubPath(hubId)}/announcements/${encodeURIComponent(announcementId)}`, { timeoutMs: READ_TIMEOUT_MS, signal });
+export async function getAnnouncement(api: ThalovantControlPlane, hubId: string, announcementId: string, signal?: AbortSignal): Promise<Json> {
+  return intercomRequest(api, "GET", `${hubPath(hubId)}/announcements/${segment(announcementId, "announcement id")}`, { timeoutMs: READ_TIMEOUT_MS, signal });
+}
+
+/**
+ * POST /v1/hubs/{hubId}/intercom/announcements/{id}/cancel (scope intercom:send).
+ *
+ * Stops an announcement that is still `sending`: the API tells the hub, which
+ * stops repeating at once, and answers the announcement with status
+ * `cancelled` and `hub_confirmed` (false when the hub could not confirm: the
+ * record is cancelled either way). Any other status is a 409 `not_cancellable`.
+ * Cancelling only ever stops speech, and is safe to repeat. No body, no retry
+ * here: the caller reads the announcement to see where it stands.
+ */
+export async function cancelAnnouncement(api: ThalovantControlPlane, hubId: string, announcementId: string, signal?: AbortSignal): Promise<Json> {
+  return intercomRequest(api, "POST", `${hubPath(hubId)}/announcements/${segment(announcementId, "announcement id")}/cancel`, { timeoutMs: READ_TIMEOUT_MS, signal });
 }
 
 /**

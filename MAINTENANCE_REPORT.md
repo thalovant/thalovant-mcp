@@ -1,6 +1,29 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendment 2), MCP items: person confirmation by elicitation, hard-blocked intercom/speak types, hub allowlist, per-principal rate cap, sanitised labels, cancel tool, 502 handling.
 
 # Maintenance Report
+
+## 2026-11-12 - Intercom Amendment 2 (MCP items of contract section J), 0.9.0, unreleased
+
+Binding input: `/tmp/rt/intercom/CONTRACT.md` section J and the MCP findings of `/tmp/rt/intercom/SECURITY_REVIEW_CLIENTS.md` (H1, M1, M6, M7 and the lows that touch this repository).
+
+**Changes**
+
+- `src/bus-guard.ts` (new): `refusedBusType`, `assertBusTypeAllowed`, `busTypesOfFrame`, `guardRuntimeClient`. `thalovant_emit_event` refuses `thalovant.intercom.*`, `speak` and `ovos.utterance.speak` before connecting; every runtime client is built guarded, so `thalovant_ask`, `thalovant_query`, `thalovant_send_action` and `thalovant_send_code` cannot carry them either.
+- `src/intercom-policy.ts` (new): `requireConfirmation` (MCP elicitation, refusing when unsupported, declined, failed or in HTTP JSON-response mode), `IntercomRateCap` and `intercomRateLimits`, `intercomHubAllowlist` and `assertIntercomHubAllowed`, `IntercomRefusal`.
+- `src/intercom-output.ts`: `cleanLabel` / `stripUnsafeText` on every label and on the API's words in errors; the household-labels note; `hub_confirmed` and the cancelled wording; the audit digest is an HMAC-SHA256.
+- `src/intercom-sdk.ts`: `cancelAnnouncement`, and dot-segment ids refused.
+- `src/index.ts`: `thalovant_intercom_announce` (`destructiveHint: true`, confirmation, allowlist, rate cap, UUID-only keys, 502 `announcement_id` guidance, `refused` audit outcomes), new `thalovant_intercom_cancel_announcement`, allowlist on the reads, `thalovant_config_status` reports `intercomGuardrails` instead of `intercomGateNote`.
+- Tool counts: 64 default, 30 read-only, 68 destructive, +1 with the Intercom opt-in (`test/provisioning.test.ts`).
+- Tests: `test/intercom.test.ts` 53, `test/intercom-output.test.ts` 12, `test/intercom-policy.test.ts` 14, `test/bus-guard.test.ts` 34 (new), `test/http.test.ts` +2 (confirmation over Streamable HTTP, JSON-response mode). The announce tests that send urgent or `allowAll` now answer an elicitation prompt, and the idempotency-key tests use UUIDs.
+- README, QUICK_FACTS, FAQ, CHANGELOG, AUDIT, SUGGESTIONS, docs/index.md and `.env.example` follow; wording per section J item 7. `contracts/sdk-parity.json`: evidence hashes of `src/index.ts`, `test/http.test.ts` and `test/provisioning.test.ts` refreshed in the capabilities that cite them; `reference_digests` untouched (the SDK agent supplies the Python digest).
+
+**Verification:** `npm run typecheck`, `npm run build`, `npm test` 676 passed in 26 files (584 before), `npm run test:smoke` 2, `npm run test:http` 12.
+
+**Transparency Report**
+
+- AI Model: Claude Sonnet 5.5.
+- Actions Taken: read the contract and the review, designed and wrote the guard, policy and output changes, the cancel tool and their tests, updated the documentation and the parity evidence hashes, and ran the suites.
+- Oversight: none beyond the agent's own test runs; a human review of the confirmation wording, the guard's reach into the SDK client's `transport`, and a manual try in a real MCP client UI are still required before release.
 
 ## 2026-11-11 - CodeRabbit on 5179dbf (PR 128): Intercom
 
