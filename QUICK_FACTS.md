@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendment 2), MCP items: person confirmation by elicitation, hard-blocked intercom/speak types, hub allowlist, per-principal rate cap, sanitised labels, cancel tool, 502 handling.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform security review): intercom:urgent check, new problem codes in tool errors, kind/can_play/policy_synced, replayed, the API's text rule; parity capability intercom recorded.
 
 # Quick Facts
 
@@ -46,13 +46,15 @@ Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendmen
 | `THALOVANT_INTERCOM_AUDIT_HMAC_KEY` | key of the audit digest `textSha256` (HMAC-SHA256); unset = random per process |
 
 - Not a certified safety system. Off by default at every level (hub feature, each speaker's `receive`, this tool).
-- Text 1-280 plain characters (no control characters, `<` `>`); explicit targets (`speakers` | `rooms` | `groups`, or `allowAll: true`); `repeatIntervalSeconds` needs `repeatTimes`.
+- Text: the API's rule (NFC, trimmed, 1-280 characters, no `<` `>`, control, text-direction or other format characters, lone surrogates, private use or separators; the two joiners allowed); `lang` a language tag; urgent needs the scope `intercom:urgent` as well as `intercom:send` (refused before the prompt when a sign-in's granted scopes are known and lack it, else by the API's `403 urgent_scope_required`); explicit targets (`speakers` | `rooms` | `groups`, or `allowAll: true`); `repeatIntervalSeconds` needs `repeatTimes`.
 - **Confirmation:** urgent and `allowAll` need the person's confirmation through MCP elicitation (`src/intercom-policy.ts` `requireConfirmation`), showing hub, targets, priority and text; refused when the client has no elicitation, the person declines, the client errors, or HTTP runs in JSON-response mode. `confirmUrgent: true` and `allowAll: true` remain as extra checks (the model's own assertions).
 - **Hard block:** `thalovant_emit_event`, `thalovant_send_action`, `thalovant_ask`, `thalovant_query` (and `thalovant_send_code`) refuse message types starting `thalovant.intercom.` and `speak` / `ovos.utterance.speak` (`src/bus-guard.ts`), whatever `MCP_TOOL_DENYLIST` says. `thalovant_config_status`: `intercomAnnounceEnabled`, `intercomGuardrails` (no more `intercomGateNote`).
 - **Idempotency:** a fresh UUID per call (a caller-supplied key must be a UUID); a replay never speaks again (24 h); never retried; after a 502 `hub_unreachable` the error carries `announcement_id`: read it before any resend.
+- Speakers: `kind`, `can_play` (false = listed, never spoken to), `policy_synced` and `unavailable_reason` (`platform`...) on the list; deliveries carry `detail`; `delivered` is not heard (`delivery_note`); `replayed: true` = the stored answer for the key. Errors with hints: `urgent_scope_required`, `intercom_urgent_busy`, `skill_not_installed`, `not_a_speaker`, `too_many_targets`, `hub_locked`, `impersonation_not_allowed`, `intercom_unavailable`, `intercom_disabled_platform`, `intercom_not_configured`, `managed_client`, `reserved_name`, `not_cancellable` (current status), `hub_unreachable`.
 - Output: labels (names, rooms, groups, `acked_by`) cleaned and cut at 80 characters, with a note that they are data (`cleanLabel` in `src/intercom-output.ts`); whitelist; no text.
 - Audit (`MCP_AUDIT_LOG`, off by default): `mcp.intercom.announce` (`textLen`, `textSha256` HMAC, `targets`, `priority`, outcome or `refused` + `reason`) and `mcp.intercom.cancel`; never the text. The MCP client that sent it may keep it in its own history, which this server cannot control.
 - Dependency: `src/intercom-sdk.ts` calls the routes directly until `@thalovant/sdk` publishes its intercom methods.
+- Parity: capability `intercom`, required, against the Python reference digest `69badc4fb072` (`contracts/sdk-parity.json`).
 
 ## Chat apps tools (0.7.0)
 

@@ -1,6 +1,14 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendment 2), MCP items: person confirmation by elicitation, hard-blocked intercom/speak types, hub allowlist, per-principal rate cap, sanitised labels, cancel tool, 502 handling.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform security review): intercom:urgent check, new problem codes in tool errors, kind/can_play/policy_synced, replayed, the API's text rule; parity capability intercom recorded.
 
 # Maintenance Report
+
+## 2026-11-12: Intercom final API (platform security review)
+
+Aligned the MCP server with the final Intercom API. **Code**: `src/intercom-output.ts` (the API's text rule, speaker `kind`/`can_play`/`policy_synced`, list `policy_synced`/`unavailable_reason`, delivery `detail`, `delivery_note`, `replayed`); `src/intercom-sdk.ts` (`announce` returns `{ result, replayed }` from `Idempotency-Replayed`); `src/index.ts` (hints for `urgent_scope_required`, `intercom_urgent_busy`, `skill_not_installed`, `not_a_speaker`, `too_many_targets`, `hub_locked`, `impersonation_not_allowed`, `intercom_unavailable`, `intercom_disabled_platform`, `intercom_not_configured`, `managed_client`, `reserved_name`, `not_cancellable` with the current status; the `intercom:urgent` check against the granted scopes of a sign-in; `lang` as a language tag; tool descriptions); `src/device-login.ts`, `src/browser-login.ts` (the granted scopes are kept with a sign-in); `src/intercom-policy.ts` (`urgent_scope_missing`). **Parity**: `contracts/sdk-parity.json` records the `intercom` capability (required) with evidence, and acknowledges the Python reference digest `69badc4fb072703e675ce50ae3a09765bf49cbf65efcc2fef5befb46f2b32a8c`.
+
+Verification: `npm run typecheck`, `npm run build` clean; `npm test` 26 files, 710 tests passed (34 new: `test/intercom.test.ts`, `test/intercom-output.test.ts`); `scripts/check-sdk-parity.py --workspace /tmp/ic-work --consumer thalovant-mcp` passes. Not run against a real API or hub.
+
+Transparency Report: AI model Claude Sonnet 5.5; actions: aligned the MCP server with the final Intercom API (code, tests, docs, parity record); oversight: none yet, review pending.
 
 ## 2026-11-12 - Intercom Amendment 2 (MCP items of contract section J), 0.9.0, unreleased
 

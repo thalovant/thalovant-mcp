@@ -24,24 +24,49 @@ const isRecord = (value: unknown): value is Json => typeof value === "object" &&
 const str = (value: unknown): string | null => (typeof value === "string" ? value : null);
 
 /**
- * Control characters, line and paragraph separators, bidirectional overrides
- * and isolates: none belongs in a sentence a speaker reads out. Markup
- * brackets are refused too, because a speech engine may read them as SSML.
+ * What an announcement may not hold, the API's own rule: controls (Cc, a
+ * newline or a tab included), format characters (Cf: bidirectional overrides and
+ * isolates, zero-width spaces, byte-order marks, tag characters), lone
+ * surrogates (Cs), private use (Co) and line and paragraph separators (Zl, Zp),
+ * with the two joiners (U+200C, U+200D) that scripts and emoji need allowed.
+ * Markup brackets are refused too, because a speech engine may read them as SSML.
  */
-const FORBIDDEN_TEXT = /[\p{Cc}\u2028\u2029\u202A-\u202E\u2066-\u2069<>]/u;
+const FORBIDDEN_TEXT = /[\p{Cc}\p{Cf}\p{Cs}\p{Co}\p{Zl}\p{Zp}<>]/u;
+const JOINERS = new Set([0x200c, 0x200d]);
+/** What Python's `str.isspace` calls white space: the API trims with it, so this server does too. */
+const SPACE_CODE_POINTS = new Set([0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x1c, 0x1d, 0x1e, 0x1f, 0x20, 0x85, 0xa0, 0x1680, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000]);
+
+function isSpace(codePoint: number): boolean {
+  return SPACE_CODE_POINTS.has(codePoint) || (codePoint >= 0x2000 && codePoint <= 0x200a);
+}
+
+function apiTrim(text: string): string {
+  const chars = [...text];
+  let from = 0;
+  let to = chars.length;
+  while (from < to && isSpace(chars[from]!.codePointAt(0)!)) from++;
+  while (to > from && isSpace(chars[to - 1]!.codePointAt(0)!)) to--;
+  return chars.slice(from, to).join("");
+}
 
 /**
- * Check an announcement's text. Returns the trimmed text or throws an error
- * that never repeats it.
+ * Check an announcement's text with the API's own rule (NFC-normalised,
+ * trimmed, 1 to 280 characters counted after that, none of the characters
+ * above). Returns the text as it is sent, or throws an error that never repeats
+ * it.
  */
 export function checkAnnouncementText(raw: string): string {
-  const text = raw.trim();
+  if (/\p{Cs}/u.test(raw)) throw new Error("The announcement text is not valid Unicode (a lone surrogate).");
+  const text = apiTrim(raw.normalize("NFC"));
   if (!text) throw new Error("The announcement text is empty.");
-  if ([...text].length > INTERCOM_MAX_TEXT) {
+  const characters = [...text];
+  if (characters.length > INTERCOM_MAX_TEXT) {
     throw new Error(`The announcement text is longer than ${INTERCOM_MAX_TEXT} characters.`);
   }
-  if (FORBIDDEN_TEXT.test(text)) {
-    throw new Error("The announcement text must be plain text: no control characters, line breaks, text-direction marks or < > markup.");
+  for (const character of characters) {
+    if (FORBIDDEN_TEXT.test(character) && !JOINERS.has(character.codePointAt(0)!)) {
+      throw new Error("The announcement text must be plain text: no control characters, line breaks, text-direction or other invisible format marks, private-use characters or < > markup.");
+    }
   }
   return text;
 }
@@ -155,6 +180,13 @@ function speaker(value: unknown): Json {
     client_id: cleanLabel(row.client_id),
     slug: cleanLabel(row.slug),
     name: cleanLabel(row.name),
+    // The connection kind and whether it can play speech at all (the API's own
+    // default is true: only an explicit false says "cannot"). A connection that
+    // cannot play is listed, but it is never spoken to.
+    kind: cleanLabel(row.kind) ?? "voice_satellite",
+    can_play: row.can_play !== false,
+    // Only on the answer to a speaker change, which this server never makes: null here.
+    policy_synced: typeof row.policy_synced === "boolean" ? row.policy_synced : null,
     online: row.online === true,
     last_seen_at: cleanLabel(row.last_seen_at),
     intercom: {
@@ -172,12 +204,29 @@ function speaker(value: unknown): Json {
 export function speakersOutput(body: Json, redact: (value: unknown) => unknown): unknown {
   const items = Array.isArray(body.items) ? body.items.map(speaker) : [];
   const listening = items.filter((item) => (item.intercom as Json).receive === true).length;
+  const cannotPlay = items.filter((item) => item.can_play === false).length;
+  const policySynced = typeof body.policy_synced === "boolean" ? body.policy_synced : null;
+  const unavailableReason = cleanLabel(body.unavailable_reason);
+  const caveats = [
+    cannotPlay > 0 ? ` ${cannotPlay} cannot play speech (can_play false: a Home Assistant link, developer tool or embedded device its owner has not declared a speaker): listed only, never spoken to.` : "",
+    policySynced === false ? " The hub may hold an out-of-date copy of who receives (policy_synced false): a change made a moment ago can take a moment to reach the home." : "",
+    unavailableReason === "platform" ? " Intercom is switched off for the whole platform (unavailable_reason platform): nothing can be announced until the operator turns it on." : "",
+    unavailableReason !== null && unavailableReason !== "platform" ? ` Intercom is not available for this hub (unavailable_reason ${unavailableReason}).` : "",
+  ].join("");
   return redact({
     items,
-    summary: `${items.length} speaker(s), ${listening} set to receive announcements. A speaker with receive false is never spoken to.`,
+    policy_synced: policySynced,
+    unavailable_reason: unavailableReason,
+    summary: `${items.length} speaker(s), ${listening} set to receive announcements. A speaker with receive false is never spoken to.${caveats}`,
     note: HOUSEHOLD_LABELS_NOTE,
   });
 }
+
+/**
+ * What a delivery status means and does not: the API gives no playback receipt.
+ */
+export const DELIVERY_NOTE =
+  "delivered means the hub handed the speech to that speaker's connection: it is not proof that the sound came out or that anyone heard it. Only acknowledged (an urgent announcement somebody answered) is a person's answer, and failed is not proof that nothing was spoken.";
 
 const DELIVERY_WORDS: Record<string, string> = {
   delivered: "delivered",
@@ -196,6 +245,8 @@ function delivery(value: unknown): Json {
     name: cleanLabel(row.name),
     status: cleanLabel(row.status),
     at: cleanLabel(row.at),
+    // A fixed code from the API (hub_no_response, rate_limited, ...), never free text: shown cleaned all the same.
+    detail: cleanLabel(row.detail),
   };
 }
 
@@ -204,7 +255,7 @@ function delivery(value: unknown): Json {
  * acknowledged. Never any text. Every string is cleaned (see cleanLabel): a
  * speaker's name is typed by the household, and `acked_by` is one of them.
  */
-export function announcementOutput(body: Json, redact: (value: unknown) => unknown): unknown {
+export function announcementOutput(body: Json, redact: (value: unknown) => unknown, options: { replayed?: boolean } = {}): unknown {
   const deliveries = Array.isArray(body.deliveries) ? body.deliveries.map(delivery) : [];
   const counts = new Map<string, number>();
   for (const row of deliveries) {
@@ -221,6 +272,10 @@ export function announcementOutput(body: Json, redact: (value: unknown) => unkno
       ? " The hub did not confirm the stop: the platform recorded it as cancelled, but the hub may keep repeating until it can be reached or someone says they heard it. Tell the people in the home; the hub's Intercom switch also stops it."
       : " Stopped: it will not repeat any more.";
   }
+  const replayed = options.replayed === true;
+  const stored = replayed
+    ? " This is the STORED answer for this idempotency key (Idempotency-Replayed): nothing new was sent, whatever its status."
+    : "";
   return redact({
     id: cleanLabel(body.id),
     status,
@@ -229,7 +284,9 @@ export function announcementOutput(body: Json, redact: (value: unknown) => unkno
     deliveries,
     acked_by: cleanLabel(body.acked_by),
     ...(hubConfirmed === undefined ? {} : { hub_confirmed: hubConfirmed }),
-    summary: `${status ?? "unknown"}: ${parts.length ? parts.join(", ") : "no speakers"}.${waiting}`,
+    ...(replayed ? { replayed: true } : {}),
+    summary: `${status ?? "unknown"}: ${parts.length ? parts.join(", ") : "no speakers"}.${stored}${waiting}`,
+    delivery_note: DELIVERY_NOTE,
     note: HOUSEHOLD_LABELS_NOTE,
   });
 }

@@ -42,6 +42,16 @@ async function intercomRequest(
   path: string,
   options: { body?: Json; headers?: Record<string, string>; timeoutMs: number; signal?: AbortSignal },
 ): Promise<Json> {
+  return (await intercomRequestWithHeaders(api, method, path, options)).body;
+}
+
+/** {@link intercomRequest}, and the response's headers beside the body (for `Idempotency-Replayed`). */
+async function intercomRequestWithHeaders(
+  api: ThalovantControlPlane,
+  method: "GET" | "POST",
+  path: string,
+  options: { body?: Json; headers?: Record<string, string>; timeoutMs: number; signal?: AbortSignal },
+): Promise<{ body: Json; headers: Pick<Headers, "get"> }> {
   if (!api.accessToken) throw new ThalovantApiError("Missing Thalovant API access token.");
   let base: URL;
   let url: URL;
@@ -104,7 +114,7 @@ async function intercomRequest(
   if (!record) {
     throw new ThalovantApiError("Thalovant API returned an unexpected response shape.", { statusCode: response.status });
   }
-  return record;
+  return { body: record, headers: response.headers };
 }
 
 /**
@@ -147,8 +157,10 @@ export async function cancelAnnouncement(api: ThalovantControlPlane, hubId: stri
 }
 
 /**
- * POST /v1/hubs/{hubId}/intercom/announce (scope intercom:send), once, with an
- * Idempotency-Key.
+ * POST /v1/hubs/{hubId}/intercom/announce (scope intercom:send, and
+ * intercom:urgent as well for an urgent one), once, with an Idempotency-Key.
+ * `replayed` says the answer is the stored announcement for that key
+ * (`Idempotency-Replayed: true`): nothing new was sent.
  *
  * A 2xx answer must carry the announcement's `id` and `status` (200 completed,
  * partial or failed; 202 sending): without them the caller could neither read
@@ -161,8 +173,8 @@ export async function announce(
   hubId: string,
   body: IntercomAnnounceBody,
   options: { idempotencyKey: string; signal?: AbortSignal },
-): Promise<Json> {
-  const result = await intercomRequest(api, "POST", `${hubPath(hubId)}/announce`, {
+): Promise<{ result: Json; replayed: boolean }> {
+  const { body: result, headers } = await intercomRequestWithHeaders(api, "POST", `${hubPath(hubId)}/announce`, {
     body: body as unknown as Json,
     headers: { "Idempotency-Key": options.idempotencyKey },
     timeoutMs: ANNOUNCE_TIMEOUT_MS,
@@ -171,5 +183,7 @@ export async function announce(
   if (typeof result.id !== "string" || !result.id || typeof result.status !== "string" || !result.status) {
     throw new ThalovantApiUnreachableError("The Thalovant API answered the announcement without its id and status.");
   }
-  return result;
+  // `Idempotency-Replayed: true`: the stored announcement for this key; nothing new was sent.
+  const replayed = (headers.get("Idempotency-Replayed") ?? "").trim().toLowerCase() === "true";
+  return { result, replayed };
 }

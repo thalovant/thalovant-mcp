@@ -5,6 +5,7 @@ import {
   announcementOutput,
   checkAnnouncementText,
   cleanLabel,
+  DELIVERY_NOTE,
   INTERCOM_MAX_LABEL,
   resolveTargets,
   speakersOutput,
@@ -125,5 +126,72 @@ describe("outputs", () => {
     expect(plain).not.toHaveProperty("hub_confirmed");
     const sending = announcementOutput({ id: "x", status: "sending", deliveries: [] }, (v) => v) as Record<string, unknown>;
     expect(sending.summary).toContain("thalovant_intercom_cancel_announcement");
+  });
+});
+
+describe("the API's text rule", () => {
+  it("normalises to NFC and counts after that", () => {
+    expect(checkAnnouncementText("e\u0301".repeat(200))).toBe("\u00e9".repeat(200)); // 400 code points, 200 once composed
+    expect(() => checkAnnouncementText("\u00e9".repeat(281))).toThrow(/280/);
+  });
+
+  it("trims what the API trims (Python's isspace), and not a byte-order mark", () => {
+    expect(checkAnnouncementText("  \u00a0 hi \u3000 ")).toBe("hi");
+    expect(checkAnnouncementText("\u001f hi \u001c")).toBe("hi");
+    expect(() => checkAnnouncementText("\ufeffhi")).toThrow(/plain text/);
+  });
+
+  it("refuses every category the API refuses, and allows the two joiners", () => {
+    const refused = [
+      "a<b", "a>b", "a\nb", "a\tb", "nul\u0000 x", "c1 \u0085 x", "bidi \u202e x", "isolate \u2066 x", "zero width \u200b x",
+      "bom \ufeff x", "word joiner \u2060 x", "tag \u{e0041} x", "private \ue000 x", "line \u2028 x", "para \u2029 x",
+    ];
+    for (const bad of refused) expect(() => checkAnnouncementText(bad), JSON.stringify(bad)).toThrow(/plain text/);
+    expect(() => checkAnnouncementText("lone \ud800 surrogate")).toThrow(/valid Unicode/);
+    expect(() => checkAnnouncementText("family \u{1F468}\u200d\u{1F469}\u200d\u{1F467}")).not.toThrow();
+    expect(() => checkAnnouncementText("\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645")).not.toThrow();
+  });
+
+  it("never repeats the text in its error", () => {
+    for (const bad of ["secret <b>text</b>", "secret \u202e text", "secret \ud800 text"]) {
+      try {
+        checkAnnouncementText(bad);
+        expect.unreachable();
+      } catch (error) {
+        expect((error as Error).message).not.toContain("secret");
+      }
+    }
+  });
+});
+
+describe("the final-API output", () => {
+  const identity = (value: unknown) => value;
+
+  it("lists kind, can_play and policy_synced with the API's defaults", () => {
+    const out = speakersOutput({ items: [{ client_id: "a" }, { client_id: "b", kind: "embedded", can_play: false, policy_synced: true }] }, identity) as any;
+    expect(out.items[0]).toMatchObject({ kind: "voice_satellite", can_play: true, policy_synced: null });
+    expect(out.items[1]).toMatchObject({ kind: "embedded", can_play: false, policy_synced: true });
+    expect(out.policy_synced).toBeNull();
+    expect(out.unavailable_reason).toBeNull();
+    expect(out.summary).toContain("1 cannot play speech");
+  });
+
+  it("explains an out-of-date consent map and every unavailable reason", () => {
+    expect((speakersOutput({ items: [], policy_synced: false }, identity) as any).summary).toContain("out-of-date");
+    expect((speakersOutput({ items: [], policy_synced: true }, identity) as any).summary).not.toContain("out-of-date");
+    expect((speakersOutput({ items: [], unavailable_reason: "platform" }, identity) as any).summary).toContain("whole platform");
+    expect((speakersOutput({ items: [], unavailable_reason: "kid_hub" }, identity) as any).summary).toContain("unavailable_reason kid_hub");
+  });
+
+  it("carries a delivery's detail and a replayed flag only when it is true", () => {
+    const body = { id: "x", status: "failed", deliveries: [{ status: "failed", detail: "hub_no_response" }] };
+    const first = announcementOutput(body, identity) as any;
+    expect(first.deliveries[0].detail).toBe("hub_no_response");
+    expect(first).not.toHaveProperty("replayed");
+    expect(first.delivery_note).toBe(DELIVERY_NOTE);
+    const again = announcementOutput(body, identity, { replayed: true }) as any;
+    expect(again.replayed).toBe(true);
+    expect(again.summary).toContain("STORED answer");
+    expect((announcementOutput(body, identity, { replayed: false }) as any)).not.toHaveProperty("replayed");
   });
 });

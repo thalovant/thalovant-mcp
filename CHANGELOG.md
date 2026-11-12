@@ -1,8 +1,16 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendment 2), MCP items: person confirmation by elicitation, hard-blocked intercom/speak types, hub allowlist, per-principal rate cap, sanitised labels, cancel tool, 502 handling.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform security review): intercom:urgent check, new problem codes in tool errors, kind/can_play/policy_synced, replayed, the API's text rule; parity capability intercom recorded.
 
 # Changelog
 
 ## 0.9.0 - 2026-11-11
+
+Intercom, the final API (platform security review; nothing here changes the version, 0.9.0 is not released):
+
+- **The scope `intercom:urgent`.** An urgent announcement (and every repeat) needs it in addition to `intercom:send`. When this server knows what a sign-in was granted (a token minted by `thalovant_begin_browser_login` or `thalovant_begin_device_login`; the granted scopes are kept with the sign-in) and it lacks `intercom:urgent`, `thalovant_intercom_announce` refuses before the person is asked to confirm and before any request (audit `refused`, `reason: urgent_scope_missing`). For a token configured through the environment or a credential the scopes are not visible, so the API's `403 urgent_scope_required` is the check. Tool descriptions, README, QUICK_FACTS and FAQ name the scope.
+- **Speakers**: `thalovant_intercom_list_speakers` shows `kind`, `can_play` (false: listed, never spoken to, never part of `allowAll`, a room or a group), `policy_synced` and `unavailable_reason` (now also `platform`), all cleaned; the summary says how many cannot play speech and that a change may take a moment to reach the home. **Announcements**: a delivery's `detail` code, `delivery_note` (delivered is not heard: there is no playback receipt; failed is not proof nothing was spoken), and `replayed: true` with a summary line when the API returned the stored announcement for the key (`Idempotency-Replayed: true`; the audit row says `replayed: true` beside `status: sent`).
+- **New problem codes in tool errors**, each with a next step and never retried: `urgent_scope_required`, `intercom_urgent_busy` (`scope` hub or platform; cancel one or wait), `skill_not_installed`, `not_a_speaker` (the connections), `too_many_targets` (`matched`), `hub_locked`, `impersonation_not_allowed`, `intercom_unavailable` (`reason`), `intercom_disabled_platform`, `intercom_not_configured`, `managed_client`, `reserved_name`, `not_cancellable` (names the announcement's current status), a 409 for a key reused with a different request, and the existing `hub_unreachable` with `announcement_id`. Words taken from a problem (`scope`, `reason`, `announcement_status`, `not_speakers`) are cleaned and bounded before they reach a hint.
+- **The text rule is the API's**: NFC-normalised, trimmed the way the API trims, 1-280 characters, and no `<` `>`, control, bidirectional or other invisible format characters (zero-width joiner and non-joiner allowed), lone surrogates, private-use characters or separators; an error never repeats it. `lang` must be a language tag.
+- The parity file records the `intercom` capability (required) against the Python reference digest `69badc4fb072`.
 
 Intercom: an agent can see a hub's speakers, follow and stop an announcement, and, when the operator opts in, say a short text aloud in a home. Intercom is not a certified safety system: it does not replace smoke or CO alarms, medical alert devices or emergency services.
 

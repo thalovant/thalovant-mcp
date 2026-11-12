@@ -1,6 +1,16 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendment 2), MCP items: person confirmation by elicitation, hard-blocked intercom/speak types, hub allowlist, per-principal rate cap, sanitised labels, cancel tool, 502 handling.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform security review): intercom:urgent check, new problem codes in tool errors, kind/can_play/policy_synced, replayed, the API's text rule; parity capability intercom recorded.
 
 # Audit
+
+## Intercom, final API (2026-11-12, 0.9.0, unreleased)
+
+Driven by the platform security review (`CONSOLE_API_NOTES.md` section 9 of the API notes) and the final API. Evidence: `npm run typecheck`, `npm run build`, `npm test` (26 files, 710 tests passed, 34 more than the 676 before: `test/intercom.test.ts` gained the `final API`, `urgent sends` and `new problem codes` blocks, `test/intercom-output.test.ts` the text-rule and output blocks).
+
+- **`intercom:urgent`, partly checkable.** `grantedScopes()` (`src/index.ts`) reads the scopes a sign-in was granted (`DeviceLogins.approve(principal, api, scopes)`, `src/device-login.ts`; `BrowserLogins` passes the token answer's scopes, `scopesOfToken`, `src/browser-login.ts`) and the announce handler refuses an urgent send without `intercom:urgent` before the confirmation prompt (`test/intercom.test.ts`, "refuses an urgent announcement, before the prompt and any request"). A token in `THALOVANT_API_TOKEN` carries no known scopes, so for it only the API's `403 urgent_scope_required` checks, after the prompt ("leaves the check to the API for a configured token"). Proposed in `SUGGESTIONS.md`.
+- **Hints for the new codes** are in `withIntercomHint` (`src/index.ts`) and read members from the problem (`problemMember`, `problemWord`, `problemNames`): cleaned, a word of at most 40 `[A-Za-z0-9_.:-]` characters, at most five names ("keeps a hostile problem member out of the hint"). `owner_locked` and `account_locked` (403) have no hint of their own: they get the generic 403 one and the API's own sentence.
+- **The text rule** (`checkAnnouncementText`, `src/intercom-output.ts`) is the API's (`app/schemas/intercom.py`, `clean_announcement_text`): NFC, the API's trim (`apiTrim`, Python's `isspace` set), Cc/Cf/Cs/Co/Zl/Zp and `<` `>` refused except the two joiners. It uses this runtime's Unicode tables and `String.prototype.normalize`, so a character assigned in a newer Unicode than the API's (or this server's) can pass in one and be refused in the other; the API's 422 is the fallback and does not echo the text.
+- **`ThalovantApiError` from `@thalovant/sdk` 0.11 has no typed intercom errors** (the SDK with them is not published); the hints are chosen by `error.code` and read the other members from `error.problem`. When the SDK ships, `src/intercom-sdk.ts` can use its typed errors (`SUGGESTIONS.md`).
+- Not verified against a real API, hub or MCP client UI: the tests use a loopback fake API built from the producer's notes and the API source.
 
 ## Intercom, Amendment 2 (2026-11-12, 0.9.0, unreleased)
 

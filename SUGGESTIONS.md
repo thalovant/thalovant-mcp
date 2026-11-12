@@ -1,6 +1,12 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendment 2), MCP items: person confirmation by elicitation, hard-blocked intercom/speak types, hub allowlist, per-principal rate cap, sanitised labels, cancel tool, 502 handling.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform security review): intercom:urgent check, new problem codes in tool errors, kind/can_play/policy_synced, replayed, the API's text rule; parity capability intercom recorded.
 
 # Follow-up
+
+## Intercom: know the token's scopes, not only a sign-in's
+
+- **Problem:** the `intercom:urgent` check (`grantedScopes`, `src/index.ts`) works only for a token minted by this server's own sign-in; for a token in `THALOVANT_API_TOKEN` the scopes are invisible, so the API's `403 urgent_scope_required` is the only check, after the person was asked to confirm.
+- **Proposal:** a read of the token's own scopes (`GET /v1/auth/token` or the existing token listing) once per principal, cached, or an optional `THALOVANT_API_TOKEN_SCOPES` the operator declares.
+- **Impact:** low effort; avoids one needless confirmation prompt per refused urgent announcement.
 
 ## Intercom: take the SDK's methods and add the list tool (0.9.0)
 

@@ -1,8 +1,24 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Contract section J (Amendment 2), MCP items: person confirmation by elicitation, hard-blocked intercom/speak types, hub allowlist, per-principal rate cap, sanitised labels, cancel tool, 502 handling.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform security review): intercom:urgent check, new problem codes in tool errors, kind/can_play/policy_synced, replayed, the API's text rule; parity capability intercom recorded.
 
 # FAQ
 
 ## Intercom
+
+### Why was my urgent announcement refused with a message about `intercom:urgent`?
+
+An urgent announcement (and every repeat) needs the scope `intercom:urgent` in addition to `intercom:send`; nothing implies it. When you signed in through `thalovant_begin_browser_login` or `thalovant_begin_device_login` and the grant did not include it, the server refuses before it asks the person to confirm and before any request. With a token configured through the environment the server cannot see the scopes, so the API answers `403 urgent_scope_required` and the error says the same. Sign in again with `intercom:urgent` (a paid plan), or, only with the person's agreement, send a normal announcement.
+
+### Why does a speaker say `can_play: false`, and why can it not be named?
+
+It is a connection that cannot play speech (a Home Assistant link, a developer tool or an embedded device whose owner has not declared it a speaker). It is listed so it can be greyed out, never spoken to, never part of `allowAll`, a room or a group, and naming it is `not_a_speaker`.
+
+### What does `replayed: true` mean on an announcement?
+
+The API returned the STORED announcement for that idempotency key (`Idempotency-Replayed: true`): nothing new was sent, whatever its status. Do not tell the person it was sent again.
+
+### Why does every announcement say `intercom_disabled_platform`?
+
+Intercom ships dark: until the platform operator turns it on, every write and announcement is a 503 `intercom_disabled_platform` and `thalovant_intercom_list_speakers` reads `unavailable_reason: platform`. Reads and `thalovant_intercom_cancel_announcement` still work.
 
 ### Why is there no `thalovant_intercom_announce` in my tool list?
 

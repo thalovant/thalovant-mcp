@@ -18,7 +18,7 @@ import type { IntercomTargets } from "./intercom-output.js";
 
 /** A refusal by one of the guardrails: the audit log records its reason. */
 export class IntercomRefusal extends Error {
-  readonly reason: "hub_not_allowed" | "rate_limited" | "confirmation_unsupported" | "confirmation_declined" | "confirmation_failed";
+  readonly reason: "hub_not_allowed" | "rate_limited" | "confirmation_unsupported" | "confirmation_declined" | "confirmation_failed" | "urgent_scope_missing";
 
   constructor(reason: IntercomRefusal["reason"], message: string) {
     super(message);
