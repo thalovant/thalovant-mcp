@@ -60,6 +60,15 @@ describe("rate limits from the environment", () => {
       expect(intercomRateLimits({ THALOVANT_INTERCOM_RATE_NORMAL_PER_MINUTE: value, THALOVANT_INTERCOM_RATE_URGENT_PER_HOUR: value }), JSON.stringify(value)).toEqual({ normalPerMinute: 20, urgentPerHour: 5 });
     }
   });
+
+  it("accepts only a whole positive decimal integer: a typo never raises the cap by its prefix", () => {
+    // parseInt would have read "200oops" as 200 and "2.5" as 2.
+    for (const value of ["200oops", "2.5", "7 apples", "1e3", "0x10", "+5", "5.", ".5", "1,000", "٣", "0.0", "00"]) {
+      expect(intercomRateLimits({ THALOVANT_INTERCOM_RATE_NORMAL_PER_MINUTE: value, THALOVANT_INTERCOM_RATE_URGENT_PER_HOUR: value }), JSON.stringify(value)).toEqual({ normalPerMinute: 20, urgentPerHour: 5 });
+    }
+    // Surrounding white space and leading zeros are still a whole integer; the 10 000 ceiling stays.
+    expect(intercomRateLimits({ THALOVANT_INTERCOM_RATE_NORMAL_PER_MINUTE: " 007 ", THALOVANT_INTERCOM_RATE_URGENT_PER_HOUR: "99999999999999999999" })).toEqual({ normalPerMinute: 7, urgentPerHour: 10_000 });
+  });
 });
 
 describe("IntercomRateCap", () => {

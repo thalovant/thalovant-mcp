@@ -118,14 +118,33 @@ describe("outputs", () => {
   it("words a cancelled announcement, with and without the hub's confirmation", () => {
     const confirmed = announcementOutput({ id: "x", status: "cancelled", hub_confirmed: true, deliveries: [] }, (v) => v) as Record<string, unknown>;
     expect(confirmed.hub_confirmed).toBe(true);
-    expect(confirmed.summary).toContain("Stopped");
+    expect(confirmed.summary).toContain("Stopped: the hub confirmed");
     const unconfirmed = announcementOutput({ id: "x", status: "cancelled", hub_confirmed: false, deliveries: [] }, (v) => v) as Record<string, unknown>;
     expect(unconfirmed.hub_confirmed).toBe(false);
     expect(unconfirmed.summary).toContain("did not confirm the stop");
+    // A read of a cancelled announcement may not carry hub_confirmed: unknown, never "Stopped".
+    const unknown = announcementOutput({ id: "x", status: "cancelled", deliveries: [] }, (v) => v) as Record<string, unknown>;
+    expect(unknown).not.toHaveProperty("hub_confirmed");
+    expect(unknown.summary).not.toContain("Stopped");
+    expect(unknown.summary).toContain("does not say whether the hub confirmed the stop");
+    expect(unknown.summary).toContain("may still repeat");
     const plain = announcementOutput({ id: "x", status: "completed", deliveries: [] }, (v) => v) as Record<string, unknown>;
     expect(plain).not.toHaveProperty("hub_confirmed");
     const sending = announcementOutput({ id: "x", status: "sending", deliveries: [] }, (v) => v) as Record<string, unknown>;
     expect(sending.summary).toContain("thalovant_intercom_cancel_announcement");
+  });
+
+  it("says delivery results are pending, not 'no speakers', while an announcement is sending without results", () => {
+    const pending = announcementOutput({ id: "x", status: "sending", deliveries: [] }, (v) => v) as Record<string, unknown>;
+    expect(pending.summary).toMatch(/^sending: delivery results pending\./);
+    expect(pending.summary).not.toContain("no speakers");
+    const noDeliveries = announcementOutput({ id: "x", status: "sending" }, (v) => v) as Record<string, unknown>;
+    expect(noDeliveries.summary).toMatch(/^sending: delivery results pending\./);
+    // Once results arrive they are counted; other statuses keep their wording.
+    const partial = announcementOutput({ id: "x", status: "sending", deliveries: [{ client_id: "a", status: "delivered" }] }, (v) => v) as Record<string, unknown>;
+    expect(partial.summary).toMatch(/^sending: 1 delivered\./);
+    const failed = announcementOutput({ id: "x", status: "failed", deliveries: [] }, (v) => v) as Record<string, unknown>;
+    expect(failed.summary).toBe("failed: no speakers.");
   });
 });
 

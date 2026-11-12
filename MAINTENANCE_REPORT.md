@@ -1,6 +1,28 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform security review): intercom:urgent check, new problem codes in tool errors, kind/can_play/policy_synced, replayed, the API's text rule; parity capability intercom recorded.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: CodeRabbit round 3 on PR 128: malformed 2xx announcement/cancel/read answers, cancelled with no hub_confirmed, pending delivery results, strict rate-limit integers, audit never hides a sent announcement, the confirmation prompt is not written to the event-store file, 24-hour key wording, FAQ/README wording.
 
 # Maintenance Report
+
+## 2026-11-12 - CodeRabbit round 3 on PR 128 (Intercom)
+
+Eighteen new inline comments (c46e4d1 and earlier): ten are CodeRabbit's own "thanks, verified" replies in already resolved threads (nothing to do), three are older findings of 5929de4 that are now stale or still open, eight are new. Plus one out-of-diff finding in the review body of 5929de4. Fixed: all valid ones; declined: none (the gate-note one is already obsolete, see AUDIT.md).
+
+**Changes**
+
+- `src/intercom-sdk.ts`: a 2xx POST body that is not a JSON object is an uncertain outcome (`ThalovantApiUnreachableError`), so the announce handler gives the key and the do-not-resend guidance; `getAnnouncement` requires `id` and `status`; `cancelAnnouncement` reports the same as an unknown outcome.
+- `src/intercom-output.ts`: "Stopped" only for `hub_confirmed: true`, an unknown message when it is absent; `sending` with no results reads "delivery results pending".
+- `src/intercom-policy.ts`: `positiveInt` accepts only a whole decimal integer; the confirmation prompt's last line is exact about storage.
+- `src/index.ts`: hints (the local urgent cap counts a refused attempt; the 502 without id; the 24-hour key limit), the tool description's storage sentence, `FileEventStore.storeEvent` skips `elicitation/create`, `auditLogBestEffort` for the announce and cancel tools.
+- README, FAQ, QUICK_FACTS, CHANGELOG, AUDIT, SUGGESTIONS (two new proposals: release a refused attempt's rate slot; write the audit intent before sending), `.env.example`.
+- Tests: `test/intercom.test.ts` +11 (non-object 2xx, four on reading an announcement that is malformed, cancelled without `hub_confirmed` or pending, a malformed cancel answer, busy counts against the cap, the 24-hour wording, three audit-failure cases; the 502-without-id test extended), `test/intercom-output.test.ts` +1, `test/intercom-policy.test.ts` +1, `test/http.test.ts` asserts the event-store file holds no prompt. Each new test fails on the previous source.
+- `contracts/sdk-parity.json`: evidence hashes refreshed for the files this round changed; `reference_digests` untouched (the SDK agent maintains it).
+
+**Verification:** `npm run typecheck`, `npm run build`, `npm test` 723 passed in 26 files (710 before), `npm run test:smoke` 2, `npm run test:http` 12. Not run against a real API or hub.
+
+**Transparency Report**
+
+- AI Model: Claude Sonnet 5.5.
+- Actions Taken: read CodeRabbit's comments and the API notes (`CONSOLE_API_NOTES.md` sections 2, 3 and 9, `CONTRACT.md` sections I and J, `SECURITY_REVIEW_CLIENTS.md`), checked each finding against the current code, changed the code, tests and docs above, ran the suites (and the new tests against the previous source), refreshed the parity evidence hashes, committed and answered the review threads.
+- Oversight: none beyond the agent's own test runs; a human review of the best-effort audit and the event-store skip is still required before release.
 
 ## 2026-11-12: Intercom final API (platform security review)
 

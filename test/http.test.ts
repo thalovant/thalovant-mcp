@@ -423,10 +423,12 @@ describe("streamable HTTP MCP server", () => {
     let child: ChildProcessWithoutNullStreams | undefined;
     const clients: Client[] = [];
     try {
+      const eventStoreFile = join(dir, "events", "stream.jsonl");
       const started = await startMcpHttpServer(() => ({
         MCP_HTTP_AUTH_TOKENS: "intercom-fixture-token",
         THALOVANT_PRINCIPAL_CREDENTIALS_DIR: dir,
         THALOVANT_ENABLE_INTERCOM_ANNOUNCE: "1",
+        MCP_EVENT_STORE_FILE: eventStoreFile,
       }));
       child = started.child;
       const text = (result: Awaited<ReturnType<Client["callTool"]>>) => (result.content as Array<{ text?: string }>)[0]?.text ?? "";
@@ -454,7 +456,15 @@ describe("streamable HTTP MCP server", () => {
       expect(shown).toHaveLength(1);
       expect(shown[0]).toContain(`Hub: ${hubId}`);
       expect(shown[0]).toContain("Priority: URGENT");
+      expect(shown[0]).toContain("Text: \"Dinner is ready\"");
       expect(seen.map((row) => `${row.method} ${row.path}`)).toEqual([`POST /v1/hubs/${hubId}/intercom/announce`]);
+
+      // The file-backed event store (MCP_EVENT_STORE_FILE) is on, and it records the stream's messages, but the
+      // confirmation prompt, which shows the announcement's text, is never written to disk.
+      const stored = await readFile(eventStoreFile, "utf8");
+      expect(stored.trim().length, "the event store is in use").toBeGreaterThan(0);
+      expect(stored).not.toContain("elicitation/create");
+      expect(stored).not.toContain("Dinner is ready");
 
       // A person who declines: nothing more is sent.
       const declining = await connect(() => ({ action: "decline" }));

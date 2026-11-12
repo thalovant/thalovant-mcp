@@ -268,9 +268,14 @@ export function announcementOutput(body: Json, redact: (value: unknown) => unkno
   let waiting = "";
   if (status === "sending") waiting = " Still being spoken: read it again with thalovant_intercom_get_announcement to follow it, or stop it with thalovant_intercom_cancel_announcement.";
   if (status === "cancelled") {
-    waiting = hubConfirmed === false
-      ? " The hub did not confirm the stop: the platform recorded it as cancelled, but the hub may keep repeating until it can be reached or someone says they heard it. Tell the people in the home; the hub's Intercom switch also stops it."
-      : " Stopped: it will not repeat any more.";
+    // `hub_confirmed` is on the answer to a cancel. A read of a cancelled
+    // announcement may not carry it: absent is unknown, never a confirmation.
+    if (hubConfirmed === true) waiting = " Stopped: the hub confirmed it will not repeat any more.";
+    else if (hubConfirmed === false) {
+      waiting = " The hub did not confirm the stop: the platform recorded it as cancelled, but the hub may keep repeating until it can be reached or someone says they heard it. Tell the people in the home; the hub's Intercom switch also stops it.";
+    } else {
+      waiting = " The platform recorded it as cancelled, but this answer does not say whether the hub confirmed the stop, so the hub may still repeat until it can be reached or someone says they heard it. Tell the people in the home; the hub's Intercom switch also stops it.";
+    }
   }
   const replayed = options.replayed === true;
   const stored = replayed
@@ -285,7 +290,7 @@ export function announcementOutput(body: Json, redact: (value: unknown) => unkno
     acked_by: cleanLabel(body.acked_by),
     ...(hubConfirmed === undefined ? {} : { hub_confirmed: hubConfirmed }),
     ...(replayed ? { replayed: true } : {}),
-    summary: `${status ?? "unknown"}: ${parts.length ? parts.join(", ") : "no speakers"}.${stored}${waiting}`,
+    summary: `${status ?? "unknown"}: ${parts.length ? parts.join(", ") : status === "sending" ? "delivery results pending" : "no speakers"}.${stored}${waiting}`,
     delivery_note: DELIVERY_NOTE,
     note: HOUSEHOLD_LABELS_NOTE,
   });

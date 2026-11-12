@@ -112,6 +112,13 @@ async function intercomRequestWithHeaders(
     });
   }
   if (!record) {
+    // A success whose body is not a JSON object. After a POST the API may well
+    // have acted, so the caller cannot know what happened: that is an uncertain
+    // outcome, like an answer that did not arrive, not a refusal. A read has
+    // changed nothing and is safe to repeat.
+    if (method === "POST") {
+      throw new ThalovantApiUnreachableError("The Thalovant API answered with a success whose body is not a JSON object, so what happened is not known.");
+    }
     throw new ThalovantApiError("Thalovant API returned an unexpected response shape.", { statusCode: response.status });
   }
   return { body: record, headers: response.headers };
@@ -137,9 +144,25 @@ export async function listIntercomSpeakers(api: ThalovantControlPlane, hubId: st
   return intercomRequest(api, "GET", `${hubPath(hubId)}/speakers`, { timeoutMs: READ_TIMEOUT_MS, signal });
 }
 
-/** GET /v1/hubs/{hubId}/intercom/announcements/{id} (scope intercom:read). */
+/** Whether an answer carries what an announcement always has: a non-empty `id` and `status` (strings). */
+function hasAnnouncementIdentity(body: Json): boolean {
+  return typeof body.id === "string" && body.id !== "" && typeof body.status === "string" && body.status !== "";
+}
+
+/**
+ * GET /v1/hubs/{hubId}/intercom/announcements/{id} (scope intercom:read).
+ *
+ * A 2xx answer without the announcement's `id` and `status` is refused as an
+ * invalid response (reading changes nothing, so it is safe to try again):
+ * formatting it would report a null id and an unknown status as if they were a
+ * result a caller could act on.
+ */
 export async function getAnnouncement(api: ThalovantControlPlane, hubId: string, announcementId: string, signal?: AbortSignal): Promise<Json> {
-  return intercomRequest(api, "GET", `${hubPath(hubId)}/announcements/${segment(announcementId, "announcement id")}`, { timeoutMs: READ_TIMEOUT_MS, signal });
+  const body = await intercomRequest(api, "GET", `${hubPath(hubId)}/announcements/${segment(announcementId, "announcement id")}`, { timeoutMs: READ_TIMEOUT_MS, signal });
+  if (!hasAnnouncementIdentity(body)) {
+    throw new ThalovantApiError("The Thalovant API answered the announcement read without its id and status, so this is not a usable announcement. Reading is safe to try again.");
+  }
+  return body;
 }
 
 /**
@@ -150,10 +173,17 @@ export async function getAnnouncement(api: ThalovantControlPlane, hubId: string,
  * `cancelled` and `hub_confirmed` (false when the hub could not confirm: the
  * record is cancelled either way). Any other status is a 409 `not_cancellable`.
  * Cancelling only ever stops speech, and is safe to repeat. No body, no retry
- * here: the caller reads the announcement to see where it stands.
+ * here: the caller reads the announcement to see where it stands. A 2xx answer
+ * without the announcement's `id` and `status` is reported as an unreachable
+ * API (it is not known whether the stop took), so the cancel hint says to read
+ * it and cancel again.
  */
 export async function cancelAnnouncement(api: ThalovantControlPlane, hubId: string, announcementId: string, signal?: AbortSignal): Promise<Json> {
-  return intercomRequest(api, "POST", `${hubPath(hubId)}/announcements/${segment(announcementId, "announcement id")}/cancel`, { timeoutMs: READ_TIMEOUT_MS, signal });
+  const body = await intercomRequest(api, "POST", `${hubPath(hubId)}/announcements/${segment(announcementId, "announcement id")}/cancel`, { timeoutMs: READ_TIMEOUT_MS, signal });
+  if (!hasAnnouncementIdentity(body)) {
+    throw new ThalovantApiUnreachableError("The Thalovant API answered the cancel without the announcement's id and status.");
+  }
+  return body;
 }
 
 /**
@@ -166,7 +196,8 @@ export async function cancelAnnouncement(api: ThalovantControlPlane, hubId: stri
  * partial or failed; 202 sending): without them the caller could neither read
  * the announcement back nor say what happened, yet it may have been spoken. That
  * is reported as an unreachable API, so the announce handler gives the
- * "do not resend, reuse the key" guidance.
+ * "do not resend, reuse the key" guidance. A 2xx whose body is not a JSON
+ * object at all (malformed JSON, an array) is classified the same way.
  */
 export async function announce(
   api: ThalovantControlPlane,
@@ -180,7 +211,7 @@ export async function announce(
     timeoutMs: ANNOUNCE_TIMEOUT_MS,
     signal: options.signal,
   });
-  if (typeof result.id !== "string" || !result.id || typeof result.status !== "string" || !result.status) {
+  if (!hasAnnouncementIdentity(result)) {
     throw new ThalovantApiUnreachableError("The Thalovant API answered the announcement without its id and status.");
   }
   // `Idempotency-Replayed: true`: the stored announcement for this key; nothing new was sent.

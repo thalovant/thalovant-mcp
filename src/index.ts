@@ -610,15 +610,15 @@ function withIntercomHint(error: unknown, options: IntercomHintOptions = {}): ne
     if (operation === "cancel") {
       hint = "The answer did not arrive, so it is not known whether the announcement was stopped. Read it with thalovant_intercom_get_announcement: if it is still sending, cancel again (cancelling twice is safe). Tell the people in the home meanwhile; the hub's Intercom switch also stops it.";
     } else if (operation === "announce") {
-      hint = `${keyLine} Nothing is known about whether the announcement was spoken. Do NOT send it again with a new key: ask the people in the home, or read it first with thalovant_intercom_get_announcement when you have its id. Sending again with exactly this key is safe (the API returns the stored announcement and never speaks it twice, whatever its status); a new key would speak it again.`.trim();
+      hint = `${keyLine} Nothing is known about whether the announcement was spoken. Do NOT send it again with a new key: ask the people in the home, or read it first with thalovant_intercom_get_announcement when you have its id. Sending again with exactly this key is safe for 24 hours after the first try (the API returns the stored announcement and never speaks it twice, whatever its status); a new key would speak it again, and after 24 hours the API has forgotten the key, so a late resend with it would speak it too: ask the household instead.`.trim();
     } else {
       hint = "The API did not answer. Nothing was changed: reading is safe to try again.";
     }
   } else if (code === "urgent_scope_required") {
-    hint = "An urgent announcement (and every repeat) needs the intercom:urgent scope as well as intercom:send. Nothing was sent and nothing was spent. Ask the person to sign in again with a token that carries intercom:urgent (thalovant_begin_browser_login or thalovant_begin_device_login with scopes; it needs a paid plan), or, only if they agree, send a normal announcement instead.";
+    hint = "An urgent announcement (and every repeat) needs the intercom:urgent scope as well as intercom:send. Nothing was sent and the API spent no rate token (this server's own urgent cap still counted the attempt). Ask the person to sign in again with a token that carries intercom:urgent (thalovant_begin_browser_login or thalovant_begin_device_login with scopes; it needs a paid plan), or, only if they agree, send a normal announcement instead.";
   } else if (code === "intercom_urgent_busy") {
     const scope = problemWord(error, "scope");
-    hint = `${scope === "platform" ? "The platform" : "This hub"} already has its urgent announcements repeating (${scope ?? "hub or platform"} pool). Nothing was sent and no rate token was spent. Stop one that is running with thalovant_intercom_cancel_announcement (thalovant_intercom_get_announcement shows which are still sending), or wait for the Retry-After above.`;
+    hint = `${scope === "platform" ? "The platform" : "This hub"} already has its urgent announcements repeating (${scope ?? "hub or platform"} pool). Nothing was sent and the API spent no rate token, but this server counted the attempt as one urgent announcement against its own per-caller cap (${DEFAULT_URGENT_PER_HOUR} an hour by default; the operator may change it), and cancelling a running announcement does not give that back: the next urgent attempt can be refused here for up to an hour. Stop one that is running with thalovant_intercom_cancel_announcement (thalovant_intercom_get_announcement shows which are still sending), or wait for the Retry-After above, and do not retry in a loop.`;
   } else if (code === "skill_not_installed") {
     hint = "The Intercom skill is not installed on this hub's runtime yet, so the urgent announcement was not sent. The hub's owner switches Intercom on in the console (hub > Intercom), which installs it; wait for that to finish, then try again.";
   } else if (code === "not_a_speaker") {
@@ -663,7 +663,9 @@ function withIntercomHint(error: unknown, options: IntercomHintOptions = {}): ne
       id
         ? `READ the announcement first: thalovant_intercom_get_announcement with hubId ${options.hubId ?? "(this hub)"} and announcementId ${id}.`
         : "Check that the hub is online and ask the people in the home before doing anything else.",
-      "Sending again with the same idempotency key does not speak it: the API returns this stored failed announcement and never re-sends it. To say it again on purpose, only after the person asks and you have read the announcement, call the tool again WITHOUT an idempotencyKey (a new key is generated).",
+      id
+        ? "Sending again with the same idempotency key does not speak it: within 24 hours the API returns this stored failed announcement and never re-sends it. To say it again on purpose, only after the person asks and you have read the announcement, call the tool again WITHOUT an idempotencyKey (a new key is generated)."
+        : "The API gave no announcement_id, so no stored announcement is known to exist: the request may never have reached the API. The API never speaks the same key twice (for 24 hours), so sending again with the same idempotency key sends at most once; but if the first try never arrived, that send would speak it, so ask the person first. To say it again on purpose, only after the person asks, call the tool again WITHOUT an idempotencyKey (a new key is generated).",
     ].filter(Boolean).join("\n");
   } else if (status === 502 || code === "hub_unreachable") {
     hint = "The hub did not answer. Check the hub is online before trying again.";
@@ -897,6 +899,10 @@ class FileEventStore extends InMemoryEventStore {
 
   override async storeEvent(streamId: StreamId, message: JSONRPCMessage): Promise<EventId> {
     const eventId = await super.storeEvent(streamId, message);
+    // A confirmation prompt (elicitation/create) shows the person an
+    // announcement's text. It cannot be answered after a restart, so it is kept
+    // in memory for the stream's own resumption and never written to disk.
+    if ((message as { method?: unknown }).method === "elicitation/create") return eventId;
     await mkdir(dirname(this.filePath), { recursive: true, mode: 0o700 });
     await appendFile(this.filePath, `${stableStringify({ streamId, eventId, message })}\n`, { mode: 0o600 });
     return eventId;
@@ -1095,6 +1101,37 @@ async function auditLog(event: Record<string, unknown>): Promise<void> {
 }
 
 /**
+ * Tools whose call cannot be undone once the API has answered (an announcement
+ * is spoken; a cancel stops speech). Their audit records are written on a best
+ * effort basis: a log that cannot be written (a full disk, a lost mount) must
+ * never replace the API's answer, with the announcement's id and the
+ * idempotency key, by an I/O error, which would tempt a caller to send it again.
+ */
+const AUDIT_AFTER_ACTION_TOOLS: ReadonlySet<string> = new Set(["thalovant_intercom_announce", "thalovant_intercom_cancel_announcement"]);
+
+/**
+ * {@link auditLog}, but a failed write is reported on stderr (the ids already
+ * in the record, never an announcement's text) and swallowed.
+ */
+async function auditLogBestEffort(event: Record<string, unknown>): Promise<void> {
+  try {
+    await auditLog(event);
+  } catch (error) {
+    const { tool, event: name, principalId, hubId, announcementId, idempotencyKey } = event;
+    console.error(JSON.stringify(redactSecrets({
+      ts: new Date().toISOString(),
+      event: "mcp.audit_failed",
+      failed: tool ?? name,
+      principalId,
+      hubId,
+      announcementId,
+      idempotencyKey,
+      error: error instanceof Error ? error.message.split("\n")[0] : "error",
+    })));
+  }
+}
+
+/**
  * What the audit log may record of a call's arguments when MCP_AUDIT_INCLUDE_ARGS
  * is on. An announcement's text is spoken in a home and is never stored, so it
  * is replaced by its length here, as everywhere else.
@@ -1120,13 +1157,14 @@ function registerThalovantTool(
       return;
     }
   }
+  const audit = AUDIT_AFTER_ACTION_TOOLS.has(name) ? auditLogBestEffort : auditLog;
   (server.registerTool as any)(name, config, async (args: any, extra: any) => {
     const principal = principalFromExtra(extra);
     const start = Date.now();
     try {
       await authorizeTool(name, principal);
       const result = await requestContext.run({ toolName: name, principal, signal: extra.signal }, () => handler(args, extra));
-      await auditLog({
+      await audit({
         ts: new Date().toISOString(),
         event: "mcp.tool",
         tool: name,
@@ -1138,7 +1176,7 @@ function registerThalovantTool(
       });
       return result as any;
     } catch (error) {
-      await auditLog({
+      await audit({
         ts: new Date().toISOString(),
         event: "mcp.tool",
         tool: name,
@@ -3756,7 +3794,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     async ({ hubId, announcementId, ...auth }, extra) => {
       const principal = currentPrincipal();
       const audit = (outcome: Record<string, unknown>) =>
-        auditLog({ ts: new Date().toISOString(), event: "mcp.intercom.cancel", principalId: principal.id, clientId: principal.clientId, hubId, announcementId, ...outcome });
+        auditLogBestEffort({ ts: new Date().toISOString(), event: "mcp.intercom.cancel", principalId: principal.id, clientId: principal.clientId, hubId, announcementId, ...outcome });
       try {
         assertIntercomHubAllowed(hubId);
         const api = await createControlPlane(auth);
@@ -3781,7 +3819,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
       {
         title: "Announce On Intercom",
         description:
-          `Say a short sentence ALOUD on speakers in a real home (POST /v1/hubs/{hub_id}/intercom/announce). The text is spoken by each speaker's own text-to-speech, to whoever is in the room, so send only what the household would want to hear and never anything private, secret or alarming that the person did not ask for. An announcement cannot be unsaid. ${INTERCOM_NOTICE} Do not use it for emergencies: call the emergency services instead. The text is at most ${INTERCOM_MAX_TEXT} characters of plain text (no control characters, line breaks, invisible text-direction or format marks or < > markup) and is NOT stored by the platform or this server (only its length and a keyed hash are audited, when the audit log is on). Name explicit targets: speakers (client ids or slugs, at most ${INTERCOM_MAX_SPEAKERS}), OR rooms, OR groups (read them with thalovant_intercom_list_speakers). Speaking on every speaker needs allowAll: true and nothing else. Only speakers whose owner switched receive on are spoken to; others come back skipped_not_receiving, and normal announcements skip do-not-disturb. priority urgent repeats (repeatTimes 1-10, repeatIntervalSeconds 5-120, which needs repeatTimes) until someone says they heard it, bypasses do-not-disturb, answers status sending (HTTP 202), and can be stopped with thalovant_intercom_cancel_announcement. CONFIRMATION: an urgent announcement, and allowAll, are sent only after the PERSON confirms in a prompt this server shows through their MCP client (hub, targets, priority and text); if the client cannot show one, or they decline, nothing is sent. confirmUrgent: true is also required for urgent, as a second check; it is your assertion and never replaces the prompt. Limits: the API allows 20 normal a minute and 10 urgent an hour per hub (429), and this server caps one caller at ${DEFAULT_NORMAL_PER_MINUTE} normal a minute and ${DEFAULT_URGENT_PER_HOUR} urgent an hour by default; the operator may also limit the hubs this tool may use. KEY: a new Idempotency-Key is generated for every call, and you should leave idempotencyKey out. A replay of a key returns the stored announcement and never speaks it again, whatever its status (24 hours), so never reuse a key for another announcement. It is sent once and never retried: if the API cannot be reached the announcement may already have been spoken; read it first (thalovant_intercom_get_announcement) or ask the household, and repeat only with the same idempotencyKey. After a 502 (the hub did not answer) the error carries announcement_id: READ that announcement before any resend; resending with its key speaks nothing, and saying it again on purpose needs a new key and the person's go-ahead. Requires the intercom:send scope (an urgent announcement, and so every repeat, needs the intercom:urgent scope as well: a token without it is refused before anything is spent), a plan with Intercom, Intercom switched on for the hub by its owner and for the whole platform by the operator, and the owner, a manager or an administrator acting as themselves. A connection that cannot play speech (can_play false) is never part of allowAll, a room or a group, and naming it is refused (not_a_speaker); more than ${INTERCOM_MAX_SPEAKERS} speakers resolved is refused (too_many_targets). delivered in the answer means the hub handed the speech over, not that anyone heard it. A replayed key answers the stored announcement with replayed true. This tool exists only when the operator sets THALOVANT_ENABLE_INTERCOM_ANNOUNCE.`,
+          `Say a short sentence ALOUD on speakers in a real home (POST /v1/hubs/{hub_id}/intercom/announce). The text is spoken by each speaker's own text-to-speech, to whoever is in the room, so send only what the household would want to hear and never anything private, secret or alarming that the person did not ask for. An announcement cannot be unsaid. ${INTERCOM_NOTICE} Do not use it for emergencies: call the emergency services instead. The text is at most ${INTERCOM_MAX_TEXT} characters of plain text (no control characters, line breaks, invisible text-direction or format marks or < > markup) and is NOT stored by the platform, and this server writes it neither to disk nor to its audit log (only its length and a keyed hash are audited, when the audit log is on; your MCP client may keep it in its own history, which this server cannot control). Name explicit targets: speakers (client ids or slugs, at most ${INTERCOM_MAX_SPEAKERS}), OR rooms, OR groups (read them with thalovant_intercom_list_speakers). Speaking on every speaker needs allowAll: true and nothing else. Only speakers whose owner switched receive on are spoken to; others come back skipped_not_receiving, and normal announcements skip do-not-disturb. priority urgent repeats (repeatTimes 1-10, repeatIntervalSeconds 5-120, which needs repeatTimes) until someone says they heard it, bypasses do-not-disturb, answers status sending (HTTP 202), and can be stopped with thalovant_intercom_cancel_announcement. CONFIRMATION: an urgent announcement, and allowAll, are sent only after the PERSON confirms in a prompt this server shows through their MCP client (hub, targets, priority and text); if the client cannot show one, or they decline, nothing is sent. confirmUrgent: true is also required for urgent, as a second check; it is your assertion and never replaces the prompt. Limits: the API allows 20 normal a minute and 10 urgent an hour per hub (429), and this server caps one caller at ${DEFAULT_NORMAL_PER_MINUTE} normal a minute and ${DEFAULT_URGENT_PER_HOUR} urgent an hour by default; the operator may also limit the hubs this tool may use. KEY: a new Idempotency-Key is generated for every call, and you should leave idempotencyKey out. A replay of a key returns the stored announcement and never speaks it again, whatever its status (24 hours), so never reuse a key for another announcement. It is sent once and never retried: if the API cannot be reached the announcement may already have been spoken; read it first (thalovant_intercom_get_announcement) or ask the household, and repeat only with the same idempotencyKey. After a 502 (the hub did not answer) the error carries announcement_id: READ that announcement before any resend; resending with its key speaks nothing (within the 24 hours the key is remembered), and saying it again on purpose needs a new key and the person's go-ahead. Requires the intercom:send scope (an urgent announcement, and so every repeat, needs the intercom:urgent scope as well: a token without it is refused before anything is spent), a plan with Intercom, Intercom switched on for the hub by its owner and for the whole platform by the operator, and the owner, a manager or an administrator acting as themselves. A connection that cannot play speech (can_play false) is never part of allowAll, a room or a group, and naming it is refused (not_a_speaker); more than ${INTERCOM_MAX_SPEAKERS} speakers resolved is refused (too_many_targets). delivered in the answer means the hub handed the speech over, not that anyone heard it. A replayed key answers the stored announcement with replayed true. This tool exists only when the operator sets THALOVANT_ENABLE_INTERCOM_ANNOUNCE.`,
         inputSchema: {
           ...controlPlaneSchema,
           hubId: z.string().uuid().describe("Hub UUID (not the slug)."),
@@ -3822,7 +3860,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         const record = { event: "mcp.intercom.announce", hubId, ...announcementDigest(clean), targets: auditTargets(targets), priority, idempotencyKey: key };
         const principal = currentPrincipal();
         const audit = (outcome: Record<string, unknown>) =>
-          auditLog({ ts: new Date().toISOString(), principalId: principal.id, clientId: principal.clientId, ...record, ...outcome });
+          auditLogBestEffort({ ts: new Date().toISOString(), principalId: principal.id, clientId: principal.clientId, ...record, ...outcome });
         try {
           assertIntercomHubAllowed(hubId);
           const limits = intercomRateLimits();

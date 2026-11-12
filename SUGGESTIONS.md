@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform security review): intercom:urgent check, new problem codes in tool errors, kind/can_play/policy_synced, replayed, the API's text rule; parity capability intercom recorded.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: CodeRabbit round 3 on PR 128: malformed 2xx announcement/cancel/read answers, cancelled with no hub_confirmed, pending delivery results, strict rate-limit integers, audit never hides a sent announcement, the confirmation prompt is not written to the event-store file, 24-hour key wording, FAQ/README wording.
 
 # Follow-up
 
@@ -22,9 +22,21 @@ Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform
 
 ## Intercom: show the confirmation text only on request
 
-- **Problem:** the confirmation prompt shows the person the announcement text so they can see what will be said. It goes to the MCP client's UI, which already holds the tool call, but it is one more place the text appears.
-- **Proposal:** keep it (the person cannot judge an announcement without the words); revisit only if a client is found to log elicitation prompts.
+- **Problem:** the confirmation prompt shows the person the announcement text so they can see what will be said. It goes to the MCP client's UI, which already holds the tool call, but it is one more place the text appears. Over Streamable HTTP the transport also keeps the prompt in its in-memory resumption buffer (up to 200 events per stream, for the life of the process); since this round it is no longer written to the file-backed `MCP_EVENT_STORE_FILE` (`FileEventStore.storeEvent`, `src/index.ts`).
+- **Proposal:** keep it (the person cannot judge an announcement without the words); revisit only if a client is found to log elicitation prompts. If the in-memory copy matters, give the in-memory store the same skip.
 - **Impact:** none today; noted for the privacy review.
+
+## Intercom: give a refused attempt its rate-cap slot back
+
+- **Problem:** `IntercomRateCap.consume` (`src/intercom-policy.ts`) runs just before the API call, so an attempt the API refuses outright (a `429 intercom_urgent_busy`, a 403 for a missing `intercom:urgent`, a 409) still counts against this server's own cap (5 urgent an hour by default), and cancelling the running announcement does not give it back. After a busy refusal the next urgent attempt can be refused locally for up to an hour. The error hints now say so; the accounting is unchanged.
+- **Proposal:** a `release(principal, priority)` on `IntercomRateCap` that removes the most recent timestamp, called only after a definitive no-send refusal (a `ThalovantApiError` with a 4xx status other than 408; never after a 5xx, an unreachable API or a malformed success, which may have been spoken).
+- **Impact:** small (one method, one call site, two tests); a product decision, because it makes the cap count announcements rather than attempts, and an agent could then hammer a busy hub (the API's own per-hub limits still apply).
+
+## Intercom: write the audit intent before an announcement goes out
+
+- **Problem:** the audit record of an announcement is written after the API answered. A log that cannot be written no longer hides the answer (`auditLogBestEffort`, `src/index.ts`: stderr `mcp.audit_failed`), but an operator who treats the audit log as mandatory would then have an announcement with no record.
+- **Proposal:** an opt-in (for example `THALOVANT_INTERCOM_AUDIT_REQUIRED=1`) that writes an `mcp.intercom.announce_intent` record (ids, digest, targets, priority; no text) before `intercomAnnounce`, and refuses to send when that write fails; the outcome record stays best-effort.
+- **Impact:** small; one env switch, one extra line per announcement when on, and two tests; nothing changes for operators who leave the audit log off.
 
 ## Give `interactiveLogin()` a structured prompt (Node SDK)
 

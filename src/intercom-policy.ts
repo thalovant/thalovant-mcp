@@ -81,11 +81,18 @@ export interface RateLimits {
 export const DEFAULT_NORMAL_PER_MINUTE = 20;
 export const DEFAULT_URGENT_PER_HOUR = 5;
 
+/**
+ * A positive decimal integer, the WHOLE value (surrounding white space aside):
+ * `parseInt` would read `200oops` as 200 and `2.5` as 2, so a typo could quietly
+ * raise a cap. Anything else, zero included, is the fallback.
+ */
 function positiveInt(value: string | undefined, fallback: number): number {
-  if (value === undefined || value.trim() === "") return fallback;
-  const parsed = Number.parseInt(value, 10);
+  if (value === undefined) return fallback;
+  const trimmed = value.trim();
   // A zero or a non-number would silently turn the cap off or block everything:
   // keep the default and let the operator see it in thalovant_config_status.
+  if (!/^[0-9]+$/.test(trimmed)) return fallback;
+  const parsed = Number(trimmed);
   return Number.isFinite(parsed) && parsed >= 1 ? Math.min(parsed, 10_000) : fallback;
 }
 
@@ -198,7 +205,7 @@ export function confirmationMessage(request: ConfirmationRequest): string {
     `Targets: ${describeTargets(request.targets)}`,
     `Text: "${request.text}"`,
     "",
-    "Intercom is not a certified safety system. The text is not stored by Thalovant or this server.",
+    "Intercom is not a certified safety system. Thalovant does not store the text, and this server does not write it to disk or to its logs.",
   ];
   return lines.join("\n");
 }

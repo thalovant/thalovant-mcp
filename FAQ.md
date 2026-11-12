@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform security review): intercom:urgent check, new problem codes in tool errors, kind/can_play/policy_synced, replayed, the API's text rule; parity capability intercom recorded.
+Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: CodeRabbit round 3 on PR 128: malformed 2xx announcement/cancel/read answers, cancelled with no hub_confirmed, pending delivery results, strict rate-limit integers, audit never hides a sent announcement, the confirmation prompt is not written to the event-store file, 24-hour key wording, FAQ/README wording.
 
 # FAQ
 
@@ -18,7 +18,7 @@ The API returned the STORED announcement for that idempotency key (`Idempotency-
 
 ### Why does every announcement say `intercom_disabled_platform`?
 
-Intercom ships dark: until the platform operator turns it on, every write and announcement is a 503 `intercom_disabled_platform` and `thalovant_intercom_list_speakers` reads `unavailable_reason: platform`. Reads and `thalovant_intercom_cancel_announcement` still work.
+Intercom ships dark: until the platform operator turns it on, every announcement (and every other change that is not a stop) is a 503 `intercom_disabled_platform` and `thalovant_intercom_list_speakers` reads `unavailable_reason: platform`. Reads still work, and so does `thalovant_intercom_cancel_announcement`: stopping speech is never refused, so it is the one write that is not turned away.
 
 ### Why is there no `thalovant_intercom_announce` in my tool list?
 
@@ -34,19 +34,23 @@ An urgent announcement, and one to every speaker (`allowAll`), is sent only afte
 
 ### How do I stop an urgent announcement that is repeating?
 
-Call `thalovant_intercom_cancel_announcement` with the hub and announcement ids: the hub stops repeating at once. It works only while the announcement is `sending` (otherwise `409 not_cancellable`). `hub_confirmed: false` in the answer means the hub could not confirm, so tell the people in the home; the hub's Intercom switch, the platform's kill switch and a spoken acknowledgement at any speaker also stop it. The tool is there without the announce opt-in and is left out of read-only mode.
+Call `thalovant_intercom_cancel_announcement` with the hub and announcement ids: the hub stops repeating at once. It works only while the announcement is `sending` (otherwise `409 not_cancellable`). `hub_confirmed: true` in the answer means the hub confirmed the stop; `false` means it could not confirm, so tell the people in the home. A read of a cancelled announcement (`thalovant_intercom_get_announcement`) may carry no `hub_confirmed` at all: the summary then says it does not know whether the hub confirmed, never "Stopped"; the hub's Intercom switch, the platform's kill switch and a spoken acknowledgement at any speaker also stop it. The tool is there without the announce opt-in and is left out of read-only mode.
 
 ### An announcement failed with "could not reach the Thalovant API". Should I resend it?
 
-Not with a new key: it may already have been spoken. That also holds when the answer was cut off before its body arrived, when a success came back without the announcement's `id` and `status`, and after a 5xx. The error gives the idempotency key; read the announcement with `thalovant_intercom_get_announcement` if you have its id, or ask the household. Repeating with exactly the same key is safe: the API returns the stored announcement and never speaks it twice. A new key would speak it again.
+Not with a new key: it may already have been spoken. That also holds when the answer was cut off before its body arrived, when a success came back without the announcement's `id` and `status` or with a body that is not a JSON object (malformed JSON, an array), and after a 5xx. The error gives the idempotency key; read the announcement with `thalovant_intercom_get_announcement` if you have its id, or ask the household. Repeating with exactly the same key is safe for 24 hours after the first try, the time the API remembers a key: it returns the stored announcement and never speaks it twice. After 24 hours the key is forgotten, so the same key would speak it again; ask the household instead. A new key would speak it again at any time.
+
+### What happens if the audit log cannot be written when an announcement goes out?
+
+The announcement's answer (its `id`, `status` and, for a failure, the idempotency key and the do-not-resend guidance) is never replaced by a log error: an audit write that fails for `thalovant_intercom_announce` or `thalovant_intercom_cancel_announcement` is reported on the server's stderr as `mcp.audit_failed` (the ids already in the record, never the text) and swallowed, because sending again after a spurious error would speak it twice. Fix the audit file (`MCP_AUDIT_LOG_FILE`) and look at stderr for the ids of the calls that were not recorded. Other tools keep their behaviour.
 
 ### I got a 502 `hub_unreachable`. What now?
 
-The error carries `announcement_id`. Read that announcement with `thalovant_intercom_get_announcement` before anything else, and never retry automatically. Resending with the same key speaks nothing: the API returns the stored `failed` announcement (a failed replay is not retried). To say it again on purpose, only after the person asks and you checked nothing was spoken, call the tool again without `idempotencyKey` so a new key is generated.
+The error carries `announcement_id`. Read that announcement with `thalovant_intercom_get_announcement` before anything else, and never retry automatically. Resending with the same key within 24 hours speaks nothing: the API returns the stored `failed` announcement (a failed replay is not retried). If the 502 carries no `announcement_id` (for example a gateway 502 with no problem body), no stored announcement is known to exist and the request may never have reached the API: the same key still sends at most once, but that send would speak it if the first try never arrived, so ask the person first. To say it again on purpose, only after the person asks and you checked nothing was spoken, call the tool again without `idempotencyKey` so a new key is generated.
 
 ### Can I limit which hubs an agent may announce on?
 
-Yes: `THALOVANT_INTERCOM_ALLOWED_HUBS=<uuid>,<uuid>` limits all four intercom tools to those hubs; every other hub is refused before any request. Unset, any hub the token reaches is allowed. A list with no valid UUID allows nothing. A per-principal rate cap also applies to announce (20 normal a minute, 5 urgent an hour; `THALOVANT_INTERCOM_RATE_NORMAL_PER_MINUTE`, `THALOVANT_INTERCOM_RATE_URGENT_PER_HOUR`).
+Yes: `THALOVANT_INTERCOM_ALLOWED_HUBS=<uuid>,<uuid>` limits all four intercom tools to those hubs; every other hub is refused before any request. Unset, any hub the token reaches is allowed. A list with no valid UUID allows nothing. A per-principal rate cap also applies to announce (20 normal a minute, 5 urgent an hour; `THALOVANT_INTERCOM_RATE_NORMAL_PER_MINUTE`, `THALOVANT_INTERCOM_RATE_URGENT_PER_HOUR`, each a whole positive integer: `200oops` or `2.5` keeps the default). The count is taken just before the request, so an attempt the API then refuses (a `429 intercom_urgent_busy`, a missing `intercom:urgent`) still counts, and cancelling a running announcement does not give it back: after a refused urgent attempt a retry can be refused here for up to an hour.
 
 ### Why are speaker names cut or changed in the list?
 
@@ -58,7 +62,7 @@ A replayed key never speaks again for 24 hours, so a constant such as `dinner-20
 
 ### Is the text kept anywhere?
 
-Not by the platform or by this server. The platform stores its length and a keyed hash; when the audit log is on (`MCP_AUDIT_LOG`, off by default), this server records `mcp.intercom.announce` with the length and an HMAC-SHA256 (`textSha256`), even with `MCP_AUDIT_INCLUDE_ARGS` on. Tool answers never carry the text; the confirmation prompt shows it to the person only. The MCP client that sent the announcement can keep the text in its own conversation or tool-call history, and this server cannot control that.
+Not by the platform, and this server writes it neither to disk nor to its audit log. The platform stores its length and a keyed hash; when the audit log is on (`MCP_AUDIT_LOG`, off by default), this server records `mcp.intercom.announce` with the length and an HMAC-SHA256 (`textSha256`), even with `MCP_AUDIT_INCLUDE_ARGS` on. Tool answers never carry the text. The confirmation prompt (urgent and `allowAll`) shows it to the person; over Streamable HTTP the transport keeps that prompt in memory for the length of the stream, and it is never written to the file-backed event store (`MCP_EVENT_STORE_FILE` skips `elicitation/create` messages). The MCP client that sent the announcement can keep the text in its own conversation or tool-call history, and this server cannot control that.
 
 ### Is Intercom a safety system?
 

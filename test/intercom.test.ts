@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ElicitRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createHmac } from "node:crypto";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -130,10 +130,14 @@ interface ClientOptions {
   elicit?: Elicit;
   /** The capability to declare: "form" (default, `{form: {}}`) or "legacy" (`{}`, which the spec reads as form). */
   elicitation?: "form" | "legacy";
+  /** Collect what the server writes to its stderr into this array. */
+  stderr?: string[];
 }
 
 async function connectStdioClient(env: Record<string, string>, options: ClientOptions = {}): Promise<Client> {
-  const transport = new StdioClientTransport({ command: "node", args: ["dist/index.js"], env: { ...baseEnv(), ...env } });
+  const transport = new StdioClientTransport({ command: "node", args: ["dist/index.js"], env: { ...baseEnv(), ...env }, ...(options.stderr ? { stderr: "pipe" as const } : {}) });
+  const collected = options.stderr;
+  if (collected) transport.stderr?.on("data", (chunk: Buffer) => collected.push(chunk.toString("utf8")));
   const capabilities = options.elicit ? { elicitation: options.elicitation === "legacy" ? {} : { form: {} } } : {};
   const client = new Client({ name: "thalovant-mcp-intercom", version: "0.0.0" }, { capabilities });
   if (options.elicit) {
@@ -452,9 +456,27 @@ describe("thalovant_intercom_announce", () => {
     expect(message).toContain("The hub did not answer");
     expect(message).toContain("announcement_id: not given by the API");
     expect(message).toContain("Do NOT resend");
+    // No id: no stored announcement is known to exist, so the stored-failure sentence must not be claimed;
+    // the key is still safe to reuse (at most one send), and a gateway 502 may never have reached the API.
+    expect(message).toContain("no stored announcement is known to exist");
+    expect(message).toContain("sends at most once");
+    expect(message).not.toContain("returns this stored failed announcement");
     expect(message).not.toContain(SECRET_TEXT);
     expect(fake.requests).toHaveLength(1);
   }, 15_000);
+
+  it("limits the same-key replay guarantee to the 24 hours the API remembers a key", async () => {
+    const closed = await startFakeControlPlane(() => undefined);
+    const dead = closed.url;
+    await closeAll();
+    const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: dead, ...OPT_IN });
+    const message = await callError(client, ANNOUNCE, { ...base, rooms: ["kitchen"], idempotencyKey: KEY_3 });
+    expect(message).toContain("safe for 24 hours after the first try");
+    expect(message).toContain("after 24 hours the API has forgotten the key");
+    const withId = await startFakeControlPlane(() => ({ status: 502, body: { code: "hub_unreachable", announcement_id: ANN_ID } }));
+    const stored = await callError(await connectToApi(withId, OPT_IN), ANNOUNCE, { ...base, rooms: ["kitchen"] });
+    expect(stored).toContain("within 24 hours the API returns this stored failed announcement and never re-sends it");
+  }, 30_000);
 
   it("generates a fresh idempotency key for every call", async () => {
     const fake = await startFakeControlPlane(() => ({ body: announcement({ status: "completed" }) }));
@@ -530,6 +552,27 @@ describe("thalovant_intercom_announce", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  }, 30_000);
+
+  it("treats a success whose body is not a JSON object (malformed JSON, an array, a string) as an uncertain delivery, with the key", async () => {
+    const answers: FakeResponse[] = [
+      { status: 200, body: null, raw: "<html>proxy page</html>" },
+      { status: 202, body: [], raw: "[]" },
+      { status: 200, body: null, raw: "\"completed\"" },
+      { status: 200, body: null, raw: "null" },
+      { status: 200, body: null, raw: "{\"id\": " },
+    ];
+    const total = answers.length;
+    const fake = await startFakeControlPlane(() => answers.shift());
+    const client = await connectToApi(fake, OPT_IN);
+    for (let i = 0; i < total; i += 1) {
+      const message = await callError(client, ANNOUNCE, { ...base, rooms: ["kitchen"], idempotencyKey: key(20 + i) });
+      expect(message, `answer ${i}`).toContain("not a JSON object");
+      expect(message).toContain("Do NOT send it again");
+      expect(message).toContain(`Idempotency key ${key(20 + i)}: resend only with this key`);
+      expect(message).not.toContain(SECRET_TEXT);
+    }
+    expect(fake.requests, "one request each, no retry").toHaveLength(total);
   }, 30_000);
 
   it("does not retry after an unreachable API, and says to read first and reuse the key", async () => {
@@ -758,6 +801,23 @@ describe("Per-principal rate cap", () => {
     expect(fake.requests).toHaveLength(1);
   }, 30_000);
 
+  it("counts an urgent attempt the API refused as busy, as the hint says: the next one is refused here", async () => {
+    const fake = await startFakeControlPlane(() => ({
+      status: 429, headers: { "Retry-After": "30" },
+      body: { status: 429, code: "intercom_urgent_busy", message: "busy", scope: "hub", retry_after_seconds: 30 },
+    }));
+    const person = confirming();
+    const client = await connectToApi(fake, { ...OPT_IN, THALOVANT_INTERCOM_RATE_URGENT_PER_HOUR: "1" }, { elicit: person.elicit });
+    const args = { ...base, rooms: ["kitchen"], priority: "urgent", confirmUrgent: true };
+    const refused = await callError(client, ANNOUNCE, args);
+    expect(refused).toContain("the API spent no rate token, but this server counted the attempt as one urgent announcement against its own per-caller cap (5 an hour by default");
+    expect(refused).toContain("cancelling a running announcement does not give that back");
+    const again = await callError(client, ANNOUNCE, args);
+    expect(again).toContain("1 urgent announcement(s) an hour");
+    expect(fake.requests, "the second attempt never reached the API").toHaveLength(1);
+    expect(person.shown, "nor did it ask the person").toHaveLength(1);
+  }, 30_000);
+
   it("leaves cancel and the reads outside the cap", async () => {
     const fake = await startFakeControlPlane((request) =>
       request.path.endsWith("/cancel") ? { body: announcement({ status: "cancelled", hub_confirmed: true }) } : { body: announcement({ status: "completed" }) },
@@ -836,8 +896,72 @@ describe("Hub allowlist (THALOVANT_INTERCOM_ALLOWED_HUBS)", () => {
   }, 15_000);
 });
 
+describe("thalovant_intercom_get_announcement, an answer that is not an announcement", () => {
+  it("refuses a success without the announcement's id and status instead of formatting it", async () => {
+    const answers: FakeResponse[] = [
+      { body: {} },
+      { body: { id: ANN_ID } },
+      { body: { status: "completed" } },
+      { body: { id: "", status: "completed" } },
+      { body: { id: ANN_ID, status: 3 } },
+      { body: { id: 7, status: "completed" } },
+      { body: null, raw: "[]" },
+      { body: null, raw: "not json" },
+    ];
+    const total = answers.length;
+    const fake = await startFakeControlPlane(() => answers.shift());
+    const client = await connectToApi(fake);
+    for (let i = 0; i < total; i += 1) {
+      const message = await callError(client, "thalovant_intercom_get_announcement", { hubId: HUB_ID, announcementId: ANN_ID });
+      expect(message, `answer ${i}`).not.toContain("unknown: no speakers");
+      expect(message, `answer ${i}`).toMatch(/without its id and status|unexpected response shape/);
+      // A read changed nothing: no do-not-resend guidance and no key.
+      expect(message).not.toContain("Do NOT send it again");
+    }
+    expect(fake.requests).toHaveLength(total);
+  }, 30_000);
+
+  it("still reads a well-formed announcement", async () => {
+    const fake = await startFakeControlPlane(() => ({ body: announcement({ status: "completed" }) }));
+    const client = await connectToApi(fake);
+    const out = await callJson(client, "thalovant_intercom_get_announcement", { hubId: HUB_ID, announcementId: ANN_ID });
+    expect(out).toMatchObject({ id: ANN_ID, status: "completed" });
+  }, 15_000);
+
+  it("does not call a cancelled announcement stopped when the read carries no hub_confirmed", async () => {
+    const fake = await startFakeControlPlane(() => ({ body: announcement({ status: "cancelled" }) }));
+    const client = await connectToApi(fake);
+    const out = await callJson(client, "thalovant_intercom_get_announcement", { hubId: HUB_ID, announcementId: ANN_ID });
+    expect(out).not.toHaveProperty("hub_confirmed");
+    expect(out.summary).not.toContain("Stopped");
+    expect(out.summary).toContain("does not say whether the hub confirmed the stop");
+    expect(out.summary).toContain("may still repeat");
+  }, 15_000);
+
+  it("says delivery results are pending for a sending announcement that has none yet", async () => {
+    const fake = await startFakeControlPlane(() => ({ status: 202, body: announcement({ status: "sending", priority: "urgent", deliveries: [] }) }));
+    const client = await connectToApi(fake);
+    const out = await callJson(client, "thalovant_intercom_get_announcement", { hubId: HUB_ID, announcementId: ANN_ID });
+    expect(out.summary).toMatch(/^sending: delivery results pending\./);
+    expect(out.summary).not.toContain("no speakers");
+  }, 15_000);
+});
+
 describe("thalovant_intercom_cancel_announcement", () => {
   const CANCEL_PATH = `/v1/hubs/${HUB_ID}/intercom/announcements/${ANN_ID}/cancel`;
+
+  it("reports a success without the announcement's id and status, or not a JSON object, as an unknown outcome: read it and cancel again", async () => {
+    const answers: FakeResponse[] = [{ body: {} }, { body: null, raw: "[]" }, { body: null, raw: "not json" }];
+    const total = answers.length;
+    const fake = await startFakeControlPlane(() => answers.shift());
+    const client = await connectToApi(fake);
+    for (let i = 0; i < total; i += 1) {
+      const message = await callError(client, CANCEL, { hubId: HUB_ID, announcementId: ANN_ID });
+      expect(message, `answer ${i}`).toContain("not known whether the announcement was stopped");
+      expect(message).toContain("cancelling twice is safe");
+    }
+    expect(fake.requests).toHaveLength(total);
+  }, 30_000);
 
   it("posts to the cancel route and says what was stopped", async () => {
     const fake = await startFakeControlPlane((request) =>
@@ -850,7 +974,7 @@ describe("thalovant_intercom_cancel_announcement", () => {
     expect(request.body).toBeUndefined();
     expect(out.status).toBe("cancelled");
     expect(out.hub_confirmed).toBe(true);
-    expect(out.summary).toContain("Stopped: it will not repeat any more");
+    expect(out.summary).toContain("Stopped: the hub confirmed it will not repeat any more");
     expect(out.notice).toContain("not a certified safety system");
     expect(JSON.stringify(out)).not.toContain(SECRET_TEXT);
   }, 15_000);
@@ -1219,6 +1343,7 @@ describe("Intercom, urgent sends and the intercom:urgent scope", () => {
     const message = await callError(client, ANNOUNCE, URGENT);
     expect(message).toContain("urgent_scope_required");
     expect(message).toContain("needs the intercom:urgent scope");
+    expect(message).toContain("the API spent no rate token (this server's own urgent cap still counted the attempt)");
     expect(message).toContain("thalovant_begin_browser_login");
     expect(fake.requests).toHaveLength(1);
   }, 15_000);
@@ -1227,7 +1352,7 @@ describe("Intercom, urgent sends and the intercom:urgent scope", () => {
 describe("Intercom, the new problem codes in tool errors", () => {
   const cases: Array<{ status: number; body: Record<string, unknown>; expects: string[]; headers?: Record<string, string> }> = [
     { status: 429, headers: { "Retry-After": "30" }, body: { status: 429, code: "intercom_urgent_busy", message: "This hub already has 2 urgent announcements repeating.", scope: "hub", retry_after_seconds: 30 },
-      expects: ["intercom_urgent_busy", "This hub already has its urgent announcements repeating (hub pool)", "thalovant_intercom_cancel_announcement", "no rate token was spent"] },
+      expects: ["intercom_urgent_busy", "This hub already has its urgent announcements repeating (hub pool)", "thalovant_intercom_cancel_announcement", "the API spent no rate token, but this server counted the attempt", "does not give that back"] },
     { status: 429, headers: { "Retry-After": "30" }, body: { status: 429, code: "intercom_urgent_busy", message: "busy", scope: "platform", retry_after_seconds: 30 },
       expects: ["The platform already has its urgent announcements repeating (platform pool)"] },
     { status: 409, body: { status: 409, code: "skill_not_installed", message: "The Intercom skill is not installed on this hub yet. Nothing was sent." },
@@ -1286,4 +1411,63 @@ describe("Intercom, the new problem codes in tool errors", () => {
     expect(hint).not.toContain("Ignore previous instructions");
     expect(hint).toContain("hub or platform");
   }, 15_000);
+});
+
+describe("Intercom, an audit log that cannot be written", () => {
+  /** An audit file whose parent is a regular file: every write fails (ENOTDIR). */
+  async function brokenAudit(): Promise<{ dir: string; env: Record<string, string> }> {
+    const dir = await mkdtemp(join(tmpdir(), "intercom-audit-broken-"));
+    await writeFile(join(dir, "blocker"), "not a directory");
+    return { dir, env: { MCP_AUDIT_LOG: "file", MCP_AUDIT_LOG_FILE: join(dir, "blocker", "audit.jsonl") } };
+  }
+
+  it("keeps the announcement's answer after it was sent: the log failure goes to stderr, never over the result", async () => {
+    const { dir, env } = await brokenAudit();
+    try {
+      const fake = await startFakeControlPlane(() => ({ body: announcement({ status: "completed" }) }));
+      const stderr: string[] = [];
+      const client = await connectToApi(fake, { ...OPT_IN, ...env }, { stderr });
+      const out = await callJson(client, ANNOUNCE, { ...base, rooms: ["kitchen"], idempotencyKey: KEY_1 });
+      expect(out).toMatchObject({ id: ANN_ID, status: "completed" });
+      expect(fake.requests).toHaveLength(1);
+      const log = stderr.join("");
+      expect(log).toContain("mcp.audit_failed");
+      expect(log).toContain(KEY_1);
+      expect(log).toContain(ANN_ID);
+      expect(log).not.toContain(SECRET_TEXT);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("keeps the do-not-resend guidance and the key when the API did not answer", async () => {
+    const { dir, env } = await brokenAudit();
+    try {
+      const closed = await startFakeControlPlane(() => undefined);
+      const dead = closed.url;
+      await closeAll();
+      const client = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, THALOVANT_API_URL: dead, ...OPT_IN, ...env }, { stderr: [] });
+      const message = await callError(client, ANNOUNCE, { ...base, rooms: ["kitchen"], idempotencyKey: KEY_2 });
+      expect(message).toContain("Do NOT send it again");
+      expect(message).toContain(`Idempotency key ${KEY_2}: resend only with this key`);
+      expect(message).not.toMatch(/ENOTDIR|EEXIST|ENOENT/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
+
+  it("keeps a refusal's own message, and a cancel's answer", async () => {
+    const { dir, env } = await brokenAudit();
+    try {
+      const fake = await startFakeControlPlane(() => ({ body: announcement({ status: "cancelled", hub_confirmed: true }) }));
+      const client = await connectToApi(fake, { ...OPT_IN, THALOVANT_INTERCOM_ALLOWED_HUBS: HUB_ID, ...env }, { stderr: [] });
+      const cancelled = await callJson(client, CANCEL, { hubId: HUB_ID, announcementId: ANN_ID });
+      expect(cancelled).toMatchObject({ id: ANN_ID, status: "cancelled", hub_confirmed: true });
+      const refused = await callError(client, ANNOUNCE, { hubId: OTHER_HUB, text: SECRET_TEXT, rooms: ["kitchen"] });
+      expect(refused).toContain("THALOVANT_INTERCOM_ALLOWED_HUBS");
+      expect(refused).not.toMatch(/ENOTDIR|EEXIST|ENOENT/);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 30_000);
 });
