@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
 
 # Quick Facts
 
@@ -38,9 +38,9 @@ Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): spea
 | `thalovant_intercom_announce` | `POST /v1/hubs/{hub_id}/intercom/announce` | `intercom:send` | write; registered only with `THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1` |
 
 - Not a certified safety system. Off by default at every level (hub feature, each speaker's `receive`, this tool).
-- Text 1-280 plain characters (no control characters, `<` `>`); explicit targets (`speakers` | `rooms` | `groups`, or `allowAll: true`); urgent needs `confirmUrgent: true`; auto `Idempotency-Key`; never retried after an unreachable API.
-- The text is never stored or audited: audit record `mcp.intercom.announce` has `textLen`, `textSha256`, `targets`, `priority`, even with `MCP_AUDIT_INCLUDE_ARGS` off. Output whitelist: `src/intercom-output.ts`.
-- Other doors: `thalovant_emit_event`, `thalovant_ask`, `thalovant_query`, `thalovant_send_action` reach a hub as a client identity; deny `thalovant_emit_event` for the gate to be meaningful. `thalovant_config_status`: `intercomAnnounceEnabled`, `intercomGateNote`.
+- Text 1-280 plain characters (no control characters, `<` `>`); explicit targets (`speakers` | `rooms` | `groups`, or `allowAll: true`); urgent needs `confirmUrgent: true` (the caller's assertion, not verified) and `repeatIntervalSeconds` needs `repeatTimes`; auto `Idempotency-Key`; never retried after an unreachable API, a cut-off answer body, or a success without `id` and `status`; a 5xx names the key too.
+- The platform and this server never store or audit the text: audit record `mcp.intercom.announce` has `textLen`, `textSha256`, `targets`, `priority`, even with `MCP_AUDIT_INCLUDE_ARGS` off. Output whitelist: `src/intercom-output.ts`. The MCP client that sent it may keep it in its own history, which this server cannot control.
+- Other doors: `thalovant_emit_event`, `thalovant_ask`, `thalovant_query`, `thalovant_send_action` reach a hub as a client identity; deny all four (`MCP_TOOL_DENYLIST=thalovant_emit_event,thalovant_send_action,thalovant_ask,thalovant_query`) for the gate to be meaningful. `thalovant_config_status`: `intercomAnnounceEnabled`, `intercomGateNote`.
 - Dependency: `src/intercom-sdk.ts` calls the routes directly until `@thalovant/sdk` publishes its intercom methods.
 
 ## Chat apps tools (0.7.0)

@@ -1,11 +1,11 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
 
 # MCP Documentation
 
 - [README](../README.md): installation, configuration, tools and runtime compatibility.
 - [Browser Sign-In](../README.md#browser-sign-in): signing a person in through the browser on their own computer over stdio, and why a hosted server uses a device login.
 - [Chat Apps](../README.md#chat-apps): the chat app tools, what each bridge's status means, and why tokens stay in the console.
-- [Intercom](../README.md#intercom): the speaker and announcement tools, the opt-in, the not-a-safety-system notice, and why `thalovant_emit_event` should be denied beside it.
+- [Intercom](../README.md#intercom): the speaker and announcement tools, the opt-in, the not-a-safety-system notice, and why the four runtime tools that reach a hub (`thalovant_emit_event`, `thalovant_send_action`, `thalovant_ask`, `thalovant_query`) should be denied beside it.
 - [Security policy](../SECURITY.md): reporting vulnerabilities.
 - [Changelog](../CHANGELOG.md): release changes.
 - [Quick facts](../QUICK_FACTS.md) and [FAQ](../FAQ.md): package facts, tool counts, chat apps and the dependency patch.

@@ -34,6 +34,10 @@ interface FakeResponse {
   status?: number;
   body: unknown;
   headers?: Record<string, string>;
+  /** Send this text as the body instead of JSON (an empty string is an empty body). */
+  raw?: string;
+  /** Promise more body than is sent, then drop the connection: the headers arrive, the body does not. */
+  truncate?: boolean;
 }
 
 interface FakeControlPlane {
@@ -72,8 +76,18 @@ async function startFakeControlPlane(respond: (request: RecordedRequest) => Fake
         res.end();
         return;
       }
+      const payload = answer.raw ?? JSON.stringify(answer.body);
+      if (answer.truncate) {
+        res.writeHead(answer.status ?? 200, {
+          "Content-Type": "application/json",
+          "Content-Length": String(Buffer.byteLength(payload) + 64),
+          ...answer.headers,
+        });
+        res.write(payload.slice(0, 12), () => res.socket?.destroy());
+        return;
+      }
       res.writeHead(answer.status ?? 200, { "Content-Type": "application/json", ...answer.headers });
-      res.end(JSON.stringify(answer.body));
+      res.end(payload);
     });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
@@ -189,7 +203,20 @@ describe("Intercom tool registration", () => {
     const open = await connectStdioClient({ THALOVANT_API_TOKEN: API_TOKEN, ...OPT_IN });
     const status = JSON.parse(resultText(await open.callTool({ name: "thalovant_config_status", arguments: {} })));
     expect(status.intercomAnnounceEnabled).toBe(true);
-    expect(status.intercomGateNote).toContain("thalovant_emit_event");
+    for (const name of ["thalovant_emit_event", "thalovant_send_action", "thalovant_ask", "thalovant_query"]) {
+      expect(status.intercomGateNote).toContain(name);
+    }
+    expect(status.intercomGateNote).toContain("Deny all four");
+
+    // Denying only two leaves the other two named: the note stays until all four are denied.
+    const partial = await connectStdioClient({
+      THALOVANT_API_TOKEN: API_TOKEN,
+      ...OPT_IN,
+      MCP_TOOL_DENYLIST: "thalovant_emit_event,thalovant_send_action",
+    });
+    const rest = JSON.parse(resultText(await partial.callTool({ name: "thalovant_config_status", arguments: {} })));
+    expect(rest.intercomGateNote).toContain("but thalovant_ask, thalovant_query can still send events");
+    expect(rest.intercomGateNote).toContain("Deny them with MCP_TOOL_DENYLIST");
 
     const denied = await connectStdioClient({
       THALOVANT_API_TOKEN: API_TOKEN,
@@ -305,6 +332,8 @@ describe("thalovant_intercom_announce", () => {
       [{ ...base, allowAll: true, priority: "urgent" }, "confirmUrgent"],
       [{ ...base, allowAll: true, priority: "urgent", confirmUrgent: false }, "confirmUrgent"],
       [{ ...base, allowAll: true, repeatTimes: 3 }, "urgent announcements only"],
+      [{ ...base, allowAll: true, repeatIntervalSeconds: 10 }, "urgent announcements only"],
+      [{ ...base, allowAll: true, priority: "urgent", confirmUrgent: true, repeatIntervalSeconds: 5 }, "needs repeatTimes"],
     ];
     for (const [args, expected] of cases) {
       const message = await callError(client, ANNOUNCE, args);
@@ -329,6 +358,16 @@ describe("thalovant_intercom_announce", () => {
     expect(out.summary).toContain("thalovant_intercom_get_announcement");
   }, 15_000);
 
+  it("sends no repeat for an urgent announcement without repeatTimes, and 30 s between repeats when only the count is given", async () => {
+    const fake = await startFakeControlPlane(() => ({ status: 202, body: announcement({ status: "sending", priority: "urgent" }) }));
+    const client = await connectToApi(fake, OPT_IN);
+    await callJson(client, ANNOUNCE, { ...base, rooms: ["kitchen"], priority: "urgent", confirmUrgent: true });
+    await callJson(client, ANNOUNCE, { ...base, rooms: ["kitchen"], priority: "urgent", confirmUrgent: true, repeatTimes: 2 });
+    const bodies = fake.requests.map((request) => request.body);
+    expect(bodies[0]).toEqual({ text: SECRET_TEXT, targets: { rooms: ["kitchen"] }, priority: "urgent" });
+    expect(bodies[1]).toEqual({ text: SECRET_TEXT, targets: { rooms: ["kitchen"] }, priority: "urgent", repeat: { times: 2, interval_seconds: 30 } });
+  }, 15_000);
+
   it("adds a hint for a disabled hub, a rate limit and a plan refusal, and never echoes the text", async () => {
     const answers: FakeResponse[] = [
       { status: 403, body: { detail: { detail: "Intercom is disabled for this hub", code: "intercom_disabled" } } },
@@ -344,6 +383,76 @@ describe("thalovant_intercom_announce", () => {
     expect(messages[1]).toContain("rate-limited");
     expect(messages[2]).toContain("does not include Intercom");
     for (const message of messages) expect(message).not.toContain(SECRET_TEXT);
+  }, 30_000);
+
+  it("names the idempotency key when the hub is unreachable (502), and does not retry", async () => {
+    const fake = await startFakeControlPlane(() => ({ status: 502, body: { detail: { detail: "The hub did not answer", code: "hub_unreachable" } } }));
+    const client = await connectToApi(fake, OPT_IN);
+    const generated = await callError(client, ANNOUNCE, { ...base, rooms: ["kitchen"] });
+    expect(generated).toContain("The hub did not answer");
+    expect(generated).toMatch(/Idempotency key [0-9a-f-]{36}: resend only with this key/);
+    const sent = only(fake, "POST", ANNOUNCE_PATH);
+    expect(generated).toContain(`Idempotency key ${sent.headers["idempotency-key"]}: resend only with this key`);
+
+    const given = await callError(client, ANNOUNCE, { ...base, rooms: ["kitchen"], idempotencyKey: "retry-key-0002" });
+    expect(given).toContain("Idempotency key retry-key-0002: resend only with this key");
+    expect(given).not.toContain(SECRET_TEXT);
+    expect(fake.requests).toHaveLength(2);
+  }, 30_000);
+
+  it("names the idempotency key after any other server failure of the announce call, not after a read", async () => {
+    const fake = await startFakeControlPlane(() => ({ status: 503, body: { detail: "Service Unavailable" } }));
+    const client = await connectToApi(fake, OPT_IN);
+    const message = await callError(client, ANNOUNCE, { ...base, rooms: ["kitchen"], idempotencyKey: "retry-key-0004" });
+    expect(message).toContain("Idempotency key retry-key-0004: resend only with this key");
+    expect(message).toContain("may or may not have been spoken");
+    expect(message).not.toContain(SECRET_TEXT);
+    const read = await callError(client, "thalovant_intercom_get_announcement", { hubId: HUB_ID, announcementId: ANN_ID });
+    expect(read).not.toContain("Idempotency key");
+    expect(read).not.toContain("Do NOT send it again");
+  }, 15_000);
+
+  it("treats an answer whose body breaks off as an uncertain delivery, with the key", async () => {
+    // The status line and headers arrive; the body does not. fetch() has resolved by then.
+    const fake = await startFakeControlPlane(() => ({ status: 200, body: announcement({ status: "completed" }), truncate: true }));
+    const client = await connectToApi(fake, OPT_IN);
+    const message = await callError(client, ANNOUNCE, { ...base, rooms: ["kitchen"], idempotencyKey: "retry-key-0003" });
+    expect(message).toContain("did not get its whole answer");
+    expect(message).toContain("Do NOT send it again");
+    expect(message).toContain("Idempotency key retry-key-0003: resend only with this key");
+    expect(message).not.toContain(SECRET_TEXT);
+    expect(fake.requests).toHaveLength(1);
+  }, 15_000);
+
+  it("refuses to report success for an answer without the announcement's id and status", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "intercom-audit-"));
+    try {
+      const file = join(dir, "audit.jsonl");
+      const answers: FakeResponse[] = [
+        { status: 200, body: {}, raw: "" },
+        { status: 200, body: {}, raw: "{}" },
+        { status: 202, body: { id: ANN_ID } },
+        { status: 202, body: { status: "sending" } },
+        { status: 200, body: { id: "", status: "completed" } },
+        { status: 200, body: { id: ANN_ID, status: 3 } },
+      ];
+      const fake = await startFakeControlPlane(() => answers.shift());
+      const client = await connectToApi(fake, { ...OPT_IN, MCP_AUDIT_LOG: "file", MCP_AUDIT_LOG_FILE: file });
+      for (let i = 0; i < 6; i += 1) {
+        const message = await callError(client, ANNOUNCE, { ...base, rooms: ["kitchen"], idempotencyKey: `retry-key-010${i}` });
+        expect(message, `answer ${i}`).toContain("without its id and status");
+        expect(message).toContain("Do NOT send it again");
+        expect(message).toContain(`Idempotency key retry-key-010${i}: resend only with this key`);
+        expect(message).not.toContain(SECRET_TEXT);
+      }
+      const rows = (await readFile(file, "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+      const outcomes = rows.filter((row) => row.event === "mcp.intercom.announce");
+      expect(outcomes).toHaveLength(6);
+      for (const row of outcomes) expect(row).toMatchObject({ status: "error" });
+      expect(outcomes.map((row) => row.idempotencyKey)).toEqual(Array.from({ length: 6 }, (_, i) => `retry-key-010${i}`));
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   }, 30_000);
 
   it("does not retry after an unreachable API, and says to read first and reuse the key", async () => {

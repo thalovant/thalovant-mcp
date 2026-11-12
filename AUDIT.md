@@ -1,12 +1,19 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
 
 # Audit
 
 ## Intercom (2026-11-11, 0.9.0, unreleased)
 
-- `npm run typecheck`, `npm run build`, `npm test`: 24 files, 579 tests passed (includes `test/intercom.test.ts` and `test/intercom-output.test.ts`, 18 tests).
+- `npm run typecheck`, `npm run build`, `npm test`: 24 files, 584 tests passed (includes `test/intercom.test.ts` and `test/intercom-output.test.ts`, 23 tests); `npm run test:smoke` 2, `npm run test:http` 10.
 - Boundary: the announce tool is registered by `intercomAnnounceEnabled()` in `src/index.ts` only; `THALOVANT_MCP_READONLY` drops it even with the opt-in (`test/intercom.test.ts`, "registration").
 - Known gap, documented not fixed: the runtime tools `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` (`src/index.ts`) can reach a hub's bus as a client identity and so can trigger the hub's intercom skill without this opt-in or its checks (280 characters, explicit targets, urgent confirmation). Mitigation: deny them (`MCP_TOOL_DENYLIST`); `thalovant_config_status` reports `intercomGateNote` (`intercomBypassTools()`).
+- Fixed after CodeRabbit's review of 5179dbf (each has a test in `test/intercom.test.ts`):
+  - `intercomRequest()` in `src/intercom-sdk.ts` read `response.text()` outside the `try` that covers `fetch`, so an answer whose headers arrived and whose body stalled or broke off escaped as a bare error: no unreachable-API guidance and no idempotency key, although the announcement may have been spoken. The body read is now inside the same boundary (explicit cancellation still reads "cancelled").
+  - `announce()` accepted an empty 2xx (`{}`) and the handler audited `sent` with no id. It now requires a string `id` and `status` and otherwise raises the unreachable-API error, so the key is shown and the audit entry says `error`.
+  - `withIntercomHint()` (`src/index.ts`) dropped the key for a `502` / `hub_unreachable` and for any other 5xx of the announce call; a retry with a new key could announce twice. Both now carry it.
+  - An urgent call with `repeatIntervalSeconds` but no `repeatTimes` was accepted and the interval silently dropped; it is now refused before any request.
+  - Docs said "the text is never stored" unscoped; they now scope it to the platform and this server (an MCP client may keep the text in its own history), and every denylist example and the `thalovant_config_status` note name all four runtime tools.
+- Known limit, documented: `confirmUrgent` is the caller's own assertion that the person confirmed; this server cannot verify it (tool description, README "Intercom").
 - Technical debt: `src/intercom-sdk.ts` duplicates the SDK transport rules until the SDK publishes its intercom methods (SUGGESTIONS.md).
 - Privacy: the text never reaches the audit log, an error or an output (`auditArgs()`, `checkAnnouncementText()`, `announcementOutput()`; tested with `MCP_AUDIT_INCLUDE_ARGS` on and off and with a 422 that echoes the text). The text is in memory, in the request to the API, and in the MCP client's own transcript, which this server cannot control.
 - Not verified: against a real API and hub. The routes exist only in the contract (`/tmp/rt/intercom/CONTRACT.md`) and in the API branch under development; the tests use a loopback fake.

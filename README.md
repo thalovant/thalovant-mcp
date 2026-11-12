@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
 
 <p align="center">
   <picture>
@@ -25,7 +25,7 @@ It uses the official Thalovant Node.js SDK and the production MCP TypeScript SDK
 - JWT/JWKS and OAuth token introspection for production remote deployments.
 - Per-principal Thalovant credentials and tool policy.
 - Chat app tools: connectors, bridges and their status in words, pause and resume, chats, test messages and the plan's allowance. Bot tokens stay in the console.
-- Intercom tools: list the speakers of a hub, read an announcement, and (opt-in) say a short text aloud in a home. Not a safety system; the text is never stored.
+- Intercom tools: list the speakers of a hub, read an announcement, and (opt-in) say a short text aloud in a home. Not a safety system; neither the platform nor this server stores the text (an MCP client may keep it in its own history).
 - Host/origin validation, CORS, rate limiting, body limits, secure headers, and session binding.
 - Optional resumability event storage and JSONL audit logs.
 - Docker, Compose, Kubernetes, CI, npm package metadata, and MCP registry `server.json`.
@@ -222,18 +222,18 @@ It is off at every level, and each level is the household's to turn on:
 
 - `text`: 1 to 280 characters after trimming, plain: control characters, line breaks, text-direction marks and `<` `>` (a speech engine may read them as SSML) are refused.
 - Explicit targets, one kind per call: `speakers` (client ids or slugs, at most 50), `rooms`, or `groups`. Speaking on every speaker needs `allowAll: true` and no other target; naming nothing is refused, never read as everyone.
-- `priority: "urgent"` repeats until someone says they heard it, ignores do-not-disturb and answers `sending` (HTTP 202); it needs `confirmUrgent: true`, which the model sets only after the person confirmed. `repeatTimes` (1-10) and `repeatIntervalSeconds` (5-120, default 30) are urgent only.
-- It sends once, with an `Idempotency-Key` (generated, or `idempotencyKey`). If the API cannot be reached the announcement may already have been spoken, so it is **not** retried: the error says so, gives the key, and says to read the announcement first (`thalovant_intercom_get_announcement`) or ask the household. Resend only with the same key.
+- `priority: "urgent"` repeats until someone says they heard it, ignores do-not-disturb and answers `sending` (HTTP 202); it needs `confirmUrgent: true`, which is the caller's own assertion that the person confirmed: the model is told to set it only after they did, but this server cannot verify it, so it stops a careless call and is not proof of confirmation. `repeatTimes` (1-10) and `repeatIntervalSeconds` (5-120, default 30) are urgent only, and `repeatIntervalSeconds` is refused without `repeatTimes` (it would otherwise be dropped silently).
+- It sends once, with an `Idempotency-Key` (generated, or `idempotencyKey`). If the API cannot be reached, the answer's body is cut off or stalls, or a success comes back without the announcement's `id` and `status`, the announcement may already have been spoken, so it is **not** retried: the error says so, gives the key, and says to read the announcement first (`thalovant_intercom_get_announcement`) or ask the household. Resend only with the same key. A `502` (the hub did not answer) and any other server error (5xx) of the announce call name the key too.
 - The platform limits a hub to 20 normal announcements a minute and 10 urgent an hour (`429`).
 - The tool's description says the text is spoken aloud in a home and carries the not-a-safety-system notice, and so does every answer.
 
-**The text is never stored.** The platform keeps only its length, SHA-256, targets and per-speaker results; this server writes a record `mcp.intercom.announce` to the audit log with `textLen`, `textSha256`, `targets`, `priority`, `hubId`, the idempotency key and the outcome, **even when `MCP_AUDIT_INCLUDE_ARGS` is off**, and when it is on the generic entry shows `text` as `[omitted: N characters]`. Outputs are whitelisted (`src/intercom-output.ts`): the answer carries each speaker's result (`delivered`, `acked`, `offline`, `skipped_dnd`, `skipped_not_receiving`, `failed`), `acked_by` and a summary in words, never any text.
+**The platform and this server never store the text.** The platform keeps only its length, SHA-256, targets and per-speaker results; this server writes a record `mcp.intercom.announce` to the audit log with `textLen`, `textSha256`, `targets`, `priority`, `hubId`, the idempotency key and the outcome, **even when `MCP_AUDIT_INCLUDE_ARGS` is off**, and when it is on the generic entry shows `text` as `[omitted: N characters]`. Outputs are whitelisted (`src/intercom-output.ts`): the answer carries each speaker's result (`delivered`, `acked`, `offline`, `skipped_dnd`, `skipped_not_receiving`, `failed`), `acked_by` and a summary in words, never any text. That holds for the platform and this server only: the MCP client that sent the announcement can keep the text in its own conversation or tool-call history, which this server cannot control.
 
-**The opt-in is one door among several.** `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` reach a hub as a client identity and can send it any event, including one the hub's intercom skill answers. Leaving `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` unset does not close that route. An operator for whom the Intercom opt-in must be the only way to speak in a home also denies those tools:
+**The opt-in is one door among several.** `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` reach a hub as a client identity and can send it any event, including one the hub's intercom skill answers. Leaving `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` unset does not close that route. An operator for whom the Intercom opt-in must be the only way to speak in a home also denies all four of those tools, because each reaches the hub's intercom skill:
 
 ```bash
 export THALOVANT_ENABLE_INTERCOM_ANNOUNCE=1
-export MCP_TOOL_DENYLIST="thalovant_emit_event,thalovant_send_action"   # add thalovant_ask and thalovant_query for an agent that must not talk to the hub at all
+export MCP_TOOL_DENYLIST="thalovant_emit_event,thalovant_send_action,thalovant_ask,thalovant_query"
 ```
 
 `thalovant_config_status` reports `intercomAnnounceEnabled` and, when the opt-in is on and one of those tools is still allowed, an `intercomGateNote` naming them. The same applies to a hub's own routines and skills: they speak through the hub's intercom skill under the hub's own per-speaker settings, which this server does not change.
@@ -366,7 +366,7 @@ export MCP_TOOL_DENYLIST="thalovant_delete_memory_item"
 
 Per-principal credential files may also include `allowedTools` and `deniedTools`.
 
-The runtime tools `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` can reach a hub as a client identity and send it any event. Deny `thalovant_emit_event` (and the others, as your policy requires) wherever an opt-in such as `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` is meant to be the only way to do what the event would do; see [Intercom](#intercom).
+The runtime tools `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` can reach a hub as a client identity and send it any event. Deny all four wherever an opt-in such as `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` is meant to be the only way to do what the event would do; see [Intercom](#intercom).
 
 Both are call-time filters, and an empty allowlist means "allow everything". They cannot make a tool default-off or hide it from `tools/list`, which is why the two destructive control-plane tools are gated separately by `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`. See [Destructive Tools](#destructive-tools).
 

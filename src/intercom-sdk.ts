@@ -67,6 +67,7 @@ async function intercomRequest(
   const timeout = AbortSignal.timeout(options.timeoutMs);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   let response: Response;
+  let text: string;
   try {
     response = await fetch(url, {
       method,
@@ -75,13 +76,15 @@ async function intercomRequest(
       redirect: "error",
       signal,
     });
+    // The headers can arrive and the body stall or break: reading it is inside
+    // the same boundary as the request, because the API may already have acted.
+    text = await response.text();
   } catch {
     if (options.signal?.aborted) throw new ThalovantApiError("The request was cancelled.");
-    // No cause is kept: it can carry URLs. A timeout is unreachable too: the
-    // API may still have acted.
-    throw new ThalovantApiUnreachableError("Could not reach the Thalovant API, or the endpoint redirected the request.");
+    // No cause is kept: it can carry URLs. A timeout, or a body that did not
+    // arrive, is unreachable too: the API may still have acted.
+    throw new ThalovantApiUnreachableError("Could not reach the Thalovant API, did not get its whole answer, or the endpoint redirected the request.");
   }
-  const text = await response.text();
   let parsed: unknown;
   try {
     parsed = text.trim() ? JSON.parse(text) : {};
@@ -115,17 +118,30 @@ export function getAnnouncement(api: ThalovantControlPlane, hubId: string, annou
   return intercomRequest(api, "GET", `${hubPath(hubId)}/announcements/${encodeURIComponent(announcementId)}`, { timeoutMs: READ_TIMEOUT_MS, signal });
 }
 
-/** POST /v1/hubs/{hubId}/intercom/announce (scope intercom:send), once, with an Idempotency-Key. */
-export function announce(
+/**
+ * POST /v1/hubs/{hubId}/intercom/announce (scope intercom:send), once, with an
+ * Idempotency-Key.
+ *
+ * A 2xx answer must carry the announcement's `id` and `status` (200 completed,
+ * partial or failed; 202 sending): without them the caller could neither read
+ * the announcement back nor say what happened, yet it may have been spoken. That
+ * is reported as an unreachable API, so the announce handler gives the
+ * "do not resend, reuse the key" guidance.
+ */
+export async function announce(
   api: ThalovantControlPlane,
   hubId: string,
   body: IntercomAnnounceBody,
   options: { idempotencyKey: string; signal?: AbortSignal },
 ): Promise<Json> {
-  return intercomRequest(api, "POST", `${hubPath(hubId)}/announce`, {
+  const result = await intercomRequest(api, "POST", `${hubPath(hubId)}/announce`, {
     body: body as unknown as Json,
     headers: { "Idempotency-Key": options.idempotencyKey },
     timeoutMs: ANNOUNCE_TIMEOUT_MS,
     signal: options.signal,
   });
+  if (typeof result.id !== "string" || !result.id || typeof result.status !== "string" || !result.status) {
+    throw new ThalovantApiUnreachableError("The Thalovant API answered the announcement without its id and status.");
+  }
+  return result;
 }

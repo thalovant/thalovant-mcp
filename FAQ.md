@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
 
 # FAQ
 
@@ -10,15 +10,15 @@ It is registered only when the operator sets `THALOVANT_ENABLE_INTERCOM_ANNOUNCE
 
 ### Does the opt-in mean an agent cannot make a hub speak without it?
 
-No. `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` reach a hub as a client identity. Deny `thalovant_emit_event` (and `thalovant_send_action`) with `MCP_TOOL_DENYLIST` if the opt-in is meant to be the only way. `thalovant_config_status` names the tools still allowed in `intercomGateNote`.
+No. `thalovant_emit_event`, `thalovant_ask`, `thalovant_query` and `thalovant_send_action` reach a hub as a client identity. Deny all four with `MCP_TOOL_DENYLIST=thalovant_emit_event,thalovant_send_action,thalovant_ask,thalovant_query` if the opt-in is meant to be the only way. `thalovant_config_status` names the tools still allowed in `intercomGateNote`.
 
 ### An announcement failed with "could not reach the Thalovant API". Should I resend it?
 
-No: it may already have been spoken. The error gives the idempotency key; read the announcement with `thalovant_intercom_get_announcement` if you have its id, or ask the household, and resend only with that same `idempotencyKey`.
+No: it may already have been spoken. That also holds when the answer was cut off before its body arrived, and when a success came back without the announcement's `id` and `status`. The error gives the idempotency key; read the announcement with `thalovant_intercom_get_announcement` if you have its id, or ask the household, and resend only with that same `idempotencyKey`. A `502` (the hub did not answer) and any other server error (5xx) of the announce call give the key too: once the hub is back online, resend only with it.
 
 ### Is the text kept anywhere?
 
-No. The platform stores its length and SHA-256; this server's audit log records the same (`mcp.intercom.announce`), even with `MCP_AUDIT_INCLUDE_ARGS` on. Tool answers never carry it.
+Not by the platform or by this server. The platform stores its length and SHA-256; this server's audit log records the same (`mcp.intercom.announce`), even with `MCP_AUDIT_INCLUDE_ARGS` on. Tool answers never carry it. The MCP client that sent the announcement can keep the text in its own conversation or tool-call history, and this server cannot control that.
 
 ### Is Intercom a safety system?
 

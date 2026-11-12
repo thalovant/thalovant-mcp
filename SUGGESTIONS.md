@@ -1,4 +1,4 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
 
 # Follow-up
 
@@ -10,7 +10,7 @@ Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): spea
 
 ## A denylist profile for hubs that speak
 
-- **Problem:** `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` is only meaningful with `thalovant_emit_event` denied; operators must know to do both.
+- **Problem:** `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` is only meaningful with `thalovant_emit_event`, `thalovant_send_action`, `thalovant_ask` and `thalovant_query` denied; operators must know to do both.
 - **Proposal:** a documented preset or a single `THALOVANT_MCP_PROFILE=household` that registers the announce tool and denies the raw runtime event tools together.
 - **Impact:** small; one env switch, one test per tool.
 

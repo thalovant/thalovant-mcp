@@ -282,9 +282,8 @@ function gitSkillSourcesEnabled(): boolean {
  * the only gate on this tool: the runtime tools thalovant_emit_event,
  * thalovant_ask, thalovant_query and thalovant_send_action reach a hub as a
  * client identity and can send it any event, which an intercom skill on the hub
- * may answer, so an operator who relies on this gate must also deny
- * thalovant_emit_event (and the others, as policy requires) with
- * MCP_TOOL_DENYLIST. See README "Intercom".
+ * may answer, so an operator who relies on this gate must also deny all four
+ * with MCP_TOOL_DENYLIST. See README "Intercom".
  */
 function intercomAnnounceEnabled(): boolean {
   return parseBool(process.env.THALOVANT_ENABLE_INTERCOM_ANNOUNCE, false);
@@ -548,7 +547,10 @@ function withIntercomHint(error: unknown, extra?: string): never {
   } else if (status === 403) {
     hint = "The token needs the intercom:send scope to announce and intercom:read to read, on a hub the account owns or administers (a hub-restricted token must include this hub).";
   } else if (status === 502 || code === "hub_unreachable") {
-    hint = "The hub did not answer, so nothing is known to have been spoken. Check the hub is online before trying again.";
+    hint = `${extra ?? ""} The hub did not answer, so nothing is known to have been spoken. Check the hub is online before trying again.`.trim();
+  } else if (extra && status !== undefined && status >= 500) {
+    // An announce call only (it passes `extra`): the API failed after taking the request, so it may have spoken.
+    hint = `${extra} The API failed before saying what happened, so the announcement may or may not have been spoken. Do NOT send it again with a new key: read it first with thalovant_intercom_get_announcement when you have its id, or ask the people in the home.`;
   }
   if (!hint) throw error;
   const said = apiErrorText(error, redactSecrets) ?? (error instanceof Error ? error.message : String(error));
@@ -1811,7 +1813,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         gitSkillSourcesEnabled: gitSkillSourcesEnabled(),
         intercomAnnounceEnabled: intercomAnnounceEnabled(),
         intercomGateNote: intercomAnnounceEnabled() && intercomBypassTools().length > 0
-          ? `thalovant_intercom_announce is enabled, but ${intercomBypassTools().join(", ")} can still send events to a hub as a client identity. Deny thalovant_emit_event (at least) with MCP_TOOL_DENYLIST if the intercom opt-in is meant to be the only way to speak in a home.`
+          ? `thalovant_intercom_announce is enabled, but ${intercomBypassTools().join(", ")} can still send events to a hub as a client identity. Deny ${intercomBypassTools().length === 4 ? "all four" : "them"} with MCP_TOOL_DENYLIST (thalovant_emit_event, thalovant_send_action, thalovant_ask and thalovant_query reach the hub's intercom skill) if the intercom opt-in is meant to be the only way to speak in a home.`
           : undefined,
         readOnly: readOnlyModeEnabled(),
         identityDir: identityBaseDir(),
@@ -3591,7 +3593,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
       {
         title: "Announce On Intercom",
         description:
-          `Say a short sentence ALOUD on speakers in a real home (POST /v1/hubs/{hub_id}/intercom/announce). The text is spoken by each speaker's own text-to-speech, to whoever is in the room, so send only what the household would want to hear and never anything private, secret or alarming that the person did not ask for. ${INTERCOM_NOTICE} Do not use it for emergencies: call the emergency services instead. The text is at most ${INTERCOM_MAX_TEXT} characters of plain text (no control characters, line breaks or < > markup) and is NOT stored by the platform or this server (only its length and a hash are audited). Name explicit targets: speakers (client ids or slugs, at most ${INTERCOM_MAX_SPEAKERS}), OR rooms, OR groups (read them with thalovant_intercom_list_speakers). Speaking on every speaker needs allowAll: true and nothing else. Only speakers whose owner switched receive on are spoken to; others come back skipped_not_receiving, and normal announcements skip do-not-disturb. priority urgent repeats (repeatTimes 1-10, repeatIntervalSeconds 5-120) until someone says they heard it, bypasses do-not-disturb, answers status sending (HTTP 202) and needs confirmUrgent: true, which you set only after the person confirmed an urgent announcement. Rate limits per hub: 20 normal a minute, 10 urgent an hour (429). It is sent once, with an idempotency key: if the API cannot be reached the announcement may already have been spoken, so it is NOT retried; read it first (thalovant_intercom_get_announcement) or ask the household, and only resend with the same idempotencyKey. Requires the intercom:send scope, a plan with Intercom, and Intercom switched on for the hub by its owner. This tool exists only when the operator sets THALOVANT_ENABLE_INTERCOM_ANNOUNCE.`,
+          `Say a short sentence ALOUD on speakers in a real home (POST /v1/hubs/{hub_id}/intercom/announce). The text is spoken by each speaker's own text-to-speech, to whoever is in the room, so send only what the household would want to hear and never anything private, secret or alarming that the person did not ask for. ${INTERCOM_NOTICE} Do not use it for emergencies: call the emergency services instead. The text is at most ${INTERCOM_MAX_TEXT} characters of plain text (no control characters, line breaks or < > markup) and is NOT stored by the platform or this server (only its length and a hash are audited). Name explicit targets: speakers (client ids or slugs, at most ${INTERCOM_MAX_SPEAKERS}), OR rooms, OR groups (read them with thalovant_intercom_list_speakers). Speaking on every speaker needs allowAll: true and nothing else. Only speakers whose owner switched receive on are spoken to; others come back skipped_not_receiving, and normal announcements skip do-not-disturb. priority urgent repeats (repeatTimes 1-10, repeatIntervalSeconds 5-120, which needs repeatTimes) until someone says they heard it, bypasses do-not-disturb, answers status sending (HTTP 202) and needs confirmUrgent: true, which you set only after the person confirmed an urgent announcement (this server takes it on your word and cannot check that they did). Rate limits per hub: 20 normal a minute, 10 urgent an hour (429). It is sent once, with an idempotency key: if the API cannot be reached the announcement may already have been spoken, so it is NOT retried; read it first (thalovant_intercom_get_announcement) or ask the household, and only resend with the same idempotencyKey. Requires the intercom:send scope, a plan with Intercom, and Intercom switched on for the hub by its owner. This tool exists only when the operator sets THALOVANT_ENABLE_INTERCOM_ANNOUNCE.`,
         inputSchema: {
           ...controlPlaneSchema,
           hubId: z.string().uuid().describe("Hub UUID (not the slug)."),
@@ -3601,9 +3603,9 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
           groups: z.array(z.string().min(1).max(32)).min(1).max(INTERCOM_MAX_SPEAKERS).optional().describe("Group names, as thalovant_intercom_list_speakers shows them."),
           allowAll: z.boolean().optional().describe("true to speak on every speaker of the hub that receives announcements. Never set it unless the person asked for everyone."),
           priority: z.enum(["normal", "urgent"]).default("normal").describe("normal, or urgent: repeats until acknowledged and ignores do-not-disturb."),
-          confirmUrgent: z.boolean().optional().describe("Required true for urgent: set it only after the person confirmed an urgent announcement."),
-          repeatTimes: z.number().int().min(1).max(10).optional().describe("Urgent only: how many times to say it, 1-10."),
-          repeatIntervalSeconds: z.number().int().min(5).max(120).optional().describe("Urgent only: seconds between repeats, 5-120. Defaults to 30 when repeatTimes is set."),
+          confirmUrgent: z.boolean().optional().describe("Required true for urgent: your assertion that the person confirmed an urgent announcement. Set it only after they did; the server cannot verify it."),
+          repeatTimes: z.number().int().min(1).max(10).optional().describe("Urgent only: how many times to say it, 1-10. Required when repeatIntervalSeconds is given."),
+          repeatIntervalSeconds: z.number().int().min(5).max(120).optional().describe("Urgent only, and only with repeatTimes: seconds between repeats, 5-120. Defaults to 30 when repeatTimes is set."),
           lang: z.string().min(2).max(16).optional().describe("Language tag of the text, for example en-US or fr-FR."),
           idempotencyKey: z.string().regex(/^[A-Za-z0-9_-]{8,64}$/).optional().describe("Reuse the key of an earlier try to resend safely after an unreachable-API error. Generated when omitted."),
         },
@@ -3618,6 +3620,9 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
         }
         if (priority !== "urgent" && (repeatTimes !== undefined || repeatIntervalSeconds !== undefined)) {
           throw new Error("repeatTimes and repeatIntervalSeconds apply to urgent announcements only.");
+        }
+        if (repeatIntervalSeconds !== undefined && repeatTimes === undefined) {
+          throw new Error("repeatIntervalSeconds needs repeatTimes: say how many times to repeat, or leave both out for a single urgent announcement.");
         }
         const body: IntercomAnnounceBody = { text: clean, targets, priority };
         if (priority === "urgent" && repeatTimes !== undefined) {

@@ -1,6 +1,26 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: Intercom tools (0.9.0): speakers, announcement read, opt-in announce.
+Last Edit: Claude Sonnet 5.5 - 2026-11-11 - Motive: CodeRabbit on 5179dbf (PR 128): uncertain delivery keeps the key, id/status required, interval needs a count, four-tool denylist, text-storage scope.
 
 # Maintenance Report
+
+## 2026-11-11 - CodeRabbit on 5179dbf (PR 128): Intercom
+
+Seven inline comments and one out-of-diff note, all valid; none declined.
+
+**Changes**
+
+- `src/intercom-sdk.ts`: `response.text()` now sits in the `try` with `fetch`, so a stalled or broken body is an unreachable API (uncertain delivery, key shown), explicit cancellation unchanged; `announce()` requires a string `id` and `status` on a success, else the same unreachable-API error.
+- `src/index.ts`: `withIntercomHint()` passes the idempotency key to the `502` / `hub_unreachable` hint and, for the announce call only, to any other 5xx; `repeatIntervalSeconds` without `repeatTimes` is refused before any request; `intercomGateNote` and the tool descriptions say all four runtime tools, and that `confirmUrgent` is the caller's assertion.
+- README, FAQ, QUICK_FACTS, CHANGELOG, `.env.example`, AUDIT, SUGGESTIONS: all-four denylist example everywhere, "never stored" scoped to the platform and this server, `confirmUrgent` worded as an assertion.
+- `test/intercom.test.ts`: +5 tests (502 and 5xx keys, truncated body, missing id/status in six shapes, interval without count) and the config-status and refusal tests extended; the new tests fail on the previous source.
+- `contracts/sdk-parity.json`: the evidence hash of `src/index.ts` refreshed in all 15 capabilities that cite it. `check-sdk-parity.py --consumer thalovant-mcp` reports only the Python reference's unreviewed change (`src/thalovant/control.py`, `src/thalovant/intercom.py`), which is the coordinator's reference-digest step; every evidence hash in the file matches its file on disk.
+
+**Verification:** typecheck, build, `npm test` 584 passed in 24 files, `npm run test:smoke` 2, `npm run test:http` 10.
+
+**Transparency Report**
+
+- AI Model: Claude Sonnet 5.5.
+- Actions Taken: read CodeRabbit's review of PR 128, checked each finding against the code, fixed the code and docs above, wrote the tests, and ran them, including against the previous source to confirm the new tests fail without the fix.
+- Oversight: none beyond the agent's own test runs; a human review of the error-handling change in `src/intercom-sdk.ts` and the hint wording is still required before release.
 
 ## 2026-11-11 - Intercom tools (0.9.0, unreleased)
 
