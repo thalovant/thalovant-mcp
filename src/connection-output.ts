@@ -99,3 +99,13 @@ export function replayedCreateOutput(client: unknown, marker: ReplayMarker): Jso
     next: `Do not use another identity for it. Either download the connection's identity from the account owner's own session (client ${clientId ?? "id above"}), or delete it with thalovant_delete_client (a destructive tool the operator enables) and create it again with a NEW idempotencyKey.`,
   };
 }
+
+/**
+ * A result object without the raw `client.serves`: its names are typed by the
+ * household, and the cleaned copy is the top-level `serves`.
+ */
+export function withoutRawServes<T>(result: T): T {
+  if (!isRecord(result) || !isRecord(result.client) || !("serves" in result.client)) return result;
+  const { serves: _raw, ...client } = result.client;
+  return { ...result, client } as T;
+}

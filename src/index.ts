@@ -42,6 +42,7 @@ import {
   replayMarker,
   replayedCreateOutput,
   servesOutput,
+  withoutRawServes,
 } from "./connection-output.js";
 import {
   DEFAULT_NORMAL_PER_MINUTE,
@@ -2250,7 +2251,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
       const selectedEndpoint = api.requireRuntimeProtocol(result, preferredProtocols[0]);
       const savedIdentityPath = targetIdentityPath ? await writeIdentityFile(targetIdentityPath, result.identity) : undefined;
       return jsonContent({
-        result: redactSecrets(result.asObject({ includeSecrets: false })),
+        result: redactSecrets(withoutRawServes(result.asObject({ includeSecrets: false }))),
         clientId: result.clientId ?? null,
         connectionType: result.connectionType ?? null,
         operationId: result.operation?.id ?? null,
