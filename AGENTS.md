@@ -1,5 +1,3 @@
-Last Edit: Claude Opus 5.5 - 2026-11-08 - Motive: Keep stdout for the stdio protocol; browser sign-in runs only over stdio.
-
 # Repository instructions
 
 This repository is a first-class consumer of the Thalovant control-plane and hub runtime APIs. Read the platform contracts in `../infra-manifests/docs/thalovant-platform/` when available.

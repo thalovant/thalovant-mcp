@@ -1,5 +1,3 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: CodeRabbit round 3 on PR 128: malformed 2xx announcement/cancel/read answers, cancelled with no hub_confirmed, pending delivery results, strict rate-limit integers, audit never hides a sent announcement, the confirmation prompt is not written to the event-store file, 24-hour key wording, FAQ/README wording.
-
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/thalovant/.github/main/profile/assets/thalovant-logo-dark.png">
