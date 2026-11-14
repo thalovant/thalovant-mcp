@@ -2,6 +2,17 @@ Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: CodeRabbit round 3 on PR 128
 
 # Changelog
 
+## 0.10.0 - 2026-11-14
+
+Home bridges and the connector gateway API (thalovant-api #521, not deployed yet; everything here is additive and safe against the API as it is today, which sends none of it):
+
+- **`thalovant_create_client_identity`** takes `connectionType: "connector"` (a home bridge) and `connectors` (sent as `spec.connectors`; each id once, from the `connectors` the hub's capabilities list, `music_assistant` today; `home_assistant` is never one). `connectors` is refused locally with any other kind, or when it differs from `spec.connectors`. The platform issues a link's credentials (an `apiKey` or `password` in a spec is ignored).
+- **A replayed create returns no identity.** An answer to a repeated `idempotencyKey` carries no credentials (the `replay` object of the answer, `Idempotent-Replayed: true`): the tool answers `replayed: true`, the connection's id and `identityReturned: false`, writes nothing to `savePath`, and says to download the identity from the owner's own session or to delete the connection and create it again with a new key. It never returns the identity the SDK would have made up. A create that is not a replay also carries `replayed: false` and `serves` (the account's own devices a link will serve on its hub, with `count` and `warning`).
+- **Readable refusals**, by the problem's `code` (read by the SDK at the top of the body or inside an object `detail`), in `thalovant_create_client_identity`, `thalovant_wait_for_admission`, `thalovant_delete_client` and every tool that goes through the control-plane hint (hub, runtime group and skill writes): `connection_type_unavailable` (422; a link only on your own hub or one Thalovant runs; no longer read as "the API does not know the kind"), `connection_type_unknown` and `connection_type_ambiguous` (422), `connectors_invalid` (422; `duplicate`, `own_kind`, `unknown_or_malformed`, `known`), `device_owner_only_beside_home_link`, `setup_session_owner_only_beside_home_link` and `device_identity_owner_only_beside_home_link` (403; only the account owner from their own session), `hub_scale_out_breaks_links` (409; remove the links first), `idempotency_key_spent` (409; send a new key) and `skill_config_private_hub_only` (422; use the home bridge or keep the hub private).
+- `thalovant_list_hubs` and `thalovant_intercom_list_speakers` descriptions name the connector capability and the `connector` kind. No new tool; the catalog stays at 64 default tools.
+- Works with the pinned `@thalovant/sdk` ^0.11.0: codes come from `ThalovantApiError`'s generic fields and `replay` and `serves` from the raw `client` record. The `Idempotent-Replayed` header is not visible through that SDK, so a replay is recognised by the body's `replay` marker.
+- The parity file adds the `connector-connections` capability (required) against the Python reference digest `8687c8429e28`.
+
 ## 0.9.0 - 2026-11-11
 
 Intercom, the final API (platform security review; nothing here changes the version, 0.9.0 is not released):

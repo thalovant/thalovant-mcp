@@ -5,12 +5,22 @@ Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: CodeRabbit round 3 on PR 128
 | Fact | Value |
 | --- | --- |
 | Package | `@thalovant/mcp-server` (npm), `ghcr.io/thalovant/thalovant-mcp` (OCI), `io.github.thalovant/thalovant-mcp` (MCP Registry) |
-| Version | 0.9.0 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
+| Version | 0.10.0 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
 | Entry point | `thalovant-mcp` bin, `dist/index.js`: stdio by default, Streamable HTTP with `--http` |
 | Thalovant SDK | `@thalovant/sdk` ^0.11.0 (`browserLogin()`, `interactiveLogin()`, chat app methods, `ThalovantApiError.fields`) |
 | Tools | 64 by default, 30 with `THALOVANT_MCP_READONLY`, 68 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`; `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` adds 1 |
 | Validation | `npm ci`, `npm run typecheck`, `npm run build`, `npm test`, `npm run test:smoke`, `npm run test:http` |
 | Refusal hints by code (409) | `skill_unavailable_licensing`, `skill_unavailable_unpublished` (0.7.2), any other `skill_unavailable_*`, `memory_limit`, `skill_version_already_installed` (generic), in `controlPlaneErrorHint` (`src/index.ts`) |
+
+## Connector connections (0.10.0)
+
+| Fact | Value |
+| --- | --- |
+| Depends on | thalovant-api #521 (not deployed when written); safe against the API without it |
+| Input | `thalovant_create_client_identity`: `connectionType: "connector"`, `connectors` (sent as `spec.connectors`) |
+| Output | `serves` (`devices`, `count`, `warning`), `replayed`; a replay returns no identity (`replayedCreateOutput`, `src/connection-output.ts`) |
+| Hints by code | `connectionProblemHint` (`src/index.ts`): `connection_type_unavailable`, `connection_type_unknown`, `connection_type_ambiguous`, `connectors_invalid`, `device_owner_only_beside_home_link`, `setup_session_owner_only_beside_home_link`, `device_identity_owner_only_beside_home_link`, `hub_scale_out_breaks_links`, `idempotency_key_spent`, `skill_config_private_hub_only` |
+| Tests | `test/connector-connections.test.ts` |
 
 ## Browser sign-in (0.8.0)
 
