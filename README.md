@@ -163,6 +163,8 @@ A home controller such as Home Assistant links to a hub with a connection of its
 
 Each refusal of step 2 names what to do next after the API's own text (see [Tool Errors](#tool-errors)): a kind the API does not know yet, a plan that does not allow the connection, a hub that already holds its one Home Assistant link (with the `client_id` holding it), or a token the API refused (sign in again). `thalovant_delete_client` removes a connection (`If-Match`, reading the etag first when none is given, retrying once on `412`, and counting a connection already gone as deleted); it is a destructive tool the operator enables.
 
+A **home bridge** (a connector connection, e.g. Music Assistant) is made the same way with `connectionType: "connector"` and `connectors: ["music_assistant"]` (each id once, from the `connectors` in the hub's capabilities, `thalovant_list_hubs`; `home_assistant` is never one). A link is made only on your own hub or one Thalovant runs, and the platform issues its credentials. The result carries `serves`, the account's own devices the link will serve on the hub, with a `warning`. Sending the same `idempotencyKey` again is answered without credentials: the tool then says `replayed: true` and returns no identity; download the connection's identity from the owner's own session, or delete it (`thalovant_delete_client`) and create it again with a new key. Refusals by code (`connection_type_unavailable`, `connectors_invalid`, `*_owner_only_beside_home_link`, `hub_scale_out_breaks_links`, `idempotency_key_spent`, `skill_config_private_hub_only`) are explained after the API's own text.
+
 Answering the hub's requests afterwards is the integration's own long-lived job, on the data plane; an MCP tool call holds a hub connection only for its own length, so that part of the link is not a tool.
 
 ## Chat Apps
@@ -680,7 +682,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.9.0 requires `@thalovant/sdk` `^0.11.0` (0.11.0 through versions below 0.12.0), which carries `browserLogin()` and `interactiveLogin()` for browser sign-in, as well as the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
+Version 0.10.0 requires `@thalovant/sdk` `^0.11.0` (0.11.0 through versions below 0.12.0), which carries `browserLogin()` and `interactiveLogin()` for browser sign-in, as well as the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`

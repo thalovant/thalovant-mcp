@@ -1,5 +1,11 @@
 # Maintenance Report
 
+## 2026-11-14 - Connector gateway API (thalovant-api #521), 0.10.0
+
+Home bridges: the `connector` kind and `connectors` on `thalovant_create_client_identity`, a replayed create that returns no identity, `serves` in the output, and readable refusals by code (`src/connection-output.ts`, `connectionProblemHint` in `src/index.ts`), against the pinned `@thalovant/sdk` ^0.11.0. Version 0.10.0 in `package.json`, `package-lock.json`, `server.json`, the Dockerfile label and the README. Tests: `test/connector-connections.test.ts`. `contracts/sdk-parity.json`: `connector-connections` capability and the Python reference digest added, evidence hashes refreshed.
+
+**Transparency Report:** AI model Claude Sonnet 5.5; actions: wrote the code, tests and docs above and ran the suites; oversight: none beyond the agent's own test runs, human review before release.
+
 ## 2026-11-12 - CodeRabbit round 3 on PR 128 (Intercom)
 
 Eighteen new inline comments (c46e4d1 and earlier): ten are CodeRabbit's own "thanks, verified" replies in already resolved threads (nothing to do), three are older findings of 5929de4 that are now stale or still open, eight are new. Plus one out-of-diff finding in the review body of 5929de4. Fixed: all valid ones; declined: none (the gate-note one is already obsolete, see AUDIT.md).
