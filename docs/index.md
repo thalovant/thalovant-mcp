@@ -1,5 +1,3 @@
-Last Edit: Claude Sonnet 5.5 - 2026-11-12 - Motive: Intercom final API (platform security review): intercom:urgent check, new problem codes in tool errors, kind/can_play/policy_synced, replayed, the API's text rule; parity capability intercom recorded.
-
 # MCP Documentation
 
 - [README](../README.md): installation, configuration, tools and runtime compatibility.
