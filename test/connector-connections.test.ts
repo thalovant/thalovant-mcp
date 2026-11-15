@@ -377,3 +377,15 @@ describe("connectors input limits follow the API", () => {
     expect(api.requests.filter((request) => request.method === "POST")).toHaveLength(0);
   }, 20_000);
 });
+
+describe("release tools and refusal text", () => {
+  it("marks the release tools destructive and does not send the model to an unregistered tool", async () => {
+    const api = await startApi(() => ({ body: {} }));
+    const client = await connect(api.url);
+    const tools = (await client.listTools()).tools;
+    for (const name of ["thalovant_release_hub", "thalovant_release_runtime_group"]) {
+      expect(tools.find((entry) => entry.name === name)!.annotations?.destructiveHint, name).toBe(true);
+    }
+    expect(tools.some((entry) => entry.name === "thalovant_delete_client")).toBe(false);
+  }, 20_000);
+});

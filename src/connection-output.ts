@@ -99,7 +99,7 @@ export function replayedCreateOutput(client: unknown, marker: ReplayMarker): Jso
     identityReturned: false,
     secretNotice:
       "The connection exists, but this answer comes from an earlier request with the same idempotencyKey, and the platform does not store a connection's credentials: they were in the first answer only. No identity is returned and none was written (savePath is not used).",
-    next: `Do not use another identity for it. Either download the connection's identity from the account owner's own session (client ${clientId ?? "id above"}), or delete it with thalovant_delete_client (a destructive tool the operator enables) and create it again with a NEW idempotencyKey.`,
+    next: `Do not use another identity for it. Either download the connection's identity from the account owner's own session (client ${clientId ?? "id above"}), or delete it in the dashboard (or with thalovant_delete_client, only when the operator has enabled that destructive tool and it is in your tool list) and create it again with a NEW idempotencyKey.`,
   };
 }
 
