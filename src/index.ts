@@ -39,6 +39,7 @@ import {
 import {
   CONNECTION_TYPE_CONNECTOR,
   CONNECTOR_ID_PATTERN,
+  MAX_CONNECTORS,
   replayMarker,
   replayedCreateOutput,
   servesOutput,
@@ -168,9 +169,9 @@ const connectionTypeSchema = z
 const connectorsSchema = z
   .array(z.string().regex(CONNECTOR_ID_PATTERN))
   .min(1)
-  .max(16)
+  .max(MAX_CONNECTORS)
   .describe(
-    "Connector ids a home bridge serves, sent as spec.connectors: each id once, from the connectors the hub's capabilities list (thalovant_list_hubs; music_assistant today). home_assistant is never one: it has its own connection kind. Only with connectionType connector. The platform issues the bridge's credentials; an apiKey or password in spec is ignored.",
+    "Connector ids a home bridge serves, sent as spec.connectors: each id once, from the connectors the hub's capabilities list (thalovant_list_hubs; jellyfin and music_assistant today). home_assistant is never one: it has its own connection kind. Only with connectionType connector. The platform issues the bridge's credentials; an apiKey or password in spec is ignored.",
   );
 const limitSchema = z.number().int().min(1).max(MAX_LIMIT).default(25).describe("Page size, 1-100.");
 const publicHubsLimitSchema = z
@@ -2124,7 +2125,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     {
       title: "List Visible Hubs",
       description:
-        "List authenticated Thalovant hubs visible to the account. Each hub's capabilities are per caller: its connectors list (music_assistant today) names the connector ids a home bridge may serve (thalovant_create_client_identity with connectionType connector).",
+        "List authenticated Thalovant hubs visible to the account. Each hub's capabilities are per caller: its connectors list (jellyfin and music_assistant today) names the connector ids a home bridge may serve (thalovant_create_client_identity with connectionType connector).",
       inputSchema: {
         ...controlPlaneSchema,
         limit: limitSchema,

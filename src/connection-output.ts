@@ -19,8 +19,11 @@ export const CONNECTION_TYPE_CONNECTOR = "connector";
 /** The `replay.code` the API gives a create answered from an earlier request with the same key. */
 export const IDEMPOTENT_REPLAY_CODE = "idempotent_replay";
 
-/** A connector id: lower case, as the API names them. The API judges which ids are known. */
-export const CONNECTOR_ID_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+/** A connector id: lower case, 2 to 32 characters, as the API names them. The API judges which ids are known. */
+export const CONNECTOR_ID_PATTERN = /^[a-z][a-z0-9_]{1,31}$/;
+
+/** A connection serves at most this many connector ids (the API refuses more: `connectors_invalid`). */
+export const MAX_CONNECTORS = 8;
 
 /** What a replayed create answered, with no credentials. */
 export interface ReplayMarker {

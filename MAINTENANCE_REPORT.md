@@ -1,5 +1,13 @@
 # Maintenance Report
 
+## 2026-11-15 - Validation of the published 0.10.0 and connector limits (0.10.1)
+
+Started `npx @thalovant/mcp-server@0.10.0` over stdio with a dummy `THALOVANT_API_TOKEN` against a local mock, listed the 64 default tools, compared the connector inputs with the API (`app/services/connector_ids.py`: at most 8 ids, `^[a-z][a-z0-9_]{1,31}$`; `policies/connectors.json`: `jellyfin`, `music_assistant`) and exercised `thalovant_create_client_identity`: identity secrets, the bearer token and the raw `initial_identify` never reached the output (`identity` redacted, `client` stripped), bad `connectionType`, empty `name`, `savePath` traversal, a foreign `apiUrl` and an out-of-range `limit` were all refused before a request, destructive tools carry `destructiveHint`. Drift fixed: `connectors` accepted 16 ids of up to 64 characters (API: 8, 32), and two descriptions said `music_assistant` was the only id. `package.json`, `package-lock.json`, `server.json`, `Dockerfile`, `QUICK_FACTS.md` and `README.md` are at 0.10.1; the release is tag-driven (`RELEASING.md`).
+
+Verification: `npm run build`, `npx vitest run` 27 files, 744 tests passed, 0 failed (two assertions and one test are new in `test/connector-connections.test.ts`).
+
+Transparency Report: AI model Claude Sonnet 5.5; actions: ran the published server, compared it with the API source, changed the schema limits, descriptions, tests and docs; oversight: PR review and CI only.
+
 ## 2026-11-14 - Connector gateway API (thalovant-api #521), 0.10.0
 
 Home bridges: the `connector` kind and `connectors` on `thalovant_create_client_identity`, a replayed create that returns no identity, `serves` in the output, and readable refusals by code (`src/connection-output.ts`, `connectionProblemHint` in `src/index.ts`), against the pinned `@thalovant/sdk` ^0.11.0. Version 0.10.0 in `package.json`, `package-lock.json`, `server.json`, the Dockerfile label and the README. Tests: `test/connector-connections.test.ts`. `contracts/sdk-parity.json`: `connector-connections` capability and the Python reference digest added, evidence hashes refreshed.

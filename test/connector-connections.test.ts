@@ -145,7 +145,8 @@ describe("thalovant_create_client_identity and connectors", () => {
     const client = await connect(api.url);
     const tool = (await client.listTools()).tools.find((entry) => entry.name === "thalovant_create_client_identity")!;
     const props = tool.inputSchema.properties as Record<string, any>;
-    expect(props.connectors).toMatchObject({ type: "array", minItems: 1 });
+    expect(props.connectors).toMatchObject({ type: "array", minItems: 1, maxItems: 8, items: { pattern: "^[a-z][a-z0-9_]{1,31}$" } });
+    expect(props.connectors.description).toMatch(/jellyfin and music_assistant/);
     expect(props.connectors.description).toMatch(/home_assistant is never one/);
     expect(props.connectionType.description).toMatch(/connector/);
     expect(tool.description).toMatch(/replayed/);
@@ -359,5 +360,20 @@ describe("refusals of the connector gateway API", () => {
     const result = await client.callTool({ name: "thalovant_create_client_identity", arguments: create });
     expect(result.isError).toBe(true);
     expect(text(result)).toMatch(/does not know the connection type "connector" yet/);
+  }, 20_000);
+});
+
+describe("connectors input limits follow the API", () => {
+  it("refuses nine connector ids and a one-letter id before any request", async () => {
+    const api = await startApi(() => ({ body: {} }));
+    const client = await connect(api.url);
+    for (const connectors of [["a1", "b2", "c3", "d4", "e5", "f6", "g7", "h8", "i9"], ["m"], ["x".repeat(33)]]) {
+      const result = await client.callTool({
+        name: "thalovant_create_client_identity",
+        arguments: { hubId: "hub-1", name: "bridge", connectionType: "connector", connectors },
+      });
+      expect(result.isError, text(result)).toBe(true);
+    }
+    expect(api.requests.filter((request) => request.method === "POST")).toHaveLength(0);
   }, 20_000);
 });
