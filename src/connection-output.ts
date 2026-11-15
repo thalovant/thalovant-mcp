@@ -19,8 +19,11 @@ export const CONNECTION_TYPE_CONNECTOR = "connector";
 /** The `replay.code` the API gives a create answered from an earlier request with the same key. */
 export const IDEMPOTENT_REPLAY_CODE = "idempotent_replay";
 
-/** A connector id: lower case, as the API names them. The API judges which ids are known. */
-export const CONNECTOR_ID_PATTERN = /^[a-z][a-z0-9_]{0,63}$/;
+/** A connector id: lower case, 2 to 32 characters, as the API names them. The API judges which ids are known. */
+export const CONNECTOR_ID_PATTERN = /^[a-z][a-z0-9_]{1,31}$/;
+
+/** A connection serves at most this many connector ids (the API refuses more: `connectors_invalid`). */
+export const MAX_CONNECTORS = 8;
 
 /** What a replayed create answered, with no credentials. */
 export interface ReplayMarker {
@@ -96,7 +99,7 @@ export function replayedCreateOutput(client: unknown, marker: ReplayMarker): Jso
     identityReturned: false,
     secretNotice:
       "The connection exists, but this answer comes from an earlier request with the same idempotencyKey, and the platform does not store a connection's credentials: they were in the first answer only. No identity is returned and none was written (savePath is not used).",
-    next: `Do not use another identity for it. Either download the connection's identity from the account owner's own session (client ${clientId ?? "id above"}), or delete it with thalovant_delete_client (a destructive tool the operator enables) and create it again with a NEW idempotencyKey.`,
+    next: `Do not use another identity for it. Either download the connection's identity from the account owner's own session (client ${clientId ?? "id above"}), or delete it in the dashboard (or with thalovant_delete_client, only when the operator has enabled that destructive tool and it is in your tool list) and create it again with a NEW idempotencyKey.`,
   };
 }
 

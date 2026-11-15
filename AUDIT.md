@@ -1,5 +1,9 @@
 # Audit
 
+## 2026-11-15 - Fixed in 0.10.1: connector input looser than the API; documented residuals
+
+`connectorsSchema` (`src/index.ts`) allowed 16 ids and `CONNECTOR_ID_PATTERN` (`src/connection-output.ts`) 64 characters; the API allows 8 and 32 (`MAX_CONNECTORS`, `_ID` in `thalovant-api` `app/services/connector_ids.py`). Fixed; `test/connector-connections.test.ts`. Open: duplicate ids are left to the API (`connectors_invalid`, reason `duplicate`); the package depends on `@thalovant/sdk` `^0.11.0`, which resolves 0.11.x only, so it does not take later Node SDK fixes until the range moves (`SUGGESTIONS.md`).
+
 ## Intercom, CodeRabbit round 3 on PR 128 (2026-11-12, 0.9.0, unreleased)
 
 Evidence: `npm run typecheck`, `npm run build`, `npm test` (26 files, 723 passed, 13 more than the 710 before: `test/intercom.test.ts` +11, `test/intercom-output.test.ts` +1, `test/intercom-policy.test.ts` +1, plus the extended assertions of existing tests; `npm run test:smoke` 2, `npm run test:http` 12), `npm run test:smoke`, `npm run test:http`; every new test was also run against the previous source and fails there. Fixed (all valid except the one noted as already done):

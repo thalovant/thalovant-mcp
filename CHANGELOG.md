@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1 - 2026-11-15
+
+- `thalovant_create_client_identity` `connectors` follows the API's own limits: at most 8 ids (was 16), each 2 to 32 characters `^[a-z][a-z0-9_]{1,31}$` (was up to 64), so a list the API would refuse with `connectors_invalid` is refused before any request. The descriptions of that input and of `thalovant_list_hubs` name `jellyfin` and `music_assistant`, the two ids the API activates (`policies/connectors.json`, thalovant-api #524), not music_assistant alone. The README lists all eight SDKs. Found by validating 0.10.0 from npm over stdio against the API's OpenAPI and `connector_ids.py`. `thalovant_release_hub` and `thalovant_release_runtime_group` are marked `destructiveHint: true` (they roll images out to running hubs). The plan-limit, already-linked and replay messages no longer tell the model to call `thalovant_delete_client`, which is not registered unless the operator enables destructive tools; they say to delete in the dashboard. Security hardening: upgrading is advised. No tool added or removed (64 default tools); secrets and raw credentials were already absent from every output checked.
+
 ## 0.10.0 - 2026-11-14
 
 Home bridges and the connector gateway API (thalovant-api #521, not deployed yet; everything here is additive and safe against the API as it is today, which sends none of it):

@@ -75,3 +75,9 @@
 - **Problem:** the port race in `test/http.test.ts` is fixed in the tests (see AUDIT.md): `startMcpHttpServer()` checks the server's own health body and retries on a fresh port after `EADDRINUSE`. The tests still pick a port before the server binds it, so a stolen port costs one extra server start.
 - **Proposal:** accept `MCP_HTTP_PORT=0`. `getHttpConfig()` in `src/index.ts` reads it with a minimum of 1 and derives the default public URL and allowed hosts from it, and the startup line names the configured URL, so the server would build those from `httpServer.address()` after binding and print the bound URL; the tests would then read the port from that line.
 - **Impact:** no retry at all, and a way to run several servers on one host for local work. Product change, so it waits for a release; small effort.
+
+## Move the `@thalovant/sdk` range past 0.11
+
+- **Problem:** `^0.11.0` resolves 0.11.x only, so the server runs the Node SDK as of 0.11.0 and takes none of 0.12/0.13 (connection kinds, replay, redacted display forms). The create path works because the server sends `connection_type` through `spec`.
+- **Proposal:** depend on `@thalovant/sdk` ^0.13.2 once the intercom adapter (`src/intercom-sdk.ts`) is replaced by the SDK methods, as its header says.
+- **Impact:** removes a duplicated HTTP adapter and tracks SDK security fixes.

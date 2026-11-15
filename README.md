@@ -30,7 +30,7 @@ It uses the official Thalovant Node.js SDK and the production MCP TypeScript SDK
 
 ## Why TypeScript
 
-Thalovant publishes SDKs for Python, Node.js, Go, and Rust. This server uses Node.js because `@thalovant/sdk` directly exposes the Thalovant control plane, identity loading, WSS/HTTPS/MQTT runtime clients, memory, analytics, and context helpers, while `@modelcontextprotocol/sdk` is the best-supported path for cross-agent stdio and Streamable HTTP servers.
+Thalovant publishes SDKs for Python, Node.js, Go, Rust, .NET, Kotlin, Swift and embedded C. This server uses Node.js because `@thalovant/sdk` directly exposes the Thalovant control plane, identity loading, WSS/HTTPS/MQTT runtime clients, memory, analytics, and context helpers, while `@modelcontextprotocol/sdk` is the best-supported path for cross-agent stdio and Streamable HTTP servers.
 
 ## Install
 
@@ -682,7 +682,7 @@ Runtime calls sharing the same hub client identity run sequentially within one
 MCP process. Use a distinct client identity for each independently running MCP
 server so the hub can keep their sessions separate.
 
-Version 0.10.0 requires `@thalovant/sdk` `^0.11.0` (0.11.0 through versions below 0.12.0), which carries `browserLogin()` and `interactiveLogin()` for browser sign-in, as well as the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
+Version 0.10.1 requires `@thalovant/sdk` `^0.11.0` (0.11.0 through versions below 0.12.0), which carries `browserLogin()` and `interactiveLogin()` for browser sign-in, as well as the chat app methods and `ThalovantApiError.fields`. Since 0.5.1 the server enforces
 secure effective MQTT URLs and carries a single connection deadline through
 MQTT setup and HTTP failure cleanup. Runtime tools support
 HiveMind v3 Noise over WSS, HTTPS and MQTT over TLS. `thalovant_healthcheck`

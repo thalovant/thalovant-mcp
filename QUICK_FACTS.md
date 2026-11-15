@@ -3,7 +3,7 @@
 | Fact | Value |
 | --- | --- |
 | Package | `@thalovant/mcp-server` (npm), `ghcr.io/thalovant/thalovant-mcp` (OCI), `io.github.thalovant/thalovant-mcp` (MCP Registry) |
-| Version | 0.10.0 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
+| Version | 0.10.1 (prepared; publishing is a separate, tag-driven step, see [RELEASING.md](RELEASING.md)) |
 | Entry point | `thalovant-mcp` bin, `dist/index.js`: stdio by default, Streamable HTTP with `--http` |
 | Thalovant SDK | `@thalovant/sdk` ^0.11.0 (`browserLogin()`, `interactiveLogin()`, chat app methods, `ThalovantApiError.fields`) |
 | Tools | 64 by default, 30 with `THALOVANT_MCP_READONLY`, 68 with `THALOVANT_ENABLE_DESTRUCTIVE_TOOLS`; `THALOVANT_ENABLE_INTERCOM_ANNOUNCE` adds 1 |

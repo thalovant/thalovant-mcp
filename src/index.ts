@@ -39,6 +39,7 @@ import {
 import {
   CONNECTION_TYPE_CONNECTOR,
   CONNECTOR_ID_PATTERN,
+  MAX_CONNECTORS,
   replayMarker,
   replayedCreateOutput,
   servesOutput,
@@ -168,9 +169,9 @@ const connectionTypeSchema = z
 const connectorsSchema = z
   .array(z.string().regex(CONNECTOR_ID_PATTERN))
   .min(1)
-  .max(16)
+  .max(MAX_CONNECTORS)
   .describe(
-    "Connector ids a home bridge serves, sent as spec.connectors: each id once, from the connectors the hub's capabilities list (thalovant_list_hubs; music_assistant today). home_assistant is never one: it has its own connection kind. Only with connectionType connector. The platform issues the bridge's credentials; an apiKey or password in spec is ignored.",
+    "Connector ids a home bridge serves, sent as spec.connectors: each id once, from the connectors the hub's capabilities list (thalovant_list_hubs; jellyfin and music_assistant today). home_assistant is never one: it has its own connection kind. Only with connectionType connector. The platform issues the bridge's credentials; an apiKey or password in spec is ignored.",
   );
 const limitSchema = z.number().int().min(1).max(MAX_LIMIT).default(25).describe("Page size, 1-100.");
 const publicHubsLimitSchema = z
@@ -586,11 +587,11 @@ function connectionErrorHint(error: unknown, connectionType: string | undefined)
       : `The API does not know the connection type ${JSON.stringify(connectionType)} yet (HTTP 422). Retrying will not change that; omit connectionType for an ordinary connection.`;
   }
   if (error instanceof ThalovantAlreadyLinkedError) {
-    return `A hub takes one Home Assistant connection, and this one already has it${error.clientId ? `: client ${error.clientId}` : ""}. Use that connection, or delete it with thalovant_delete_client (a destructive tool the operator enables) and create the link again.`;
+    return `A hub takes one Home Assistant connection, and this one already has it${error.clientId ? `: client ${error.clientId}` : ""}. Use that connection, or delete it in the dashboard (or with thalovant_delete_client, only when the operator has enabled that destructive tool and it is in your tool list) and create the link again.`;
   }
   if (error instanceof ThalovantPlanError) {
     return error.code === "plan_limit"
-      ? "The plan's connections are used up (see resource, used and limit in the fields above). Delete one with thalovant_delete_client, or move the workspace to a larger plan; granting a scope will not help."
+      ? "The plan's connections are used up (see resource, used and limit in the fields above). Delete one in the dashboard (thalovant_delete_client exists only when the operator enabled destructive tools), or move the workspace to a larger plan; granting a scope will not help."
       : "The plan does not allow this connection (HTTP 402). Move the workspace to a paid plan; granting a scope will not help.";
   }
   if (error instanceof ThalovantAuthError) {
@@ -2124,7 +2125,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
     {
       title: "List Visible Hubs",
       description:
-        "List authenticated Thalovant hubs visible to the account. Each hub's capabilities are per caller: its connectors list (music_assistant today) names the connector ids a home bridge may serve (thalovant_create_client_identity with connectionType connector).",
+        "List authenticated Thalovant hubs visible to the account. Each hub's capabilities are per caller: its connectors list (jellyfin and music_assistant today) names the connector ids a home bridge may serve (thalovant_create_client_identity with connectionType connector).",
       inputSchema: {
         ...controlPlaneSchema,
         limit: limitSchema,
@@ -3323,7 +3324,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: false,
         openWorldHint: true,
       },
@@ -3589,7 +3590,7 @@ export function createServer(options: CreateServerOptions = {}): McpServer {
       },
       annotations: {
         readOnlyHint: false,
-        destructiveHint: false,
+        destructiveHint: true,
         idempotentHint: false,
         openWorldHint: true,
       },
